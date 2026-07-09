@@ -1,0 +1,79 @@
+{
+  "approvalMode": "ask",
+  "workingDir": "..",
+  "maxIterationsPerTask": 3,
+  "dailyCallBudget": 150,
+  "pollSeconds": 15,
+  "memoryCharBudget": 8000,
+  "_comment_agents": "Istedigin kadar isimli agent tanimla. cmd = calistirilacak CLI, args = sabit parametreler. Prompt varsayilan olarak stdin ile gonderilir; eger CLI prompt'u arguman olarak istiyorsa args icine {PROMPT} koy.",
+  "agents": {
+    "gemini-1": {
+      "cmd": "gemini",
+      "args": []
+    },
+    "claude-1": {
+      "cmd": "claude",
+      "args": [
+        "-p",
+        "--permission-mode",
+        "acceptEdits",
+        "--allowedTools",
+        "Bash Edit Write Read WebSearch WebFetch",
+        "--output-format",
+        "text"
+      ]
+    },
+    "codex-1": {
+      "cmd": "codex",
+      "args": [
+        "exec",
+        "--skip-git-repo-check"
+      ]
+    }
+  },
+  "_comment_pipeline": "Gorev bu asamalardan sirayla gecer. agent = yukaridaki isimlerden biri. roleFile = o asamanin talimatini iceren markdown. gate:true -> bu asamanin ciktisi riskli taranir. loopBackTo -> denetim FAIL derse geri donulecek asama.",
+  "pipeline": [
+    {
+      "stage": "plan",
+      "agent": "gemini-1",
+      "roleFile": "roles/planner.md",
+      "gate": true
+    },
+    {
+      "stage": "execute",
+      "agent": "claude-1",
+      "roleFile": "roles/executor.md"
+    },
+    {
+      "stage": "review",
+      "agent": "codex-1",
+      "roleFile": "roles/reviewer.md",
+      "loopBackTo": "execute"
+    }
+  ],
+  "riskyPatterns": [
+    "rm -rf",
+    "rm ",
+    "Remove-Item",
+    "del ",
+    "rmdir",
+    "git push",
+    "git reset --hard",
+    "git clean",
+    "deploy",
+    "DROP TABLE",
+    "DELETE FROM",
+    "TRUNCATE",
+    "format ",
+    "shutdown",
+    "Stop-Computer",
+    "Invoke-RestMethod",
+    "Invoke-WebRequest",
+    "curl -X POST",
+    "curl -X PUT",
+    "curl -X DELETE",
+    "npm publish",
+    "mail",
+    "smtp"
+  ]
+}

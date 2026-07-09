@@ -1,0 +1,13 @@
+{
+  "name": "ai-orchestrator",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Cok-agent gorev orkestratoru + web panel (sifir bagimlilik)",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,569 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Orkestrator</title>
+<style>
+  * { box-sizing: border-box; }
+  :root {
+    --bg: #0f1117; --panel: #171a23; --panel2: #1e222d; --line: #2a2f3d;
+    --tx: #e6e8ee; --dim: #8b93a7; --acc: #6ea8fe; --ok: #3fb950;
+    --warn: #d29922; --err: #f85149; --pill: #262b38; --purple: #c8a2ff;
+  }
+  body { margin: 0; font: 14px/1.5 system-ui, "Segoe UI", sans-serif; background: var(--bg); color: var(--tx); }
+  header { display: flex; align-items: center; gap: 12px; padding: 11px 16px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; }
+  .grow { flex: 1; }
+  .pill { background: var(--pill); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--dim); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; background: var(--dim); }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel2); color: var(--tx); border-radius: 8px; padding: 7px 12px; }
+  button:hover { border-color: var(--acc); }
+  button.primary { background: var(--acc); color: #06122b; border-color: var(--acc); font-weight: 600; }
+  button.ghost { background: transparent; }
+  button.ok { border-color: var(--ok); color: var(--ok); }
+  button.danger { border-color: var(--err); color: var(--err); }
+  button.sm { padding: 4px 8px; font-size: 12px; }
+  .toggle { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .toggle button { border: 0; border-radius: 0; background: transparent; padding: 6px 12px; }
+  .toggle button.active { background: var(--acc); color: #06122b; font-weight: 600; }
+  main { display: grid; grid-template-columns: 320px 1fr 340px; gap: 14px; padding: 14px; align-items: start; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--dim); margin: 0 0 10px; }
+  textarea, input, select { width: 100%; background: var(--panel2); color: var(--tx); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; resize: vertical; }
+  textarea { font-family: ui-monospace, monospace; font-size: 12.5px; }
+  label.fld { display: block; font-size: 11px; color: var(--dim); margin: 8px 0 3px; text-transform: uppercase; letter-spacing: .5px; }
+  .task { background: var(--panel2); border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; margin-bottom: 8px; }
+  .task .id { font-size: 11px; color: var(--dim); font-family: ui-monospace, monospace; }
+  .task .p { margin-top: 3px; }
+  .badge { font-size: 10px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); }
+  .row { display: flex; gap: 6px; align-items: center; }
+  .muted { color: var(--dim); font-size: 12px; }
+
+  /* Ajan durum seridi */
+  .agents { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 2px; }
+  .achip { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: var(--panel2); border-radius: 999px; padding: 5px 12px; font-size: 12.5px; transition: border-color .2s, background .2s; }
+  .achip .adot { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); flex: none; }
+  .achip .acmd { color: var(--dim); font-size: 11px; }
+  .achip .astate { color: var(--dim); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .achip.start { border-color: var(--warn); }
+  .achip.start .adot { background: var(--warn); animation: blink 1s infinite; }
+  .achip.run { border-color: var(--ok); background: #12241a; }
+  .achip.run .adot { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: pulse 1.1s infinite; }
+  .achip.run .astate { color: var(--ok); }
+  .achip.done .adot { background: var(--acc); }
+  .achip.err { border-color: var(--err); }
+  .achip.err .adot { background: var(--err); }
+  @keyframes blink { 50% { opacity: .3; } }
+  @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.35); } }
+
+  /* Canli akis — kart bazli */
+  #console { height: 60vh; overflow: auto; padding-right: 4px; }
+  .taskdiv { color: var(--purple); font-weight: 600; font-size: 13px; margin: 14px 0 8px; padding-bottom: 4px; border-bottom: 1px dashed var(--line); }
+  .taskdiv:first-child { margin-top: 0; }
+  .hl { font-size: 12.5px; margin: 4px 0; padding-left: 4px; }
+  .hl.info { color: var(--dim); }
+  .hl.warn { color: var(--warn); }
+  .hl.ok { color: var(--ok); font-weight: 600; }
+  .hl.error { color: var(--err); font-weight: 600; }
+  .scard { border: 1px solid var(--line); border-radius: 9px; margin: 6px 0; overflow: hidden; background: var(--panel2); }
+  .scard-head { display: flex; align-items: center; gap: 8px; padding: 8px 11px; cursor: pointer; user-select: none; }
+  .scard-head b { font-size: 13px; }
+  .scard-head .ag { color: var(--dim); font-size: 12px; }
+  .scard .chev { color: var(--dim); transition: transform .15s; }
+  .scard.collapsed .chev { transform: rotate(-90deg); }
+  .scard.collapsed .scard-body { display: none; }
+  .scard.running { border-color: var(--acc); }
+  .scard-body { margin: 0; padding: 10px 12px; border-top: 1px solid var(--line); background: #0a0c12; white-space: pre-wrap; word-break: break-word; font: 12px/1.5 ui-monospace, monospace; color: #c9d1e6; max-height: 340px; overflow: auto; }
+  .ic { width: 16px; text-align: center; }
+
+  /* Temiz sonuc karti */
+  .result { border-radius: 11px; margin: 12px 0; padding: 13px 15px; border: 1px solid var(--ok); background: linear-gradient(180deg, #12241a, #0f1a15); }
+  .result.err { border-color: var(--err); background: linear-gradient(180deg, #241414, #1a0f0f); }
+  .result .rhead { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+  .result .rgrid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .result .rlabel { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--dim); margin-bottom: 3px; }
+  .result .frow { font-size: 12.5px; margin: 2px 0; }
+  .result code { display: inline-block; background: #0a0c12; border: 1px solid var(--line); padding: 2px 7px; border-radius: 6px; font-size: 12px; word-break: break-all; }
+  .result .copy { float: right; }
+
+  details summary { cursor: pointer; color: var(--dim); font-size: 12px; }
+  pre.plan { white-space: pre-wrap; background: #0a0c12; border: 1px solid var(--line); border-radius: 8px; padding: 8px; font-size: 11.5px; max-height: 200px; overflow: auto; }
+
+  .modal { position: fixed; inset: 0; background: #000b; display: none; align-items: center; justify-content: center; z-index: 20; }
+  .modal.open { display: flex; }
+  .modal .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; width: min(880px, 94vw); max-height: 90vh; display: flex; flex-direction: column; }
+  .modal .box .bd { padding: 0 18px 4px; overflow: auto; }
+  .modal .box .hd, .modal .box .ft { padding: 14px 18px; }
+  .modal .box .hd { border-bottom: 1px solid var(--line); }
+  .modal .box .ft { border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+  .tabs { display: flex; gap: 6px; padding: 12px 18px 0; flex-wrap: wrap; }
+  .tabs button.active { background: var(--acc); color: #06122b; }
+  .item { border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 10px 0; background: var(--panel2); }
+  .item .row { flex-wrap: wrap; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  code { background: var(--pill); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+  .rolebtn { border-radius: 999px; }
+  .rolebtn.active { border-color: var(--acc); color: var(--acc); }
+  .picklist { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 9px; }
+  .pickrow { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .pickrow:last-child { border-bottom: 0; }
+  .pickrow:hover { background: var(--panel2); }
+  #defDirBtn { cursor: pointer; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+
+<header>
+  <h1>⚙️ AI Orkestrator</h1>
+  <span class="pill"><span id="dot" class="dot"></span><span id="engineTxt">durdu</span></span>
+  <span class="pill" id="curTxt">boşta</span>
+  <span class="pill" id="callTxt">0 çağrı</span>
+  <button class="pill" id="defDirBtn" onclick="openPicker('default')" title="Varsayılan proje klasörü — tıkla değiştir">📁 <span id="defDir">…</span></button>
+  <div class="grow"></div>
+  <div class="toggle" title="Riskli işlerde davranış">
+    <button id="mAsk" onclick="setMode('ask')">🛡️ ask</button>
+    <button id="mAuto" onclick="setMode('auto')">⚡ auto</button>
+  </div>
+  <button id="startBtn" class="primary" onclick="engineAction('start')">Başlat</button>
+  <button id="stopBtn" class="ghost" onclick="engineAction('stop')">Durdur</button>
+  <button class="ghost" onclick="openSettings()">⚙️ Ayarlar</button>
+</header>
+
+<main>
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card">
+      <h2>Yeni Görev</h2>
+      <textarea id="prompt" rows="3" placeholder="Örn: src klasöründeki TODO'ları topla ve TODO.md'ye yaz"></textarea>
+      <div class="row" style="margin-top:8px;font-size:12px">
+        <span class="muted">📁 Klasör:</span>
+        <code id="taskDir" title="" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--pill);padding:2px 6px;border-radius:5px">…</code>
+        <button class="ghost sm" onclick="openPicker('task')">değiştir</button>
+      </div>
+      <div style="margin-top:8px"><button class="primary" style="width:100%" onclick="addTask()">Kuyruğa Ekle</button></div>
+    </div>
+    <div class="card">
+      <h2>Bekleyen / Çalışan</h2>
+      <div id="pending"></div>
+    </div>
+    <div class="card" id="approvalCard" style="display:none">
+      <h2>⚠️ Onay Bekleyen</h2>
+      <div id="approval"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row"><h2 style="margin:0">Canlı Akış</h2>
+      <div class="grow"></div>
+      <label class="muted row" style="gap:4px"><input type="checkbox" id="autoscroll" checked style="width:auto"> otomatik kaydır</label>
+      <button class="ghost sm" onclick="clearConsole()">Temizle</button>
+    </div>
+    <div id="agents" class="agents"></div>
+    <div id="console" style="margin-top:10px"></div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:14px">
+    <div class="card"><h2>✅ Tamamlanan</h2><div id="done"></div></div>
+    <div class="card"><h2>❌ Başarısız</h2><div id="failed"></div></div>
+  </div>
+</main>
+
+<!-- Klasor secme modal -->
+<div class="modal" id="picker">
+  <div class="box" style="width:min(640px,94vw)">
+    <div class="hd row"><b style="font-size:15px" id="pickerTitle">Klasör seç</b><div class="grow"></div><button class="ghost sm" onclick="closePicker()">Kapat ✕</button></div>
+    <div class="bd">
+      <div class="row" style="margin:10px 0"><button class="sm" id="pickUp" onclick="pickUp()">⬆ üst klasör</button><code id="pickPath" style="flex:1;background:var(--pill);padding:4px 8px;border-radius:6px;word-break:break-all">…</code></div>
+      <div id="pickList" class="picklist"></div>
+      <div class="muted" id="pickHint" style="margin-top:6px"></div>
+    </div>
+    <div class="ft"><button class="primary" onclick="choosePicker()">✔ Bu klasörü seç</button><span class="muted">İşler seçilen klasörün içinde yapılır.</span></div>
+  </div>
+</div>
+
+<!-- Ayarlar modal -->
+<div class="modal" id="settings">
+  <div class="box">
+    <div class="hd row"><b style="font-size:15px">Ayarlar</b><div class="grow"></div><button class="ghost sm" onclick="closeSettings()">Kapat ✕</button></div>
+    <div class="tabs" id="settingsTabs"></div>
+    <div class="bd" id="settingsBody"></div>
+    <div class="ft"><button class="primary" onclick="saveConfig()">💾 Agent / Pipeline / Genel Kaydet</button><span class="muted" id="saveHint"></span></div>
+  </div>
+</div>
+
+<script>
+  const $ = (s) => document.querySelector(s);
+  const con = $("#console");
+  let STATE = { status: {}, config: {}, roles: [] };
+  let currentCard = null;
+
+  // ---------- Canli akis (kart bazli) ----------
+  function autoScroll() { if ($("#autoscroll").checked) con.scrollTop = con.scrollHeight; }
+  function clearConsole() { con.innerHTML = ""; currentCard = null; }
+  function finishCard(status) {
+    if (!currentCard) return;
+    currentCard.classList.remove("running");
+    currentCard.classList.add("collapsed");
+    currentCard.querySelector(".ic").textContent = status === "error" ? "✗" : "✓";
+    currentCard = null;
+  }
+  function headline(cls, msg) {
+    const d = document.createElement("div");
+    d.className = "hl " + cls; d.textContent = msg;
+    con.appendChild(d); autoScroll();
+  }
+  function taskDivider(msg) {
+    finishCard("done");
+    const d = document.createElement("div");
+    d.className = "taskdiv"; d.textContent = "▶ " + msg;
+    con.appendChild(d); autoScroll();
+    while (con.childNodes.length > 400) con.removeChild(con.firstChild);
+  }
+  function startStage(stage, agent) {
+    finishCard("done");
+    const c = document.createElement("div");
+    c.className = "scard running";
+    c.innerHTML = `<div class="scard-head" onclick="this.parentElement.classList.toggle('collapsed')">
+        <span class="ic">⏳</span><b>${escapeHtml(stage)}</b><span class="ag">· ${escapeHtml(agent)}</span>
+        <span class="grow"></span><span class="stime astate"></span><span class="chev">▾</span></div>
+      <pre class="scard-body"></pre>`;
+    c._t0 = Date.now();
+    con.appendChild(c); currentCard = c; autoScroll();
+  }
+  function appendChunk(text) {
+    if (!currentCard) { headline("info", text.trim()); return; }
+    currentCard.querySelector(".scard-body").textContent += text;
+    autoScroll();
+  }
+
+  const es = new EventSource("/api/events");
+  es.addEventListener("log", (e) => {
+    const d = JSON.parse(e.data);
+    if (d.level === "task") return taskDivider(d.msg.replace(/^GOREV basladi:\s*/, ""));
+    if (d.level === "stage") {
+      const m = d.msg.match(/→\s*(\S+)\s*\[([^\]]+)\]/);
+      return m ? startStage(m[1], m[2]) : headline("info", d.msg);
+    }
+    if (d.level === "ok") { finishCard("done"); return headline("ok", d.msg); }
+    if (d.level === "error") { finishCard("error"); return headline("error", d.msg); }
+    headline(d.level, d.msg);
+  });
+  es.addEventListener("chunk", (e) => appendChunk(JSON.parse(e.data).text));
+  es.addEventListener("status", (e) => applyStatus(JSON.parse(e.data)));
+  es.addEventListener("queue", (e) => renderQueue(JSON.parse(e.data)));
+  es.addEventListener("result", (e) => renderResult(JSON.parse(e.data)));
+
+  function fileRows(arr, ic) {
+    return arr.map((f) => `<div class="frow">${ic} <code>${escapeHtml(f)}</code></div>`).join("");
+  }
+  function renderResult(r) {
+    finishCard("done");
+    const ch = r.changes || { created: [], modified: [] };
+    const box = document.createElement("div");
+    box.className = "result" + (r.status === "done" ? "" : " err");
+    const hasFiles = ch.created.length || ch.modified.length;
+    box.innerHTML = `
+      <div class="rhead">${r.status === "done" ? "✅ Tamamlandı" : "❌ Başarısız"} — ${escapeHtml(r.prompt)}</div>
+      <div class="rgrid">
+        <div><div class="rlabel">📁 Konum</div><code>${escapeHtml(r.dir || "")}</code></div>
+        ${r.runHint ? `<div><div class="rlabel">▶️ Nasıl çalıştırılır</div><code>${escapeHtml(r.runHint)}</code></div>` : ""}
+        ${hasFiles ? `<div><div class="rlabel">Dosyalar (${ch.created.length} yeni, ${ch.modified.length} değişen)</div>${fileRows(ch.created, "🆕")}${fileRows(ch.modified, "✏️")}</div>` : `<div class="muted">Dosya değişikliği yok.</div>`}
+      </div>
+      ${r.summary ? `<details style="margin-top:9px"><summary>ne yapıldı (özet)</summary><pre class="plan">${escapeHtml(r.summary)}</pre></details>` : ""}`;
+    con.appendChild(box);
+    autoScroll();
+  }
+
+  // ---------- Ajan durum şeridi ----------
+  const agentState = {}; // name -> {phase, t0, ms}
+  function buildAgents() {
+    const wrap = $("#agents");
+    const names = Object.keys((STATE.config && STATE.config.agents) || {});
+    if (!names.length) { wrap.innerHTML = ""; return; }
+    wrap.innerHTML = names.map((n) => {
+      const cmd = STATE.config.agents[n].cmd || "";
+      return `<div class="achip" data-agent="${escapeHtml(n)}"><span class="adot"></span><b>${escapeHtml(n)}</b><span class="acmd">${escapeHtml(cmd)}</span><span class="astate">boşta</span></div>`;
+    }).join("");
+  }
+  function chip(name) { return $(`.achip[data-agent="${CSS.escape(name)}"]`); }
+  es.addEventListener("agent", (e) => {
+    const d = JSON.parse(e.data);
+    const el = chip(d.agent);
+    agentState[d.agent] = agentState[d.agent] || {};
+    const st = agentState[d.agent];
+    if (d.phase === "start") { st.phase = "start"; st.t0 = Date.now(); st.ms = 0; }
+    else if (d.phase === "responding") { st.phase = "run"; }
+    else if (d.phase === "done") { st.phase = d.ok === false ? "err" : "done"; st.ms = d.ms; st.t0 = null; setTimeout(() => resetChip(d.agent), 5000); }
+    paintChip(d.agent);
+  });
+  function resetChip(name) {
+    const st = agentState[name];
+    if (st && (st.phase === "done" || st.phase === "err") && !st.t0) { st.phase = "idle"; paintChip(name); }
+  }
+  function paintChip(name) {
+    const el = chip(name); if (!el) return;
+    const st = agentState[name] || {};
+    el.className = "achip" + (st.phase && st.phase !== "idle" ? " " + st.phase : "");
+    const stx = el.querySelector(".astate");
+    if (st.phase === "start") stx.textContent = "başlatılıyor…";
+    else if (st.phase === "run") stx.textContent = "çalışıyor " + secs(Date.now() - st.t0);
+    else if (st.phase === "done") stx.textContent = "bitti (" + secs(st.ms) + ")";
+    else if (st.phase === "err") stx.textContent = "hata (" + secs(st.ms) + ")";
+    else stx.textContent = "boşta";
+  }
+  function secs(ms) { return (ms / 1000).toFixed(1) + "s"; }
+
+  // Canlı sayaç: çalışan ajanları ve aktif aşama kartını her 200ms güncelle
+  setInterval(() => {
+    for (const name in agentState) { if (agentState[name].phase === "run" || agentState[name].phase === "start") paintChip(name); }
+    if (currentCard && currentCard._t0) {
+      const t = currentCard.querySelector(".stime");
+      if (t) t.textContent = secs(Date.now() - currentCard._t0);
+    }
+  }, 200);
+
+  function applyStatus(s) {
+    STATE.status = s;
+    $("#dot").className = "dot" + (s.running ? " on" : "");
+    $("#engineTxt").textContent = s.running ? "çalışıyor" : "durdu";
+    $("#curTxt").textContent = s.current ? `${s.current.stage} · ${s.current.agent}` : (s.busy ? "meşgul" : "boşta");
+    $("#callTxt").textContent = `${s.callsToday}/${s.budget} çağrı`;
+    $("#mAsk").className = s.mode === "ask" ? "active" : "";
+    $("#mAuto").className = s.mode === "auto" ? "active" : "";
+  }
+
+  // ---------- Kuyruk ----------
+  function taskCard(t, actions) {
+    const div = document.createElement("div");
+    div.className = "task";
+    let html = `<div class="row"><span class="id">${t.id}</span><div class="grow"></div>${t.approved ? '<span class="badge">onaylı</span>' : ''}</div><div class="p">${escapeHtml(t.prompt)}</div>`;
+    if (t.planPreview) html += `<details style="margin-top:6px"><summary>planı gör</summary><pre class="plan">${escapeHtml(t.planPreview)}</pre></details>`;
+    if (t.changes && (t.changes.created.length || t.changes.modified.length)) {
+      const c = t.changes;
+      html += `<div class="muted" style="margin-top:6px">📄 ${c.created.length} yeni, ${c.modified.length} değişen dosya</div>`;
+    }
+    if (t.runHint) html += `<div class="muted" style="margin-top:3px">▶️ <code>${escapeHtml(t.runHint)}</code></div>`;
+    if (t.stageOutputs && !actions) {
+      const last = Object.entries(t.stageOutputs).slice(-1)[0];
+      if (last) html += `<details style="margin-top:6px"><summary>ham çıktı</summary><pre class="plan">${escapeHtml(String(last[1]).slice(0, 2000))}</pre></details>`;
+    }
+    div.innerHTML = html;
+    if (actions) {
+      const bar = document.createElement("div");
+      bar.className = "row"; bar.style.marginTop = "8px";
+      bar.innerHTML = `<button class="ok sm" onclick="approve('${t.id}')">Onayla</button><button class="danger sm" onclick="reject('${t.id}')">Reddet</button>`;
+      div.appendChild(bar);
+    }
+    return div;
+  }
+  function renderQueue(q) {
+    const cur = STATE.status.current;
+    const pend = $("#pending"); pend.innerHTML = q.pending.length ? "" : '<div class="muted">kuyruk boş</div>';
+    q.pending.forEach((t) => { const c = taskCard(t); if (cur && cur.id === t.id) c.style.borderColor = "var(--acc)"; pend.appendChild(c); });
+    const appCard = $("#approvalCard"), app = $("#approval"); app.innerHTML = "";
+    if (q.approval.length) { appCard.style.display = "block"; q.approval.forEach((t) => app.appendChild(taskCard(t, true))); }
+    else appCard.style.display = "none";
+    fill("#done", q.done); fill("#failed", q.failed);
+  }
+  function fill(sel, arr) { const el = $(sel); el.innerHTML = arr.length ? "" : '<div class="muted">—</div>'; arr.forEach((t) => el.appendChild(taskCard(t))); }
+  function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  // ---------- API ----------
+  async function api(url, method, body) {
+    const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return r.json();
+  }
+  async function addTask() {
+    const p = $("#prompt").value.trim(); if (!p) return;
+    await api("/api/tasks", "POST", { prompt: p, targetDir: newTaskDir || defaultDir || undefined });
+    $("#prompt").value = "";
+  }
+
+  // ---------- Klasör seçici ----------
+  let defaultDir = "", newTaskDir = null;
+  let pickerMode = null, pickerPath = "", pickerParent = null, pickerDirs = [];
+  const baseName = (p) => (p || "").split(/[\\/]/).filter(Boolean).pop() || p;
+  function setDefaultDir(d) { defaultDir = d; $("#defDir").textContent = baseName(d) || "seç"; $("#defDirBtn").title = d; if (!newTaskDir) setTaskDirLabel(d); }
+  function setTaskDirLabel(d) { const el = $("#taskDir"); el.textContent = d; el.title = d; }
+  async function openPicker(mode) {
+    pickerMode = mode;
+    $("#pickerTitle").textContent = mode === "default" ? "Varsayılan proje klasörü" : "Bu görevin klasörü";
+    await pickerGo((mode === "task" ? (newTaskDir || defaultDir) : defaultDir) || "");
+    $("#picker").classList.add("open");
+  }
+  const closePicker = () => $("#picker").classList.remove("open");
+  async function pickerGo(p) {
+    const r = await api("/api/fs?path=" + encodeURIComponent(p || ""), "GET");
+    pickerPath = r.path; pickerParent = r.parent; pickerDirs = r.dirs || [];
+    $("#pickPath").textContent = r.path || "(sürücüler)";
+    $("#pickUp").disabled = r.parent === null;
+    $("#pickList").innerHTML = pickerDirs.length
+      ? pickerDirs.map((d, i) => `<div class="pickrow" onclick="pickerEnter(${i})">📁 ${escapeHtml(d)}</div>`).join("")
+      : '<div class="muted" style="padding:10px">alt klasör yok — bu klasörü seçebilirsin</div>';
+    $("#pickHint").textContent = r.error ? "⚠ " + r.error : "";
+  }
+  function childPath(d) { return pickerPath ? pickerPath.replace(/[\\/]+$/, "") + "\\" + d : d; }
+  const pickerEnter = (i) => pickerGo(childPath(pickerDirs[i]));
+  const pickUp = () => { if (pickerParent !== null) pickerGo(pickerParent); };
+  async function choosePicker() {
+    if (pickerMode === "default") {
+      setDefaultDir(pickerPath); STATE.config.workingDir = pickerPath; await api("/api/config", "PUT", STATE.config);
+    } else { newTaskDir = pickerPath; setTaskDirLabel(pickerPath); }
+    closePicker();
+  }
+  const engineAction = (a) => api("/api/engine", "POST", { action: a });
+  const setMode = (m) => api("/api/engine", "POST", { mode: m });
+  const approve = (id) => api(`/api/tasks/${id}/approve`, "POST");
+  const reject = (id) => api(`/api/tasks/${id}/reject`, "POST");
+
+  // ================= AYARLAR =================
+  let curTab = "genel", curRole = null, draftAgents = [], draftPipe = [];
+
+  async function openSettings() {
+    const s = await api("/api/state", "GET");
+    STATE.config = s.config; STATE.roles = s.roles || [];
+    // taslak diziler
+    draftAgents = Object.entries(STATE.config.agents || {}).map(([name, a]) => ({ name, cmd: a.cmd, args: (a.args || []).slice() }));
+    draftPipe = (STATE.config.pipeline || []).map((p) => ({ ...p }));
+    curTab = "genel"; curRole = null;
+    $("#settings").classList.add("open");
+    renderSettings();
+  }
+  const closeSettings = () => $("#settings").classList.remove("open");
+  const selTab = (t) => { curTab = t; renderSettings(); };
+
+  function renderSettings() {
+    const tabs = [["genel", "Genel"], ["agents", "🤖 Agent'lar"], ["pipeline", "🔗 Pipeline"], ["roles", "📄 Roller"], ["raw", "{ } Ham JSON"]];
+    $("#settingsTabs").innerHTML = tabs.map(([k, l]) => `<button class="${k === curTab ? "active" : ""}" onclick="selTab('${k}')">${l}</button>`).join("");
+    const b = $("#settingsBody");
+    $("#saveHint").textContent = "";
+    if (curTab === "genel") b.innerHTML = renderGenel();
+    else if (curTab === "agents") b.innerHTML = renderAgents();
+    else if (curTab === "pipeline") b.innerHTML = renderPipe();
+    else if (curTab === "roles") renderRoles(b);
+    else b.innerHTML = `<label class="fld">config.json (tam)</label><textarea id="rawArea" rows="22" spellcheck="false">${escapeHtml(JSON.stringify(STATE.config, null, 2))}</textarea>`;
+  }
+
+  // --- Genel ---
+  const c = STATE => STATE;
+  function renderGenel() {
+    const g = STATE.config;
+    return `<div class="grid2" style="margin-top:12px">
+      <div><label class="fld">Onay modu</label>
+        <select onchange="STATE.config.approvalMode=this.value">
+          <option value="ask" ${g.approvalMode==='ask'?'selected':''}>ask — riskli işi sor</option>
+          <option value="auto" ${g.approvalMode==='auto'?'selected':''}>auto — sorma, yap</option>
+        </select></div>
+      <div><label class="fld">Çalışma klasörü (workingDir)</label><input value="${escapeHtml(g.workingDir||'..')}" onchange="STATE.config.workingDir=this.value"></div>
+      <div><label class="fld">Maks. tekrar (denetim FAIL)</label><input type="number" value="${g.maxIterationsPerTask||3}" onchange="STATE.config.maxIterationsPerTask=+this.value"></div>
+      <div><label class="fld">Günlük çağrı bütçesi</label><input type="number" value="${g.dailyCallBudget||150}" onchange="STATE.config.dailyCallBudget=+this.value"></div>
+      <div><label class="fld">Kuyruk yoklama (sn)</label><input type="number" value="${g.pollSeconds||15}" onchange="STATE.config.pollSeconds=+this.value"></div>
+      <div><label class="fld">Hafıza bütçesi (karakter)</label><input type="number" value="${g.memoryCharBudget||8000}" onchange="STATE.config.memoryCharBudget=+this.value"></div>
+    </div>`;
+  }
+
+  // --- Agent'lar ---
+  function renderAgents() {
+    let h = `<p class="muted" style="margin-top:12px">Her satır bir CLI örneği. İstediğin kadar ekle (3 tane codex bile olabilir). <b>args</b>: her satıra bir argüman.</p>`;
+    draftAgents.forEach((a, i) => {
+      h += `<div class="item">
+        <div class="grid2">
+          <div><label class="fld">Ad (pipeline'da bu isimle çağrılır)</label><input value="${escapeHtml(a.name)}" onchange="draftAgents[${i}].name=this.value"></div>
+          <div><label class="fld">Komut (CLI)</label><input value="${escapeHtml(a.cmd)}" onchange="draftAgents[${i}].cmd=this.value" placeholder="claude / gemini / codex"></div>
+        </div>
+        <label class="fld">Argümanlar (her satıra bir tane; prompt stdin'den gider, arg isteyen için {PROMPT} yaz)</label>
+        <textarea rows="4" onchange="draftAgents[${i}].args=this.value.split('\\n').map(x=>x.trim()).filter(Boolean)" spellcheck="false">${escapeHtml((a.args||[]).join("\n"))}</textarea>
+        <div class="row" style="margin-top:8px"><button class="danger sm" onclick="delAgent(${i})">🗑 Sil</button></div>
+      </div>`;
+    });
+    h += `<button class="sm" onclick="addAgent()">+ Agent ekle</button>`;
+    return h;
+  }
+  function addAgent() { draftAgents.push({ name: "yeni-agent", cmd: "codex", args: ["exec", "--skip-git-repo-check"] }); renderSettings(); }
+  function delAgent(i) { draftAgents.splice(i, 1); renderSettings(); }
+
+  // --- Pipeline ---
+  function renderPipe() {
+    const agentOpts = draftAgents.map((a) => a.name);
+    let h = `<p class="muted" style="margin-top:12px">Görev bu aşamalardan <b>sırayla</b> geçer. Her aşamaya bir agent ve bir rol (planlayıcı/denetçi/…) ata.</p>`;
+    draftPipe.forEach((p, i) => {
+      const roleName = (p.roleFile || "").replace(/^roles\//, "");
+      h += `<div class="item">
+        <div class="grid2">
+          <div><label class="fld">Aşama adı</label><input value="${escapeHtml(p.stage||"")}" onchange="draftPipe[${i}].stage=this.value"></div>
+          <div><label class="fld">Agent</label><select onchange="draftPipe[${i}].agent=this.value">
+            ${agentOpts.map((n) => `<option ${n===p.agent?'selected':''}>${escapeHtml(n)}</option>`).join("")}
+          </select></div>
+          <div><label class="fld">Rol (roles/*.md)</label><select onchange="draftPipe[${i}].roleFile='roles/'+this.value">
+            ${STATE.roles.map((r) => `<option ${r===roleName?'selected':''}>${escapeHtml(r)}</option>`).join("")}
+          </select></div>
+          <div><label class="fld">Denetim FAIL → dön</label><select onchange="draftPipe[${i}].loopBackTo=this.value||undefined">
+            <option value="">(yok)</option>
+            ${draftPipe.map((s)=>`<option ${s.stage===p.loopBackTo?'selected':''}>${escapeHtml(s.stage)}</option>`).join("")}
+          </select></div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label class="muted row" style="gap:5px"><input type="checkbox" ${p.gate?'checked':''} onchange="draftPipe[${i}].gate=this.checked||undefined" style="width:auto"> onay kapısı (riskli plan taransın)</label>
+          <div class="grow"></div>
+          <button class="sm" onclick="movePipe(${i},-1)" ${i===0?'disabled':''}>↑</button>
+          <button class="sm" onclick="movePipe(${i},1)" ${i===draftPipe.length-1?'disabled':''}>↓</button>
+          <button class="danger sm" onclick="delPipe(${i})">🗑</button>
+        </div>
+      </div>`;
+    });
+    h += `<button class="sm" onclick="addPipe()">+ Aşama ekle</button>`;
+    return h;
+  }
+  function addPipe() { draftPipe.push({ stage: "yeni", agent: (draftAgents[0]||{}).name || "", roleFile: "roles/" + (STATE.roles[0] || "planner.md") }); renderSettings(); }
+  function delPipe(i) { draftPipe.splice(i, 1); renderSettings(); }
+  function movePipe(i, d) { const j = i + d; if (j < 0 || j >= draftPipe.length) return; [draftPipe[i], draftPipe[j]] = [draftPipe[j], draftPipe[i]]; renderSettings(); }
+
+  // --- Roller ---
+  async function renderRoles(b) {
+    b.innerHTML = `<div class="row" style="margin-top:12px;flex-wrap:wrap">
+        ${STATE.roles.map((r)=>`<button class="rolebtn sm ${r===curRole?'active':''}" onclick="pickRole('${r}')">${escapeHtml(r)}</button>`).join("")}
+        <button class="sm" onclick="newRole()">+ Yeni rol</button>
+      </div>
+      <div id="roleEdit" style="margin-top:12px">${curRole ? '' : '<p class="muted">Düzenlemek için bir rol seç ya da yeni oluştur. Roller = her aşamanın talimatı (planlayıcı, uygulayıcı, denetçi…).</p>'}</div>`;
+    if (curRole) {
+      const r = await api(`/api/roles/${encodeURIComponent(curRole)}`, "GET");
+      $("#roleEdit").innerHTML = `<label class="fld">roles/${escapeHtml(curRole)}</label>
+        <textarea id="roleArea" rows="16" spellcheck="false">${escapeHtml(r.content)}</textarea>
+        <div class="row" style="margin-top:8px"><button class="primary sm" onclick="saveRole()">💾 Kaydet</button><button class="danger sm" onclick="deleteRole()">🗑 Sil</button></div>`;
+    }
+  }
+  function pickRole(r) { curRole = r; renderSettings(); }
+  async function newRole() {
+    let name = prompt("Yeni rol dosyası adı (örn: security.md):", "yeni-rol.md");
+    if (!name) return;
+    if (!name.endsWith(".md")) name += ".md";
+    await api(`/api/roles/${encodeURIComponent(name)}`, "PUT", { content: "# Rol: " + name.replace(".md", "") + "\n\nBu rolün ne yapacağını buraya yaz.\n" });
+    const s = await api("/api/state", "GET"); STATE.roles = s.roles;
+    curRole = name; renderSettings();
+  }
+  async function saveRole() { await api(`/api/roles/${encodeURIComponent(curRole)}`, "PUT", { content: $("#roleArea").value }); $("#saveHint").textContent = "rol kaydedildi ✓"; }
+  async function deleteRole() {
+    if (!confirm(curRole + " silinsin mi?")) return;
+    await api(`/api/roles/${encodeURIComponent(curRole)}`, "DELETE");
+    const s = await api("/api/state", "GET"); STATE.roles = s.roles; curRole = null; renderSettings();
+  }
+
+  // --- Kaydet (agents + pipeline + genel) ---
+  async function saveConfig() {
+    if (curTab === "raw") {
+      try { STATE.config = JSON.parse($("#rawArea").value); } catch (e) { return alert("Geçersiz JSON: " + e.message); }
+    } else {
+      const agents = {};
+      for (const a of draftAgents) { if (a.name && a.name.trim()) agents[a.name.trim()] = { cmd: a.cmd, args: (a.args || []).filter((x) => x !== "") }; }
+      STATE.config.agents = agents;
+      STATE.config.pipeline = draftPipe.filter((p) => p.stage && p.agent).map((p) => {
+        const o = { stage: p.stage.trim(), agent: p.agent, roleFile: p.roleFile };
+        if (p.gate) o.gate = true;
+        if (p.loopBackTo) o.loopBackTo = p.loopBackTo;
+        return o;
+      });
+    }
+    const r = await api("/api/config", "PUT", STATE.config);
+    $("#saveHint").textContent = r.ok ? "kaydedildi ✓ (sonraki görevde geçerli)" : "hata!";
+    buildAgents();
+  }
+
+  // ilk yükleme
+  api("/api/state", "GET").then((s) => { STATE.config = s.config; STATE.roles = s.roles; applyStatus(s.status); renderQueue(s.queue); buildAgents(); setDefaultDir(s.workingDirAbs || ""); });
+</script>
