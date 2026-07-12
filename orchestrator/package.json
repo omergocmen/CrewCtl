@@ -1,11 +1,25 @@
 {
-  "name": "ai-orchestrator",
+  "name": "cli-team-command-center",
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "description": "Cok-agent gorev orkestratoru + web panel (sifir bagimlilik)",
+  "description": "Zero-dependency Node.js orchestrator that runs your installed CLI coding agents (Codex, Claude, Gemini, OpenCode) as one operator-led team, with a live web command center.",
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestrator",
+    "codex",
+    "claude",
+    "gemini",
+    "opencode",
+    "multi-agent",
+    "cli"
+  ],
+  "license": "MIT",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "doctor": "node src/doctor.js",
+    "test": "node test/team-flow.test.js"
   },
   "engines": {
     "node": ">=18"

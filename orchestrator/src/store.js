@@ -1,26 +1,52 @@
 // store.js — dosya tabanli kuyruk, config, hafiza, butce (sifir bagimlilik)
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const ROOT = path.resolve(__dirname, "..");
 const Q = path.join(ROOT, "queue");
 const STATES = ["pending", "done", "failed", "approval"];
 const MEM = path.join(ROOT, "memory");
 const STATE = path.join(ROOT, "state");
+const EVENTS = path.join(STATE, "events");
 const ROLES = path.join(ROOT, "roles");
 
 function ensureDirs() {
-  [...STATES.map((s) => path.join(Q, s)), MEM, STATE, ROLES].forEach((d) =>
+  [...STATES.map((s) => path.join(Q, s)), MEM, STATE, EVENTS, ROLES].forEach((d) =>
     fs.mkdirSync(d, { recursive: true })
   );
 }
 
+// Atomik yazma: once .tmp'ye yaz, sonra rename et. Rename ayni disk uzerinde atomiktir;
+// boylece surec ortasinda cokme olsa bile yarim/bozuk JSON dosyasi kalmaz (her PC'de guvenli).
+function atomicWrite(file, data) {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, file);
+}
+
 // ---- Config ----
+// Minimal geri-donus varsayilani (config.default.json de yoksa kullanilir) — sistem her
+// zaman calisir durumda acilsin diye.
+const FALLBACK_CONFIG = {
+  approvalMode: "auto", workingDir: "..", maxIterationsPerTask: 3, dailyCallBudget: 150,
+  pollSeconds: 15, memoryCharBudget: 8000, teamContextCharBudget: 30000, agentTimeoutSeconds: 900,
+  operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
+  agents: {}, riskyPatterns: [],
+};
+// config.json kisiye ozeldir (gitignore). Yoksa config.default.json sablonundan uretilir;
+// boylece kullanici klonlayip `npm start` dedigi anda calisir ve kurulu CLI'lar keşifle eklenir.
 function loadConfig() {
-  return JSON.parse(fs.readFileSync(path.join(ROOT, "config.json"), "utf8"));
+  const file = path.join(ROOT, "config.json");
+  if (!fs.existsSync(file)) {
+    const template = path.join(ROOT, "config.default.json");
+    const seed = fs.existsSync(template) ? fs.readFileSync(template, "utf8") : JSON.stringify(FALLBACK_CONFIG, null, 2);
+    atomicWrite(file, seed);
+  }
+  return JSON.parse(fs.readFileSync(file, "utf8"));
 }
 function saveConfig(cfg) {
-  fs.writeFileSync(path.join(ROOT, "config.json"), JSON.stringify(cfg, null, 2));
+  atomicWrite(path.join(ROOT, "config.json"), JSON.stringify(cfg, null, 2));
 }
 
 // ---- Roller ----
@@ -63,18 +89,43 @@ function listTasks(state) {
 function nextPending() {
   return listTasks("pending")[0] || null;
 }
-function addTask(prompt, targetDir) {
+function addTask(prompt, targetDir, operatorCli, executionMode) {
   const id =
     new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 15) +
     "-" +
     Math.floor(Math.random() * 9000 + 1000);
   const task = { id, prompt, status: "pending", createdAt: new Date().toISOString() };
   if (targetDir) task.targetDir = targetDir;
-  fs.writeFileSync(taskPath("pending", id), JSON.stringify(task, null, 2));
+  if (operatorCli) task.operatorCli = operatorCli;
+  if (executionMode) task.executionMode = executionMode;
+  atomicWrite(taskPath("pending", id), JSON.stringify(task, null, 2));
   return task;
 }
+function addChatTask(parentTask, question) {
+  const task = addTask(question, parentTask.targetDir, parentTask.operatorCli, "chat");
+  task.kind = "operator-chat";
+  task.parentTaskId = parentTask.id;
+  saveTask("pending", task);
+  return task;
+}
+
+// ---- Kalici calisma olaylari ----
+function appendRunEvent(taskId, event) {
+  ensureDirs();
+  fs.appendFileSync(path.join(EVENTS, `${path.basename(taskId)}.jsonl`), JSON.stringify(event) + "\n");
+}
+function listRunEvents(taskId, limit = 1000) {
+  const file = path.join(EVENTS, `${path.basename(taskId)}.jsonl`);
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8").split(/\r?\n/).filter(Boolean).slice(-Math.max(1, limit)).map((line) => {
+    try { return JSON.parse(line); } catch { return null; }
+  }).filter(Boolean);
+}
+function hashText(text) {
+  return crypto.createHash("sha256").update(String(text)).digest("hex");
+}
 function saveTask(state, task) {
-  fs.writeFileSync(taskPath(state, task.id), JSON.stringify(task, null, 2));
+  atomicWrite(taskPath(state, task.id), JSON.stringify(task, null, 2));
 }
 function findTask(id) {
   for (const s of STATES) {
@@ -136,6 +187,7 @@ module.exports = {
   listTasks,
   nextPending,
   addTask,
+  addChatTask,
   saveTask,
   findTask,
   moveTask,
@@ -144,4 +196,7 @@ module.exports = {
   appendMemory,
   getCallCount,
   bumpCallCount,
+  appendRunEvent,
+  listRunEvents,
+  hashText,
 };
