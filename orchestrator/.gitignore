@@ -1,0 +1,13 @@
+# Çalışma-zamanı verisi — her makinede yeniden üretilir, repoda taşınmamalı.
+# Klasörler uygulama açılışında (store.ensureDirs) otomatik oluşturulur.
+queue/pending/
+queue/done/
+queue/failed/
+queue/approval/
+state/
+memory/log.md
+node_modules/
+
+# config.json KİŞİYE ÖZELDİR (her makinede kurulu CLI'lara göre üretilir).
+# Paylaşılabilir şablon config.default.json izlenir; roles/ de izlenir.
+config.json

@@ -1,0 +1,43 @@
+{
+  "_comment": "ŞABLON. İlk çalıştırmada bu dosya config.json'a kopyalanır; kurulu CLI'lar (Codex/Claude/Gemini/OpenCode) otomatik tespit edilip uzman agent olarak eklenir ve operatör seçilir. config.json kişiye özeldir ve .gitignore'dadır; bu şablonu paylaşabilirsiniz.",
+  "approvalMode": "auto",
+  "workingDir": "..",
+  "maxIterationsPerTask": 3,
+  "dailyCallBudget": 150,
+  "pollSeconds": 15,
+  "memoryCharBudget": 8000,
+  "teamContextCharBudget": 30000,
+  "agentTimeoutSeconds": 900,
+  "operator": {
+    "roleFile": "roles/operator.md",
+    "maxRounds": 6,
+    "maxDelegationsPerRound": 8,
+    "protocolRetries": 1
+  },
+  "agents": {},
+  "riskyPatterns": [
+    "rm -rf",
+    "rm ",
+    "Remove-Item",
+    "del ",
+    "rmdir",
+    "git push",
+    "git reset --hard",
+    "git clean",
+    "deploy",
+    "DROP TABLE",
+    "DELETE FROM",
+    "TRUNCATE",
+    "format ",
+    "shutdown",
+    "Stop-Computer",
+    "Invoke-RestMethod",
+    "Invoke-WebRequest",
+    "curl -X POST",
+    "curl -X PUT",
+    "curl -X DELETE",
+    "npm publish",
+    "mail",
+    "smtp"
+  ]
+}
