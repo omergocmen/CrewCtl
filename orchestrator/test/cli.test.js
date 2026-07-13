@@ -27,6 +27,17 @@ function main() {
   assert.ok(discoveryConfig.agents["custom-opencode"], "elle eklenen profil korunmali");
   assert.equal(cliRegistry.addMissingAgents({ discoveryIgnoredAdapters: ["gemini"], agents: {} }, discovered.slice(0, 1)), false);
 
+  const readinessConfig = { agents: {}, operator: { cli: "opencode" } };
+  const readinessDiscovery = [
+    { id: "opencode", installed: true, ready: false, command: "opencode", defaultArgs: ["run"], capabilities: [], roleFile: "roles/executor.md" },
+    { id: "codex", installed: true, command: "codex", defaultArgs: ["exec"], capabilities: [], roleFile: "roles/executor.md" },
+  ];
+  assert.equal(cliRegistry.addMissingAgents(readinessConfig, readinessDiscovery), true);
+  assert.equal(readinessConfig.agents["opencode-auto"].enabled, false, "modelsiz OpenCode otomatik etkinlesmemeli");
+  assert.equal(readinessConfig.agents["opencode-auto"].unavailablePlaceholder, true);
+  assert.equal(cliRegistry.ensureValidOperator(readinessConfig, readinessDiscovery), true);
+  assert.equal(readinessConfig.operator.cli, "codex", "hazir olmayan OpenCode yerine calisan CLI secilmeli");
+
   store.ensureDirs();
   assert.match(run("help"), /cli-team task/);
   assert.equal(run("version").trim(), require("../package.json").version);

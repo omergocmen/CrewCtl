@@ -193,6 +193,14 @@ const server = http.createServer(async (req, res) => {
           workingDirAbs: path.resolve(store.ROOT, cfg.workingDir || "."),
         });
       }
+      if (pathname === "/api/security/autonomous-consent" && req.method === "POST") {
+        const { accepted } = await readBody(req);
+        if (accepted !== true) return send(res, 400, { error: "Acik kabul gerekli." });
+        const cfg = store.loadConfig();
+        cfg.autonomousConsentAcceptedAt = cfg.autonomousConsentAcceptedAt || new Date().toISOString();
+        store.saveConfig(cfg);
+        return send(res, 200, { accepted: true, acceptedAt: cfg.autonomousConsentAcceptedAt });
+      }
       if (pathname === "/api/fs" && req.method === "GET") {
         return send(res, 200, browseDir(url.parse(req.url, true).query.path));
       }
@@ -202,7 +210,8 @@ const server = http.createServer(async (req, res) => {
         const cfg = store.loadConfig();
         // Operatör, uzman agent'lardan bağımsız bir CLI'dır (claude/codex/gemini/opencode);
         // operator.md rolüyle ekibi yönetir. Belirtilmemiş/geçersizse kurulu bir CLI'ye geçilir.
-        const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed);
+        const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed
+          && (name !== "opencode" || c.ready !== false || Boolean(cfg.operator?.model)));
         let selectedCli = operatorCli || cfg.operator?.cli;
         if (!installedCli(selectedCli)) {
           if (cliRegistry.ensureValidOperator(cfg, cliStatus)) store.saveConfig(cfg);
@@ -300,7 +309,10 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/engine" && req.method === "POST") {
         const { action, mode } = await readBody(req);
         if (mode) engine.setMode(mode);
-        if (action === "start") engine.start();
+        if (action === "start") {
+          if (!store.loadConfig().autonomousConsentAcceptedAt) return send(res, 409, { error: "Otonom CLI kosullarini once onaylayin.", code: "AUTONOMOUS_CONSENT_REQUIRED" });
+          engine.start();
+        }
         if (action === "stop") engine.stop();
         return send(res, 200, engine.status());
       }

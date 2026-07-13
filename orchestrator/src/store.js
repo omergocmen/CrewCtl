@@ -30,7 +30,9 @@ function atomicWrite(file, data) {
 // zaman calisir durumda acilsin diye.
 const FALLBACK_CONFIG = {
   approvalMode: "auto", workingDir: "..", maxIterationsPerTask: 3, dailyCallBudget: 150,
+  autonomousConsentAcceptedAt: null,
   pollSeconds: 15, memoryCharBudget: 8000, teamContextCharBudget: 30000, agentTimeoutSeconds: 900,
+  cliSilenceTimeoutSeconds: 300,
   discoveryIgnoredAdapters: [],
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
   agents: {}, riskyPatterns: [],

@@ -8,6 +8,8 @@
   "memoryCharBudget": 8000,
   "teamContextCharBudget": 30000,
   "agentTimeoutSeconds": 900,
+  "cliSilenceTimeoutSeconds": 300,
+  "autonomousConsentAcceptedAt": null,
   "discoveryIgnoredAdapters": [],
   "operator": {
     "roleFile": "roles/operator.md",

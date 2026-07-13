@@ -35,6 +35,7 @@ async function main() {
       ? { cmd: path.join(__dirname, "fake-team-cli.cmd"), args: [], timeoutSeconds: 20 }
       : { cmd: process.execPath, args: [fakeCli], timeoutSeconds: 20 };
     base.approvalMode = "auto";
+    base.autonomousConsentAcceptedAt = new Date().toISOString();
     base.workingDir = workspace;
     base.dailyCallBudget = 10000;
     // Operatör artık uzman agent'lardan bağımsız bir CLI'dır; testte fake CLI'yi cfg.operator.cmd ile veriyoruz.
@@ -43,7 +44,9 @@ async function main() {
       worker: { ...agent, description: "test worker", capabilities: ["implementation"], roleFile: "roles/executor.md" },
       broken: { cmd: "fake-failing-cli", args: [], timeoutSeconds: 20, description: "unavailable test worker", capabilities: ["implementation"] },
       planner: { ...agent, description: "plan only", capabilities: ["planning"], roleFile: "roles/planner.md" },
-      openworker: { cmd: path.join(__dirname, "fake-opencode.cmd"), adapter: "opencode", args: [], timeoutSeconds: 20, description: "OpenCode worker", capabilities: ["implementation"] },
+      // OpenCode adapteri argumanlari kendisi kurar (run/--format/--file), bu yuzden cmd tek bir
+      // calistirilabilir olmali: Windows'ta .cmd shim'i, POSIX'te shebang'li betigin kendisi.
+      openworker: { cmd: path.join(__dirname, process.platform === "win32" ? "fake-opencode.cmd" : "fake-opencode.js"), adapter: "opencode", args: [], timeoutSeconds: 20, description: "OpenCode worker", capabilities: ["implementation"] },
     };
     store.saveConfig(base);
     delete require.cache[require.resolve("../src/engine")];
@@ -139,10 +142,18 @@ async function main() {
     assert.equal(routingFound.task.teamState.results["auto-route"].requestedAgent, "planner");
     assert.ok(fs.existsSync(path.join(routingWorkspace, "team-output.txt")));
 
-    const effectiveOpenCode = cliRegistry.effectiveAgent({ cmd: "opencode", adapter: "opencode", args: [] });
+    const effectiveOpenCode = cliRegistry.effectiveAgent({ cmd: "opencode", adapter: "opencode", args: [], model: "opencode/test-model" });
     assert.equal(cliRegistry.DEFINITIONS.opencode.timeoutSeconds, 1800);
+    assert.equal(effectiveOpenCode.silenceTimeoutSeconds, 180);
     assert.equal(effectiveOpenCode.args[0], "run");
+    assert.ok(!effectiveOpenCode.args.includes("--auto"));
+    assert.ok(effectiveOpenCode.args.includes("--format"));
+    assert.ok(effectiveOpenCode.args.includes("json"));
+    assert.ok(effectiveOpenCode.args.includes("--model"));
+    assert.ok(effectiveOpenCode.args.includes("opencode/test-model"));
     assert.ok(effectiveOpenCode.args.includes("{PROMPT_FILE}"));
+    assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local", "opencode/free-model"]), "opencode/free-model");
+    assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local"]), "", "yerel Ollama otomatik olarak erisilebilir varsayilmamali");
     if (process.platform === "win32") {
       base.workingDir = openCodeWorkspace;
       store.saveConfig(base);
@@ -159,6 +170,23 @@ async function main() {
       const leftovers = fs.existsSync(promptDir) ? fs.readdirSync(promptDir).filter((file) => file.startsWith(openCodeTask.id)) : [];
       assert.equal(leftovers.length, 0);
     }
+    await assert.rejects(
+      engine.runCli("silent-test", { cmd: process.execPath, args: [path.join(__dirname, "fake-silent-cli.js")], adapter: "custom", timeoutSeconds: 20, silenceTimeoutSeconds: 1 }, "test", base),
+      /CLI_STALLED/
+    );
+    const realInvokeOperator = engine.invokeOperator;
+    let stalledOperatorCalls = 0;
+    engine.invokeOperator = async () => { stalledOperatorCalls++; throw new Error("CLI_STALLED: operator cikti uretmedi"); };
+    try {
+      await assert.rejects(engine.invokeOperatorJson("opencode", "test", { operator: { protocolRetries: 3 } }, "operator-plan", "Operator plani"), /CLI_STALLED/);
+      assert.equal(stalledOperatorCalls, 1, "sessiz operator altyapi hatasi protokol tekrari yapmamali");
+    } finally {
+      engine.invokeOperator = realInvokeOperator;
+    }
+    delete base.autonomousConsentAcceptedAt;
+    store.saveConfig(base);
+    assert.throws(() => engine.start(), /ilk kullanim uyarisini onaylayin/);
+    assert.equal(engine.running, false);
     console.log("team flow ok");
   } finally {
     fs.writeFileSync(configFile, originalConfig);

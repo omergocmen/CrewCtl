@@ -37,8 +37,10 @@ const DEFINITIONS = {
     // OpenCode saglayici/model kombinasyonuna gore uzun sure sessiz kalabilir. Varsayilan
     // agent timeout'u, basarili bir calismayi SIGTERM ile yarida kesmeyecek kadar genis tut.
     timeoutSeconds: 1800,
-    // --auto olmadan opencode run izinleri onaylamaz ve dosya degisikligi yapmaz.
-    defaultArgs: ["run", "--auto", "Attached file contains the full task. Follow it exactly, make the changes, and report what you did.", "--file", "{PROMPT_FILE}"],
+    silenceTimeoutSeconds: 180,
+    // Bazi eski OpenCode surumleri --auto bayragini tanimaz. Otonom izinler
+    // engine tarafinda OPENCODE_CONFIG_CONTENT ile surumden bagimsiz aktarilir.
+    defaultArgs: ["run", "--format", "json", "Attached file contains the full task. Follow it exactly, make the changes, and report what you did.", "--file", "{PROMPT_FILE}"],
     description: "OpenCode coklu saglayici kodlama, uygulama ve inceleme agenti",
     capabilities: ["implementation", "debugging", "testing", "review", "analysis", "research"],
     roleFile: "roles/executor.md",
@@ -51,6 +53,43 @@ const DEFINITIONS = {
   },
 };
 const RESOLVED = new Map();
+let OPEN_CODE_MODELS = [];
+
+function selectOpenCodeModel(models) {
+  const list = Array.isArray(models) ? models.map(String).filter(Boolean) : [];
+  const priorities = [
+    (x) => x === "opencode/big-pickle",
+    (x) => /^opencode\/.+free$/i.test(x),
+    (x) => x.startsWith("opencode/"),
+    (x) => x.startsWith("opencode-go/"),
+    (x) => x.startsWith("minimax-coding-plan/"),
+    (x) => !x.startsWith("ollama/"),
+  ];
+  for (const match of priorities) {
+    const found = list.find(match);
+    if (found) return found;
+  }
+  return "";
+}
+
+function listOpenCodeModels(command) {
+  try {
+    const found = new Set();
+    // Genel liste yuzlerce kayitli ama yetkilendirilmemis modeli dondurebilir veya
+    // sadece kullanicinin yerel varsayilanini gosterebilir. OpenCode'un kendi
+    // saglayici listesini sorgulamak her kurulumda daha kesin ve daha kucuk bir listedir.
+    const result = spawnSync(command, ["models", "opencode"], {
+      encoding: "utf8", timeout: 20000, windowsHide: true,
+      shell: isWin && (!path.isAbsolute(command) || /\.(cmd|bat)$/i.test(command)),
+    });
+    if (result.status !== 0) return [];
+    for (const line of String(result.stdout || "").split(/\r?\n/)) {
+      const model = line.trim();
+      if (/^opencode\/.+/.test(model)) found.add(model);
+    }
+    return [...found];
+  } catch { return []; }
+}
 
 function adapterId(command) {
   const base = path.basename(String(command || "")).toLowerCase().replace(/\.(cmd|bat|exe|ps1)$/, "");
@@ -104,6 +143,7 @@ function effectiveAgent(agent) {
   const copy = { ...agent, args: Array.isArray(agent.args) ? agent.args.map(String) : [] };
   const adapter = agent.adapter || adapterId(agent.cmd);
   copy.adapter = adapter;
+  if (!copy.silenceTimeoutSeconds && DEFINITIONS[adapter]?.silenceTimeoutSeconds) copy.silenceTimeoutSeconds = DEFINITIONS[adapter].silenceTimeoutSeconds;
   if (adapter !== "custom" && RESOLVED.has(adapter) && !path.isAbsolute(copy.cmd)) copy.cmd = RESOLVED.get(adapter);
   if (adapter === "codex") {
     const commands = new Set(["exec", "review", "resume", "apply"]);
@@ -120,7 +160,15 @@ function effectiveAgent(agent) {
   }
   if (adapter === "opencode") {
     if (!copy.args.includes("run")) copy.args.unshift("run");
-    if (!copy.args.includes("--auto")) copy.args.splice(copy.args.indexOf("run") + 1, 0, "--auto");
+    // config.json'da eski otomatik profil kalmis olsa da uyumsuz bayragi temizle.
+    copy.args = copy.args.filter((arg) => arg !== "--auto");
+    const formatAt = copy.args.indexOf("--format");
+    if (formatAt >= 0) copy.args.splice(formatAt, 2);
+    copy.args.splice(copy.args.indexOf("run") + 1, 0, "--format", "json");
+    const hasModel = copy.args.includes("--model") || copy.args.includes("-m");
+    const model = copy.model || selectOpenCodeModel(OPEN_CODE_MODELS);
+    if (!hasModel && model) copy.args.splice(copy.args.indexOf("run") + 3, 0, "--model", model);
+    if (model) copy.model = model;
     if (!copy.args.includes("{PROMPT}") && !copy.args.includes("{PROMPT_FILE}")) {
       copy.args.push("Attached file contains the full task. Follow it exactly, make the changes, and report what you did.", "--file", "{PROMPT_FILE}");
     }
@@ -134,7 +182,7 @@ function probeCommand(command, definition) {
       encoding: "utf8",
       timeout: 12000,
       windowsHide: true,
-      shell: isWin && !path.isAbsolute(command),
+      shell: isWin && (!path.isAbsolute(command) || /\.(cmd|bat)$/i.test(command)),
     });
     const output = String(result.stdout || result.stderr || "").trim().split(/\r?\n/)[0];
     return { installed: result.status === 0, version: result.status === 0 ? output : "", error: result.status === 0 ? "" : output, resolvedCommand: result.status === 0 ? command : "" };
@@ -161,6 +209,15 @@ function probe(id, definition) {
     }
   }
   if (result.installed) RESOLVED.set(id, result.resolvedCommand);
+  if (result.installed && id === "opencode") {
+    OPEN_CODE_MODELS = listOpenCodeModels(result.resolvedCommand || definition.command);
+    result.models = OPEN_CODE_MODELS.slice();
+    result.recommendedModel = selectOpenCodeModel(OPEN_CODE_MODELS);
+    result.ready = Boolean(result.recommendedModel);
+    result.readinessError = result.ready ? "" : (OPEN_CODE_MODELS.length
+      ? "Kullanilabilir otomatik OpenCode modeli bulunamadi. Ayarlardan erisilebilir bir model secin."
+      : "OpenCode kurulu, ancak model listesi okunamadi. Once saglayici girisini tamamlayin.");
+  }
   return result;
 }
 
@@ -173,6 +230,7 @@ function addMissingAgents(cfg, discovered) {
   const ignored = new Set(Array.isArray(cfg.discoveryIgnoredAdapters) ? cfg.discoveryIgnoredAdapters.map(String) : []);
   let changed = false;
   for (const cli of discovered) {
+    const usable = cli.installed && (cli.id !== "opencode" || cli.ready !== false);
     const matchingEntries = Object.entries(cfg.agents).filter(([, agent]) => (agent.adapter || adapterId(agent.cmd)) === cli.id);
     const existingEntry = matchingEntries.find(([, agent]) => !agent.autoDiscovered) || matchingEntries[0];
     const existing = existingEntry?.[1];
@@ -187,17 +245,21 @@ function addMissingAgents(cfg, discovered) {
       continue;
     }
     if (existing) {
-      if (cli.installed && existing.autoDiscovered && existing.unavailablePlaceholder) {
+      if (usable && existing.autoDiscovered && existing.unavailablePlaceholder) {
         existing.enabled = true;
         existing.args = cli.defaultArgs.slice();
         delete existing.unavailablePlaceholder;
+        changed = true;
+      }
+      if (usable && cli.id === "opencode" && existing.autoDiscovered && cli.recommendedModel && existing.model !== cli.recommendedModel) {
+        existing.model = cli.recommendedModel;
         changed = true;
       }
       if (cli.installed && cli.id === "opencode" && existing.autoDiscovered && Number(existing.timeoutSeconds || 0) < cli.timeoutSeconds) {
         existing.timeoutSeconds = cli.timeoutSeconds;
         changed = true;
       }
-      if (!cli.installed && existing.autoDiscovered && existing.enabled !== false) {
+      if (!usable && existing.autoDiscovered && existing.enabled !== false) {
         existing.enabled = false;
         existing.unavailablePlaceholder = true;
         changed = true;
@@ -213,14 +275,16 @@ function addMissingAgents(cfg, discovered) {
       adapter: cli.id,
       cmd: cli.command,
       args: cli.defaultArgs.slice(),
-      enabled: cli.installed,
+      enabled: usable,
       description: cli.description,
       capabilities: cli.capabilities.slice(),
       roleFile: cli.roleFile,
       costTier: "standard",
       timeoutSeconds: cli.timeoutSeconds || 1200,
+      ...(cli.silenceTimeoutSeconds ? { silenceTimeoutSeconds: cli.silenceTimeoutSeconds } : {}),
+      ...(cli.recommendedModel ? { model: cli.recommendedModel } : {}),
       autoDiscovered: true,
-      ...(!cli.installed ? { unavailablePlaceholder: true } : {}),
+      ...(!usable ? { unavailablePlaceholder: true } : {}),
     };
     changed = true;
   }
@@ -239,8 +303,9 @@ function operatorSpec(cli, cfg) {
   if (!cmd) return null;
   const args = op.cmd ? (Array.isArray(op.args) ? op.args.slice() : []) : (definition ? definition.defaultArgs.slice() : []);
   const timeoutSeconds = op.timeoutSeconds || (cfg && cfg.agentTimeoutSeconds) || 900;
+  const silenceTimeoutSeconds = op.silenceTimeoutSeconds || (definition && definition.silenceTimeoutSeconds) || (cfg && cfg.cliSilenceTimeoutSeconds) || 300;
   const adapter = definition ? cli : (op.adapter || adapterId(cmd));
-  return effectiveAgent({ adapter, cmd, args, timeoutSeconds });
+  return effectiveAgent({ adapter, cmd, args, timeoutSeconds, silenceTimeoutSeconds, model: op.model });
 }
 
 // Operator gecerli, kurulu bir CLI olmali. Eski semada operator.agent (uzman agent adi)
@@ -256,7 +321,9 @@ function ensureValidOperator(cfg, discovered) {
     changed = true;
   }
   if ("agent" in cfg.operator) { delete cfg.operator.agent; changed = true; }
-  const installed = Array.isArray(discovered) ? discovered.filter((x) => x.installed).map((x) => x.id) : null;
+  const installed = Array.isArray(discovered) ? discovered
+    .filter((x) => x.installed && (x.id !== "opencode" || x.ready !== false || Boolean(cfg.operator.model)))
+    .map((x) => x.id) : null;
   const known = !!DEFINITIONS[cfg.operator.cli];
   const availableOnHost = !installed || installed.length === 0 || installed.includes(cfg.operator.cli);
   if (!known || !availableOnHost) {
@@ -266,4 +333,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, effectiveAgent, operatorSpec, discoverInstalled, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, effectiveAgent, operatorSpec, discoverInstalled, addMissingAgents, ensureValidOperator, selectOpenCodeModel };

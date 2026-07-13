@@ -64,6 +64,9 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 - 🛰️ **Ekip Akışı sayfası** — operatör çekirdeği + animasyonlu delegasyon akışı + ajan filosu.
 - 🎚️ **Çalışma modları** — Otomatik / Hızlı / Dengeli / Derin ile hız‑kalite dengesi.
 - 🔎 **Otomatik CLI keşfi** — kurulu araçlar tespit edilip güvenli non‑interactive varsayılanlarla eklenir.
+- 🩺 **Hazır olma kontrolü** — OpenCode yalnızca kurulu olduğu için değil, kullanılabilir modeli keşfedildiğinde göreve alınır.
+- ⏱️ **Takılma koruması** — düzenli ilerleme bilgisi, sessizlik zaman aşımı, process-tree sonlandırma ve otomatik agent fallback.
+- 🧰 **CLI şablonları** — agent oluştururken CLI'ı seç; komut, argümanlar ve uygun model otomatik dolsun.
 - 📁 **Klasör seçici** — çalışma dizinini path yazmadan gözat‑ve‑seç.
 - 🗂️ **Kalıcı olay geçmişi** — `state/events/*.jsonl` ile her görevin akışını yeniden oynat.
 - 🛡️ **Onay/risk kapısı** — riskli planlar `ask` modunda insan onayına alınır (SHA‑256 kilitli).
@@ -96,6 +99,10 @@ cli-team start
 `cli-team doctor` ayarları değiştirmez. Yalnızca keşif sonucunu `config.json` dosyasına uygulamak
 istediğinizde açıkça `cli-team doctor --fix` kullanın.
 
+> **Yeni klonladıysanız:** `config.json` ilk `npm start` anında üretilir. Ondan önce çalıştırılan
+> salt-okunur `doctor`, CLI'larınızı kurulu görse bile “Operatör CLI: (yok) / Uzman ajan sayısı: 0”
+> raporlar. Bu bir hata değildir; `npm start` (veya `cli-team doctor --fix`) yapılandırmayı kurar.
+
 `npm start` çalışınca:
 
 - `config.json` yoksa `config.default.json` şablonundan **makinenize göre otomatik** üretilir;
@@ -103,6 +110,8 @@ istediğinizde açıkça `cli-team doctor --fix` kullanın.
 - Panel **`http://localhost:4317`** adresinde açılır (tarayıcı otomatik açılır; `OPEN=0 npm start`
   ile kapatabilirsiniz).
 - Panelde **▶ Başlat**'a basıp bir görev gönderin.
+- İlk açılışta otonom CLI çalıştırma koşullarını bir kez okuyup onaylayın. Kabul zamanı
+  `config.json` içinde saklanır; aynı kurulumda uyarı tekrar gösterilmez.
 
 > **İpuçları:** Farklı port için `PORT=4318 npm start`. `config.json` kişiye özeldir
 > (`.gitignore`'dadır); ekip kurulumunuzu paylaşmak için `config.default.json` şablonunu
@@ -115,7 +124,7 @@ istediğinizde açıkça `cli-team doctor --fix` kullanın.
 | **Codex CLI** | OpenAI | `npm i -g @openai/codex` | `codex exec --skip-git-repo-check` |
 | **Claude Code** | Anthropic | `npm i -g @anthropic-ai/claude-code` | `claude -p --output-format text` |
 | **Gemini CLI** | Google | `npm i -g @google/gemini-cli` | `gemini --approval-mode yolo` (stdin prompt) |
-| **OpenCode** | OpenCode / çok‑sağlayıcı | `npm i -g opencode-ai` | `opencode run --auto --file <prompt.md>` |
+| **OpenCode** | OpenCode / çok‑sağlayıcı | `npm i -g opencode-ai` | `opencode run --format json --model <keşfedilen-model> --file <prompt.md>` |
 
 Sunucu açılırken bu CLI'lar otomatik taranır; PATH dışında kalan yaygın kurulum dizinleri
 (npm, pnpm, yarn, bun, volta, scoop, winget, Chocolatey, Homebrew…) Windows, macOS ve Linux
@@ -123,6 +132,18 @@ Sunucu açılırken bu CLI'lar otomatik taranır; PATH dışında kalan yaygın 
 profil eklenir. Panelde **Ayarlar → Agent'lar → Yeniden Tara** ile kurulumdan sonra yeniden
 taratabilirsiniz. Prompt'u argüman olarak isteyen CLI'lar için argümanda `{PROMPT}`, dosya
 olarak isteyenler için `{PROMPT_FILE}` yer tutucusu kullanılabilir.
+
+Prompt hangi yolla verilirse verilsin, motor alt process'in **stdin'ini her zaman kapatır (EOF)**.
+Bu şart: OpenCode gibi CLI'lar stdin bir TTY değilse mesajı borudan da okumaya çalışır ve EOF
+gelmezse model çağrısına hiç geçmeden süresiz bloke olur. Kendi CLI'ınızı eklerken bu davranışa
+güvenebilirsiniz.
+
+OpenCode için “kurulu” ve “hazır” ayrı durumlardır. Orkestratör `opencode models opencode`
+ile OpenCode'un kendi modellerini keşfeder, önerilen modeli profile ekler ve yanıtı JSON olay
+akışından ayrıştırır. Kullanılabilir model bulunamazsa otomatik OpenCode profili devre dışı kalır;
+operatör veya delegasyon sessizce ona yönlendirilmez. Model seçimi **Ayarlar → Agent'lar** ve
+**Ayarlar → Operatör** bölümlerinden değiştirilebilir. Bu keşif kullanıcı adı, sabit kurulum yolu,
+yerel IP veya belirli bir bilgisayar yapılandırmasına bağlı değildir.
 
 ## 🧩 Nasıl çalışır?
 
@@ -162,7 +183,9 @@ etkilemez. **Ayarlar → Operatör** bölümünde operatör CLI'sı, `operator.m
 tur başına delegasyon sınırı yönetilir; her görevde farklı bir operatör de seçilebilir.
 
 Yapılandırılan operatör o cihazda kurulu değilse, sunucu açılışta ve her taramada otomatik olarak
-kurulu bir CLI'ya geçer — böylece proje yeni indirildiğinde tek eksik CLI yüzünden görevler bloke olmaz.
+kurulu ve hazır bir CLI'ya geçer. OpenCode kurulu olsa bile kullanılabilir modeli yoksa operatör
+olarak seçilmez; elle model seçilmişse bu seçim korunur. Böylece proje yeni indirildiğinde tek eksik
+veya yapılandırılmamış CLI yüzünden görevler bloke olmaz.
 
 Operatör yanıtları serbest metin değil **JSON protokolüdür**. İlk tur takım planı:
 
@@ -184,10 +207,17 @@ aktif agente otomatik yönlendirir.
 
 ## ➕ Agent ekleme
 
-Panelde **Ayarlar → Agent'lar → CLI Agent Ekle**. Her agent için: benzersiz **ad**, **CLI komutu**,
+Panelde **Ayarlar → Agent'lar → Yeni CLI agent** bölümünden önce CLI şablonunu seçin. Komut,
+non-interactive varsayılan argümanlar, yetenekler, rol ve destekleniyorsa model otomatik dolar.
+Bu nedenle daha önce sildiğiniz bir CLI'ı yeniden eklerken varsayılan komutları hatırlamanız gerekmez.
+Her agent için: benzersiz **ad**, **CLI komutu**,
 **argümanlar** (her satır bir argüman; prompt varsayılan olarak stdin'e gider), `roles/*.md` **rol
 dosyası**, **açıklama/yetenekler** (operatörün doğru uzmanı seçmesini sağlar), **zaman aşımı**,
 **maliyet sınıfı** ve **aktif** anahtarı.
+
+Otomatik keşfedilmiş bir Gemini/OpenCode profilini silerseniz adapter tercihi
+`discoveryIgnoredAdapters` içinde saklanır ve **Yeniden Tara** sırasında geri gelmez. İsterseniz
+**Gizlenenleri geri getir** ile bu kararı kaldırabilirsiniz; elle oluşturulmuş profillere dokunulmaz.
 
 ```json
 {
@@ -215,6 +245,19 @@ Olaylar `state/events/<task-id>.jsonl` altında kalıcıdır; görev kartındaki
 bu geçmişi yeniden oynatır. Bir uzman CLI kullanılamazsa görev hemen başarısız sayılmaz — motor
 hatayı yapılandırılmış sonuç olarak operatöre iletir ve alternatif uzman seçmesine izin verir.
 
+Çalışan CLI 15 saniyede bir süre/ilerleme olayı üretir. OpenCode varsayılan olarak 180 saniye,
+diğer CLI'lar 300 saniye boyunca hiçbir çıktı üretmezse `CLI_STALLED` olarak sınıflandırılır;
+Windows'ta alt process ağacıyla birlikte durdurulur, o oturum için karantinaya alınır ve uygun
+başka agent varsa görev onunla sürdürülür. Sağlayıcı bağlantı hataları `PROVIDER_UNAVAILABLE`
+olarak ayrı gösterilir; bozuk JSON sanılıp anlamsız protokol tekrarlarına sokulmaz.
+
+**Sessizlik sınırı toplam süre sınırı değildir.** Sayaç her stdout/stderr parçasında sıfırlanır,
+yani düzenli çıktı üreten bir CLI ne kadar uzun çalışırsa çalışsın kesilmez — OpenCode `--format json`
+ile her araç çağrısında `step_start` / `tool_use` / `step_finish` olayı yayınladığı için aktif
+kodlarken sessizlik sınırına yaklaşmaz. Bir çalışmayı gerçekten sınırlayan değer ayrı olan **toplam
+zaman aşımıdır**: agent'ın `timeoutSeconds` alanı (OpenCode profillerinde varsayılan **1800 sn**,
+diğerlerinde 1200 sn). Saatler sürecek işler planlıyorsanız değiştirmeniz gereken değer budur.
+
 ## 📝 Markdown roller
 
 Roller davranış ve uzmanlık talimatlarıdır; panelden oluşturulup agent'a atanır. Motor protokolü ve
@@ -232,11 +275,25 @@ agent'lar, tur sayısı ve doğrulama kontrolü.
 
 ## 🔒 Onay ve güvenlik
 
-`ask` modunda riskli kalıp içeren operatör planı onaya alınır; onay planın **SHA‑256** özetiyle
-ilişkilidir ve onaylanan plan aynı delegasyonlardan devam eder. `auto` modu bekletmez.
+İlk açılışta uygulama, CLI'ların non-interactive/otonom modda çalıştırılacağını açıklayan tek
+seferlik bir onay gösterir. Kabul edilmeden motor başlatılamaz veya görev yürütülemez. Kabul zamanı
+`config.json` içindeki `autonomousConsentAcceptedAt` alanında tutulur; yapılandırma silinmediği
+sürece tekrar sorulmaz.
 
-> ⚠️ Bu katman ek güvenliktir, tam sandbox değildir. CLI'ların kendi izin/sandbox ayarlarını da
-> kısıtlayın ve **web panelini güvenilmeyen bir ağa açmayın** — ayar API'si CLI komutlarını değiştirebilir.
+Bu onaydan sonra adapter varsayılanları CLI içinde bekleyen etkileşimli izin sorularını azaltır:
+Gemini `--approval-mode yolo`, Claude `--permission-mode acceptEdits`, OpenCode ise process ortamında
+`{"permission":{"*":"allow"}}` kullanır. Codex non-interactive `exec` modunda çalışır. Kullanıcı
+elle değiştirdiği agent argümanlarının ve CLI'ın kendi sürüm/yapılandırmasının davranıştan sorumlu
+olduğunu unutmamalıdır.
+
+Orkestratörün görev-planı güvenlik kapısı ayrıca çalışır: `ask` modunda riskli kalıp içeren plan
+onaya alınır; onay planın **SHA‑256** özetiyle ilişkilidir ve aynı delegasyonlardan devam eder.
+`auto` modu bu plan onayını bekletmez.
+
+> ⚠️ Otonom çalışma onayı bir sandbox değildir. Agent'lar çalışma klasöründeki dosyaları değiştirebilir,
+> komut çalıştırabilir ve CLI'ın verdiği yetki ölçüsünde daha geniş sisteme erişebilir. İzole çalışma
+> klasörü/repo kullanın, önemli dosyaları sürüm kontrolünde tutun ve **web panelini güvenilmeyen bir
+> ağa açmayın** — ayar API'si CLI komutlarını değiştirebilir.
 
 ## 🗄️ Depolama
 
@@ -263,6 +320,10 @@ npm test
 
 Gerçek sağlayıcı çağrısı yapmadan, sahte operatör ve uzman CLI process'leriyle
 planlama → delegasyon → mesaj → dosya değişikliği → operatör tamamlama akışını uçtan uca doğrular.
+Testler ayrıca OpenCode JSON olay ayrıştırmasını, doğru izin yapılandırmasını, model önceliğini,
+hazır olmayan OpenCode'un devre dışı kalmasını, sessizlik watchdog'unu ve operatör fallback'ini kapsar.
+Sahte OpenCode process'i gerçeği taklit ederek stdin'i EOF'a kadar okur; böylece stdin'i kapatmayan
+bir regresyon (CLI'ın hiç çalışmadan asılı kalması) testlerden sessizce geçemez.
 
 ## ❓ SSS (FAQ)
 
@@ -275,6 +336,17 @@ ile alan başka CLI'lar da elle eklenebilir.
 
 **Windows, macOS ve Linux'ta çalışır mı?**
 Evet. Node.js 18+ olan her yerde çalışır; CLI keşfi üç platformdaki yaygın kurulum dizinlerini tarar.
+
+**OpenCode kurulu ama neden “model seçilmeli” görünüyor?**
+`opencode models opencode` kullanılabilir bir model döndürmemiştir. Önce `opencode auth login` ile
+sağlayıcı girişini tamamlayın, ardından panelde **Ayarlar → Agent'lar → Yeniden Tara**'ya basın.
+İsterseniz agent veya operatör için erişilebilir modeli elle de seçebilirsiniz. Hazır olmayan
+OpenCode'a otomatik görev verilmez.
+
+**Bir CLI çalışıyor mu, takıldı mı nasıl anlarım?**
+Canlı karttaki süre ve 15 saniyelik ilerleme olayları çalışmayı görünür kılar. Çıktısız bekleme
+sessizlik sınırını aşarsa process otomatik durdurulur, açık hata gösterilir ve mümkünse başka
+agent'a geçilir. Uzun ama düzenli çıktı üreten işler normal zaman aşımı sınırına kadar sürebilir.
 
 **Bağımlılık kuruyor mu / node_modules şişer mi?**
 Hayır, sıfır bağımlılık. `npm install` yalnızca projeyi hazırlar.
@@ -293,7 +365,9 @@ Hayır. Depolama düz JSON/JSONL dosyalarıdır; her makinede taşınabilir ve a
 - Delegasyonlar şimdilik aynı çalışma klasöründe güvenli biçimde **sırayla** yürütülür.
 - CLI'a özgü tool‑call telemetrisi yoksa yalnızca stdout/stderr görülebilir.
 - Proje hafızası metin tabanlıdır; semantik retrieval henüz yoktur.
-- Kimlik doğrulama ve uzak sunucu modu henüz eklenmemiştir.
+- Model keşfi sağlayıcının gerçek bir üretim çağrısını başlangıçta çalıştırmaz; sonradan oluşan ağ,
+  kota veya sağlayıcı hatası ilk çağrıda gösterilir ve fallback akışına alınır.
+- Web paneli kimlik doğrulaması ve uzak sunucu modu henüz eklenmemiştir.
 
 ---
 
