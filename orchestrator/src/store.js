@@ -136,12 +136,37 @@ function findTask(id) {
 }
 function moveTask(fromState, toState, task) {
   const src = taskPath(fromState, task.id);
-  if (fs.existsSync(src)) fs.rmSync(src);
+  // Hedefi once atomik olarak yaz. Surec iki islem arasinda cokse bile gorev kaybolmaz.
   saveTask(toState, task);
+  if (fromState !== toState && fs.existsSync(src)) fs.rmSync(src);
 }
 function removeTask(state, id) {
   const p = taskPath(state, id);
   if (fs.existsSync(p)) fs.rmSync(p);
+}
+
+function approveTask(id) {
+  const found = findTask(id);
+  if (!found) throw new Error(`Gorev bulunamadi: ${id}`);
+  if (found.state !== "approval") throw new Error(`Gorev onay beklemiyor: ${id}`);
+  const task = found.task;
+  if (task.planHash && task.planPreview && task.planHash !== hashText(task.planPreview)) {
+    throw new Error("Plan onay beklerken degismis; yeniden planlanmasi gerekiyor.");
+  }
+  task.approved = true;
+  task.status = "pending";
+  moveTask(found.state, "pending", task);
+  return task;
+}
+
+function rejectTask(id) {
+  const found = findTask(id);
+  if (!found) throw new Error(`Gorev bulunamadi: ${id}`);
+  if (found.state !== "approval") throw new Error(`Gorev onay beklemiyor: ${id}`);
+  found.task.status = "rejected";
+  found.task.finishedAt = new Date().toISOString();
+  moveTask(found.state, "failed", found.task);
+  return found.task;
 }
 
 // ---- Hafiza ----
@@ -192,6 +217,8 @@ module.exports = {
   findTask,
   moveTask,
   removeTask,
+  approveTask,
+  rejectTask,
   getMemory,
   appendMemory,
   getCallCount,

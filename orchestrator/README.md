@@ -78,9 +78,23 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 git clone https://github.com/omergocmen/cli.git
 cd cli/orchestrator
 npm install          # bağımlılık yok — yalnızca projeyi hazırlar
-npm run doctor       # (opsiyonel) Node + kurulu CLI'ları ve yapılandırmayı kontrol eder
-npm start            # sunucuyu başlatır ve tarayıcıyı açar
+npm run cli -- doctor  # salt-okunur ortam kontrolü
+npm run cli -- start   # sunucuyu başlatır ve tarayıcıyı açar
 ```
+
+İsterseniz `npm link` ile `cli-team` komutunu sisteme bağlayın. Bundan sonra web paneli ve
+headless kullanım aynı giriş noktasındadır:
+
+```bash
+cli-team status
+cli-team task "Testleri düzelt" --dir .. --mode balanced
+cli-team run --once
+cli-team approvals
+cli-team start
+```
+
+`cli-team doctor` ayarları değiştirmez. Yalnızca keşif sonucunu `config.json` dosyasına uygulamak
+istediğinizde açıkça `cli-team doctor --fix` kullanın.
 
 `npm start` çalışınca:
 

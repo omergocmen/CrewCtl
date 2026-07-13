@@ -171,11 +171,12 @@ async function main() {
       const eventFile = path.join(store.ROOT, "state", "events", `${task.id}.jsonl`);
       if (fs.existsSync(eventFile)) fs.rmSync(eventFile);
     }
-    fs.rmSync(workspace, { recursive: true, force: true });
-    fs.rmSync(approvalWorkspace, { recursive: true, force: true });
-    fs.rmSync(recoveryWorkspace, { recursive: true, force: true });
-    fs.rmSync(routingWorkspace, { recursive: true, force: true });
-    fs.rmSync(openCodeWorkspace, { recursive: true, force: true });
+    const removeWorkspace = (dir) => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    removeWorkspace(workspace);
+    removeWorkspace(approvalWorkspace);
+    removeWorkspace(recoveryWorkspace);
+    removeWorkspace(routingWorkspace);
+    removeWorkspace(openCodeWorkspace);
     if (originalCalls === null) {
       if (fs.existsSync(callFile)) fs.rmSync(callFile);
     } else fs.writeFileSync(callFile, originalCalls);

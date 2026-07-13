@@ -78,39 +78,65 @@ function serveStatic(res, file) {
 
 // ---- Klasor gezgini ----
 let driveCache = { at: 0, value: [] };
+function uniqExistingDirs(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item.path || seen.has(item.path.toLowerCase())) return false;
+    seen.add(item.path.toLowerCase());
+    try { return fs.statSync(item.path).isDirectory(); } catch { return false; }
+  });
+}
 function listDrives() {
   if (Date.now() - driveCache.at < 30000) return driveCache.value.slice();
-  const drives = [];
+  const found = new Set();
+  for (const d of [process.env.SystemDrive, process.env.HOMEDRIVE]) {
+    if (d) found.add(path.parse(d).root || `${d.replace(/[\\/]$/, "")}\\`);
+  }
   for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
     const d = c + ":\\";
-    try { fs.accessSync(d); drives.push(d); } catch {}
+    try {
+      if (fs.statSync(d).isDirectory()) found.add(d);
+    } catch {}
   }
+  const drives = [...found].sort((a, b) => a.localeCompare(b));
   driveCache = { at: Date.now(), value: drives };
   return drives.slice();
 }
 function explorerPlaces() {
   const home = os.homedir();
+  const oneDrive = process.env.OneDrive || process.env.OneDriveConsumer || process.env.OneDriveCommercial;
   const candidates = [
     { id: "home", label: "Ana klasör", icon: "⌂", path: home },
     { id: "desktop", label: "Masaüstü", icon: "▣", path: path.join(home, "Desktop") },
+    oneDrive && { id: "onedrive-desktop", label: "OneDrive Masaüstü", icon: "▣", path: path.join(oneDrive, "Desktop") },
     { id: "documents", label: "Belgeler", icon: "▤", path: path.join(home, "Documents") },
+    oneDrive && { id: "onedrive-documents", label: "OneDrive Belgeler", icon: "▤", path: path.join(oneDrive, "Documents") },
     { id: "downloads", label: "İndirilenler", icon: "↓", path: path.join(home, "Downloads") },
     { id: "project", label: "Orkestratör", icon: "◇", path: store.ROOT },
-  ];
-  return candidates.filter((place) => {
-    try { return fs.statSync(place.path).isDirectory(); } catch { return false; }
-  });
+  ].filter(Boolean);
+  return uniqExistingDirs(candidates);
 }
-function browseDir(p) {
+function rootBrowse(message) {
+  if (process.platform === "win32") {
+    const drives = listDrives();
+    return {
+      path: "",
+      parent: null,
+      dirs: drives,
+      drives,
+      entries: drives.map((drive) => ({ name: drive, path: drive, type: "drive", modifiedAt: null })),
+      places: explorerPlaces(),
+      isRoot: true,
+      warning: message || "",
+    };
+  }
+  return browseDir("/", message);
+}
+function browseDir(p, warning = "") {
   try {
-    if (!p) {
-      if (process.platform === "win32") {
-        const dirs = listDrives();
-        return { path: "", parent: null, dirs, drives: dirs, entries: dirs.map((drive) => ({ name: drive, path: drive, type: "drive", modifiedAt: null })), places: explorerPlaces(), isRoot: true };
-      }
-      p = "/";
-    }
+    if (!p) return rootBrowse(warning);
     const abs = path.resolve(p);
+    if (!fs.statSync(abs).isDirectory()) throw new Error("Klasör değil");
     const entries = fs
       .readdirSync(abs, { withFileTypes: true })
       .filter((e) => { try { return e.isDirectory(); } catch { return false; } })
@@ -127,9 +153,10 @@ function browseDir(p) {
     const up = path.dirname(abs);
     const parent = isDriveRoot ? "" : up === abs ? null : up;
     const drives = process.platform === "win32" ? listDrives() : [];
-    return { path: abs, parent, dirs, drives, entries, places: explorerPlaces() };
+    return { path: abs, parent, dirs, drives, entries, places: explorerPlaces(), warning };
   } catch (e) {
-    return { path: p || "", parent: null, dirs: [], drives: process.platform === "win32" ? listDrives() : [], entries: [], places: explorerPlaces(), error: e.message };
+    const requested = p ? String(p) : "";
+    return rootBrowse(requested ? `"${requested}" açılamadı; bu bilgisayar gösteriliyor.` : e.message);
   }
 }
 
@@ -206,14 +233,11 @@ const server = http.createServer(async (req, res) => {
         const found = store.findTask(m[1]);
         if (!found) return send(res, 404, { error: "gorev yok" });
         if (m[2] === "approve") {
-          if (found.task.planHash && found.task.planPreview && found.task.planHash !== store.hashText(found.task.planPreview)) {
-            return send(res, 409, { error: "plan onaydan sonra degismis; onay reddedildi" });
-          }
-          found.task.approved = true;
-          found.task.status = "pending";
-          store.moveTask(found.state, "pending", found.task);
+          try { store.approveTask(m[1]); }
+          catch (error) { return send(res, 409, { error: error.message }); }
         } else {
-          store.moveTask(found.state, "failed", found.task);
+          try { store.rejectTask(m[1]); }
+          catch (error) { return send(res, 409, { error: error.message }); }
         }
         broadcast("queue", snapshot());
         return send(res, 200, { ok: true });
