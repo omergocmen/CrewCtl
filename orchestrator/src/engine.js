@@ -58,6 +58,9 @@ function classifyCliError(error) {
   if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
     return { code: "VERSION_INCOMPATIBLE", summary: "CLI sürümü seçilen modeli desteklemiyor.", action: "CLI aracını güncelleyin veya desteklenen bir model seçin.", raw: clip(raw, 5000) };
   }
+  if (/sessiz kaldi|cikti uretmedi|CLI_STALLED/i.test(raw)) {
+    return { code: "CLI_STALLED", summary: "CLI yanit veya ilerleme bilgisi uretmeden bekledi ve otomatik durduruldu.", action: "Operator bu oturumda farkli bir agent kullanacak.", raw: clip(raw, 5000) };
+  }
   if (/API key not valid|API_KEY_INVALID/i.test(raw)) {
     return { code: "AUTH_INVALID", summary: "API anahtari gecersiz veya kullanilamiyor.", action: "Bu agentin kimlik bilgilerini duzeltin ya da baska bir agent kullanin.", raw: clip(raw, 5000) };
   }
@@ -66,6 +69,9 @@ function classifyCliError(error) {
   }
   if (/rate.?limit|too many requests|quota/i.test(raw)) {
     return { code: "RATE_LIMIT", summary: "Saglayici kota veya hiz sinirina takildi.", action: "Daha sonra deneyin veya alternatif agent kullanin.", raw: clip(raw, 5000) };
+  }
+  if (/ConnectionRefused|Unable to connect|provider hatasi|provider error|ECONNREFUSED/i.test(raw)) {
+    return { code: "PROVIDER_UNAVAILABLE", summary: "Secilen model saglayicisina baglanilamadi.", action: "OpenCode icin baska bir model secin veya saglayici baglantisini duzeltin.", raw: clip(raw, 5000) };
   }
   if (/not recognized as an internal|ENOENT|not found/i.test(raw)) {
     return { code: "CLI_NOT_FOUND", summary: "CLI komutu bulunamadi veya baslatilamadi.", action: "Agent komutunu ve PATH ayarini kontrol edin.", raw: clip(raw, 5000) };
@@ -76,8 +82,8 @@ function classifyCliError(error) {
   return { code: "CLI_FAILED", summary: clip(raw.split(/\r?\n/)[0], 500), action: "Teknik ayrintiyi inceleyin veya alternatif agent kullanin.", raw: clip(raw, 5000) };
 }
 
-const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_LIMIT", "CLI_NOT_FOUND", "TIMEOUT", "CLI_FAILED", "VERSION_INCOMPATIBLE"]);
-const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "CLI_NOT_FOUND", "VERSION_INCOMPATIBLE"]);
+const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_LIMIT", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "TIMEOUT", "CLI_STALLED", "CLI_FAILED", "VERSION_INCOMPATIBLE"]);
+const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "CLI_STALLED", "VERSION_INCOMPATIBLE"]);
 
 function resolveExecutionMode(task) {
   if (["fast", "balanced", "deep"].includes(task.executionMode)) return task.executionMode;
@@ -116,6 +122,31 @@ function windowsCommand(command, args) {
   const quote = (value) => `"${String(value).replace(/"/g, '""')}"`;
   const line = [command, ...args].map(quote).join(" ");
   return { file: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], shell: false, verbatim: true };
+}
+
+function childEnvironment(agent) {
+  const env = { ...process.env };
+  if (agent.adapter !== "opencode") return env;
+  let inline = {};
+  try { inline = JSON.parse(env.OPENCODE_CONFIG_CONTENT || "{}"); } catch {}
+  // Yeni OpenCode surumlerinde inline config izin sorularini kapatir. Eski surumler
+  // bu alani yok sayar ve non-interaktif `run` varsayilanini kullanir.
+  env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ ...inline, permission: { "*": "allow" } });
+  return env;
+}
+
+function normalizeCliOutput(agent, stdout) {
+  if (agent.adapter !== "opencode" || !(agent.args || []).includes("json")) return { text: String(stdout || "").trim(), error: "" };
+  const texts = [], errors = [];
+  for (const line of String(stdout || "").split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event.type === "text" && event.part?.text) texts.push(String(event.part.text));
+      if (event.type === "error") errors.push(String(event.error?.message || event.error || "OpenCode model/provider hatasi"));
+    } catch {}
+  }
+  return { text: texts.join("\n").trim(), error: errors.join("\n").trim() };
 }
 
 function parseJson(text, label) {
@@ -243,6 +274,11 @@ class Engine extends EventEmitter {
 
   start() {
     if (this.running) return;
+    if (!this.cfg().autonomousConsentAcceptedAt) {
+      const error = new Error("Otonom CLI calistirma kosullari henuz kabul edilmedi. Dashboard'daki ilk kullanim uyarisini onaylayin.");
+      error.code = "AUTONOMOUS_CONSENT_REQUIRED";
+      throw error;
+    }
     this.running = true;
     this.publish("log", { level: "info", msg: `Motor basladi. Mod=${this.cfg().approvalMode}` }, null);
     this.emit("status", this.status());
@@ -353,7 +389,8 @@ class Engine extends EventEmitter {
       const args = command.args;
       const cwd = this._cwd || path.resolve(store.ROOT, cfg.workingDir || ".");
       const started = Date.now();
-      let stdout = "", stderr = "", settled = false, timedOut = false, timer, forceKillTimer;
+      let stdout = "", stderr = "", settled = false, timedOut = false, silenceTimedOut = false;
+      let timer, silenceTimer, progressTimer;
       const base = { callId, agent: displayName, stage: meta.stage || "agent", assignmentId: meta.assignmentId || null };
 
       this.current = { id: this.current?.id, stage: base.stage, agent: displayName, callId };
@@ -361,45 +398,63 @@ class Engine extends EventEmitter {
       this.publish("activity", { ...base, kind: "process.started", cmd: agent.cmd, args: rawArgs, cwd });
 
       let child;
-      try { child = spawn(file, args, { cwd, windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
+      try { child = spawn(file, args, { cwd, env: childEnvironment(agent), windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
       catch (error) { return reject(error); }
       this.activeChild = child;
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
 
       const timeoutMs = Math.max(10, agent.timeoutSeconds || cfg.agentTimeoutSeconds || 900) * 1000;
+      const silenceTimeoutMs = Math.max(1, agent.silenceTimeoutSeconds || cfg.cliSilenceTimeoutSeconds || 300) * 1000;
+      let lastOutputAt = Date.now();
+      const terminateTree = () => {
+        if (isWin && child.pid) {
+          try { spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" }); } catch {}
+        } else {
+          try { child.kill("SIGKILL"); } catch {}
+        }
+      };
+      const armSilenceTimer = () => {
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          if (settled) return;
+          silenceTimedOut = true;
+          this.publish("activity", { ...base, kind: "process.silence-timeout", silenceTimeoutMs, elapsedMs: Date.now() - started });
+          terminateTree();
+        }, silenceTimeoutMs);
+      };
+      armSilenceTimer();
+      progressTimer = setInterval(() => {
+        if (settled) return;
+        this.publish("activity", { ...base, kind: "process.progress", elapsedMs: Date.now() - started, silentMs: Date.now() - lastOutputAt, silenceTimeoutMs });
+      }, 15000);
       timer = setTimeout(() => {
         if (settled) return;
         timedOut = true;
-        try { child.kill(); } catch {}
         this.publish("activity", { ...base, kind: "process.timeout", timeoutMs });
-        // Windows'ta shell sonlanirken alt CLI yasamaya devam edebilir. Kisa bir cikis
-        // suresinden sonra yalnizca baslattigimiz process agacini zorla kapat.
-        forceKillTimer = setTimeout(() => {
-          if (settled) return;
-          if (isWin && child.pid) {
-            try { spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" }); } catch {}
-          } else {
-            try { child.kill("SIGKILL"); } catch {}
-          }
-        }, 5000);
+        terminateTree();
       }, timeoutMs);
 
       child.stdout.on("data", (data) => {
         const text = String(data);
         stdout += text;
+        lastOutputAt = Date.now();
+        armSilenceTimer();
         this.publish("activity", { ...base, kind: "stdout", text });
       });
       child.stderr.on("data", (data) => {
         const text = String(data);
         stderr += text;
+        lastOutputAt = Date.now();
+        armSilenceTimer();
         this.publish("activity", { ...base, kind: "stderr", text });
       });
       child.on("error", (error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        clearTimeout(forceKillTimer);
+        clearTimeout(silenceTimer);
+        clearInterval(progressTimer);
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
         this.publish("activity", { ...base, kind: "process.failed", error: error.message, durationMs: Date.now() - started });
@@ -409,21 +464,25 @@ class Engine extends EventEmitter {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        clearTimeout(forceKillTimer);
+        clearTimeout(silenceTimer);
+        clearInterval(progressTimer);
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
         const durationMs = Date.now() - started;
-        this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs });
+        this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs, reason: silenceTimedOut ? "silence-timeout" : (timedOut ? "timeout" : null) });
+        if (silenceTimedOut) return reject(new Error(`CLI_STALLED: ${agent.cmd} ${Math.round(silenceTimeoutMs / 1000)} saniye boyunca cikti uretmedi ve otomatik durduruldu.`));
         if (timedOut) return reject(new Error(`${agent.cmd} ${Math.round(timeoutMs / 1000)} saniyede zaman asimina ugradi${signal ? ` (signal=${signal})` : ""}. ${clip(stdout || stderr, 500)}`));
         if (code !== 0) return reject(new Error(`${agent.cmd} cikis kodu ${code ?? "yok"}${signal ? ` (signal=${signal})` : ""}. ${clip(stderr || stdout, 500)}`));
-        if (!stdout.trim()) return reject(new Error(`${agent.cmd} bos cikti dondurdu.${stderr ? ` ${clip(stderr, 300)}` : ""}`));
-        resolve({ text: stdout.trim(), stderr: stderr.trim(), exitCode: code, durationMs, callId });
+        const normalized = normalizeCliOutput(agent, stdout);
+        if (normalized.error) return reject(new Error(`OpenCode model/provider hatasi: ${clip(normalized.error, 500)}`));
+        if (!normalized.text) return reject(new Error(`${agent.cmd} kullanilabilir cikti dondurmedi.${stderr ? ` ${clip(stderr, 300)}` : ""}`));
+        resolve({ text: normalized.text, stderr: stderr.trim(), exitCode: code, durationMs, callId });
       });
 
-      if (useStdin) {
-        child.stdin.on("error", () => {});
-        child.stdin.end(prompt);
-      }
+      // Prompt argumanla/dosyayla verilse bile stdin MUTLAKA kapatilmali. OpenCode gibi CLI'lar
+      // stdin TTY degilse borudan mesaj okur; EOF gelmezse model cagrisina hic gecmeden bloke olur.
+      child.stdin.on("error", () => {});
+      child.stdin.end(useStdin ? prompt : "");
     });
   }
 
@@ -449,6 +508,9 @@ class Engine extends EventEmitter {
         return parseJson(response.text, label);
       } catch (error) {
         lastError = error;
+        // Yalnizca gercek JSON protokol hatasi yeniden denenir. CLI'nin sessiz kalmasi,
+        // auth/timeout veya proses hatasi ayni operatoru tekrar calistirmamalidir.
+        if (!/gecerli JSON dondurmedi/i.test(String(error?.message || ""))) throw error;
         if (attempt >= retries) break;
         correction = `\n\nONCEKI CEVAP PROTOKOLE UYMADI: ${error.message}\nAciklama veya Markdown eklemeden yalnizca istenen JSON nesnesini yeniden dondur.`;
         this.publish("log", { level: "warn", msg: `${label} protokol hatasi; operator yeniden deneniyor (${attempt + 2}/${retries + 1}).` });
@@ -564,6 +626,7 @@ class Engine extends EventEmitter {
 
   async runTask(task) {
     const baseCfg = this.cfg();
+    if (!baseCfg.autonomousConsentAcceptedAt) throw new Error("Otonom CLI calistirma kosullari kabul edilmeden gorev calistirilamaz.");
     if (task.kind === "operator-chat") return this.runChatTask(task, baseCfg);
     task.executionMode = resolveExecutionMode(task);
     const cfg = applyExecutionPolicy(baseCfg, task.executionMode);

@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#07061a">
+  <title>Neon Lunapark</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; overflow: hidden; background: #050414; color: #fff; }
+    canvas { display: block; width: 100vw; height: 100vh; cursor: grab; touch-action: none; }
+    canvas:active { cursor: grabbing; }
+    .panel {
+      position: fixed; z-index: 2; top: 20px; left: 20px; width: min(350px, calc(100vw - 40px));
+      padding: 18px; border: 1px solid rgba(117, 236, 255, .28); border-radius: 18px;
+      background: linear-gradient(145deg, rgba(9, 8, 35, .86), rgba(28, 7, 47, .65));
+      box-shadow: 0 15px 50px rgba(0, 0, 0, .35), inset 0 1px rgba(255,255,255,.08);
+      backdrop-filter: blur(14px); pointer-events: auto;
+    }
+    .eyebrow { margin: 0 0 5px; color: #73efff; font-size: 11px; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(25px, 5vw, 38px); line-height: 1; letter-spacing: -.045em; }
+    .subtitle { margin: 9px 0 16px; color: #bfc4df; font-size: 13px; line-height: 1.45; }
+    .controls { display: flex; gap: 8px; }
+    button {
+      flex: 1; border: 1px solid rgba(255,255,255,.16); border-radius: 999px; padding: 10px 12px;
+      background: rgba(255,255,255,.07); color: #dfe4ff; font: inherit; font-size: 12px; font-weight: 750;
+      cursor: pointer; transition: .25s ease;
+    }
+    button:hover { transform: translateY(-1px); border-color: rgba(109,239,255,.58); }
+    button.active { color: #080719; background: linear-gradient(110deg, #63eaff, #ff72db); border-color: transparent; box-shadow: 0 0 22px rgba(99,234,255,.28); }
+    .hint { position: fixed; z-index: 2; right: 18px; bottom: 16px; margin: 0; color: rgba(227,231,255,.68); font-size: 11px; letter-spacing: .04em; text-shadow: 0 2px 10px #000; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; margin-top: 13px; color: #b8bdd6; font-size: 11px; }
+    .badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #67f6cd; box-shadow: 0 0 12px #67f6cd; }
+    @media (max-width: 560px) { .panel { top: 12px; left: 12px; width: calc(100vw - 24px); padding: 14px; } .subtitle { margin-bottom: 12px; } .hint { display: none; } }
+  </style>
+</head>
+<body>
+  <section class="panel" aria-label="Sahne kontrolleri">
+    <p class="eyebrow">Gece açık</p>
+    <h1>Neon Lunapark</h1>
+    <p class="subtitle">Minyatür parkın ışıkları yandı. Treni izle, dönme dolaba yaklaş ve gecenin ritmini değiştir.</p>
+    <div class="controls">
+      <button id="normalMode" class="active" type="button" aria-pressed="true">Normal Gece</button>
+      <button id="festivalMode" type="button" aria-pressed="false">Festival Modu</button>
+    </div>
+    <span id="status" class="badge" aria-live="polite">Sakin gece atmosferi</span>
+  </section>
+  <p class="hint">Sürükle: bakış açısı · Tekerlek: yakınlaş</p>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.165.0/build/three.module.js';
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050414);
+    scene.fog = new THREE.FogExp2(0x09071d, 0.018);
+
+    const camera = new THREE.PerspectiveCamera(48, innerWidth / innerHeight, 0.1, 220);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.prepend(renderer.domElement);
+
+    const world = new THREE.Group();
+    scene.add(world);
+    const neonMaterials = [];
+    const festivalLights = [];
+    const animatedBulbs = [];
+
+    const standard = (color, roughness = .55, metalness = .08) => new THREE.MeshStandardMaterial({ color, roughness, metalness });
+    function neon(color) {
+      const material = new THREE.MeshBasicMaterial({ color });
+      material.userData.baseColor = new THREE.Color(color);
+      neonMaterials.push(material);
+      return material;
+    }
+    function mesh(geometry, material, parent = world) {
+      const item = new THREE.Mesh(geometry, material);
+      item.castShadow = true;
+      item.receiveShadow = true;
+      parent.add(item);
+      return item;
+    }
+    function box(size, color, position, parent = world, material = null) {
+      const item = mesh(new THREE.BoxGeometry(...size), material || standard(color), parent);
+      item.position.set(...position);
+      return item;
+    }
+    function addPointLight(color, intensity, distance, position, parent = world) {
+      const light = new THREE.PointLight(color, intensity, distance, 2);
+      light.position.set(...position);
+      light.userData.baseIntensity = intensity;
+      parent.add(light);
+      festivalLights.push(light);
+      return light;
+    }
+
+    // Gece ışığı, ay ve yıldız kubbesi
+    scene.add(new THREE.HemisphereLight(0x7889d8, 0x160d25, 1.15));
+    const moonLight = new THREE.DirectionalLight(0xbacfff, 1.25);
+    moonLight.position.set(-20, 35, 16);
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.set(1024, 1024);
+    scene.add(moonLight);
+    const moon = mesh(new THREE.SphereGeometry(2.2, 24, 24), new THREE.MeshBasicMaterial({ color: 0xd9e8ff }), scene);
+    moon.position.set(-28, 31, -42);
+
+    const starPositions = [];
+    const seeded = (i) => {
+      const x = Math.sin(i * 127.1) * 43758.5453;
+      return x - Math.floor(x);
+    };
+    for (let i = 0; i < 750; i++) {
+      const angle = seeded(i) * Math.PI * 2;
+      const radius = 55 + seeded(i + 900) * 55;
+      const y = 14 + seeded(i + 1700) * 52;
+      starPositions.push(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+    }
+    const starGeometry = new THREE.BufferGeometry();
+    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    scene.add(new THREE.Points(starGeometry, new THREE.PointsMaterial({ color: 0xc7d5ff, size: .18, transparent: true, opacity: .82 })));
+
+    const ground = mesh(new THREE.CylinderGeometry(35, 37, 1.1, 64), standard(0x111326, .92), world);
+    ground.position.y = -.7;
+    const groundRing = mesh(new THREE.TorusGeometry(35.1, .2, 8, 96), neon(0x4cdff2), world);
+    groundRing.rotation.x = Math.PI / 2;
+    groundRing.position.y = -.1;
+    const plaza = mesh(new THREE.CircleGeometry(12, 48), standard(0x22223b, .8), world);
+    plaza.rotation.x = -Math.PI / 2;
+    plaza.position.y = -.08;
+
+    // Kapalı yükseltili ray
+    const trackPoints = [
+      [-25, 2, -10], [-19, 4, -20], [-7, 8, -24], [8, 13, -22], [21, 7, -14], [26, 3, -2],
+      [23, 2, 12], [12, 4, 20], [-2, 3, 23], [-15, 2, 19], [-25, 4, 10], [-29, 3, 0]
+    ].map(p => new THREE.Vector3(...p));
+    const trackCurve = new THREE.CatmullRomCurve3(trackPoints, true, 'catmullrom', .35);
+    const railMat = standard(0x59647e, .26, .75);
+    [-.72, .72].forEach(offset => {
+      const offsetPoints = [];
+      for (let i = 0; i < 180; i++) {
+        const t = i / 180;
+        const point = trackCurve.getPointAt(t);
+        const tangent = trackCurve.getTangentAt(t).normalize();
+        const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), tangent).normalize();
+        offsetPoints.push(point.clone().addScaledVector(side, offset));
+      }
+      const railCurve = new THREE.CatmullRomCurve3(offsetPoints, true);
+      mesh(new THREE.TubeGeometry(railCurve, 260, .13, 7, true), railMat, world);
+    });
+    const sleeperGeo = new THREE.BoxGeometry(2.05, .16, .28);
+    for (let i = 0; i < 82; i++) {
+      const t = i / 82;
+      const sleeper = mesh(sleeperGeo, standard(0x33283a, .8), world);
+      const point = trackCurve.getPointAt(t);
+      const tangent = trackCurve.getTangentAt(t).normalize();
+      sleeper.position.copy(point).add(new THREE.Vector3(0, -.18, 0));
+      sleeper.rotation.y = Math.atan2(tangent.x, tangent.z);
+      if (i % 5 === 0) {
+        const height = Math.max(.35, point.y);
+        const support = mesh(new THREE.CylinderGeometry(.13, .2, height, 7), standard(0x30364c, .7, .4), world);
+        support.position.set(point.x, height / 2, point.z);
+      }
+    }
+
+    // Üç vagonlu tren
+    const train = [];
+    const carColors = [0xff3d9a, 0x37d9ff, 0xffbf3c];
+    for (let i = 0; i < 3; i++) {
+      const car = new THREE.Group();
+      const body = box([2.25, .85, 1.45], carColors[i], [0, .55, 0], car);
+      body.material.metalness = .28;
+      box([1.75, .45, 1.15], 0x18172b, [0, 1.1, 0], car);
+      [-.68, .68].forEach(x => [-.58, .58].forEach(z => {
+        const wheel = mesh(new THREE.CylinderGeometry(.22, .22, .14, 12), standard(0x09090f, .7), car);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(x, .02, z);
+      }));
+      const lamp = mesh(new THREE.SphereGeometry(.12, 10, 8), neon(carColors[i]), car);
+      lamp.position.set(0, .55, .76);
+      train.push(car);
+      world.add(car);
+    }
+
+    // Dönme dolap: iki çember, parmaklıklar ve dik kalan kabinler
+    const ferris = new THREE.Group();
+    ferris.position.set(12, 10, 2);
+    ferris.rotation.y = -.18;
+    world.add(ferris);
+    const wheel = new THREE.Group();
+    ferris.add(wheel);
+    [-.48, .48].forEach(z => {
+      const ring = mesh(new THREE.TorusGeometry(8.4, .16, 10, 80), neon(z < 0 ? 0xff4fca : 0x53e8ff), wheel);
+      ring.position.z = z;
+    });
+    for (let i = 0; i < 12; i++) {
+      const a = i / 12 * Math.PI * 2;
+      const spoke = mesh(new THREE.CylinderGeometry(.07, .07, 16.2, 7), standard(0x71809a, .3, .55), wheel);
+      spoke.rotation.z = a + Math.PI / 2;
+      const gondola = new THREE.Group();
+      gondola.position.set(Math.cos(a) * 8.4, Math.sin(a) * 8.4, 0);
+      box([1.45, .8, 1.25], i % 2 ? 0xffb22f : 0x4de4e1, [0, -.34, 0], gondola);
+      box([1.65, .12, 1.4], 0xf73aa9, [0, .25, 0], gondola);
+      wheel.add(gondola);
+      gondola.userData.baseAngle = a;
+      animatedBulbs.push(gondola);
+    }
+    const hub = mesh(new THREE.CylinderGeometry(.72, .72, 1.6, 20), standard(0xffd056, .3, .55), ferris);
+    hub.rotation.x = Math.PI / 2;
+    [[-4.8, -10, -.75, .43], [4.8, -10, -.75, -.43]].forEach(([x,y,z,r]) => {
+      [-1.25, 1.25].forEach(depth => {
+        const leg = box([.42, 11.8, .42], 0x45506c, [x / 2, y / 2, depth], ferris);
+        leg.rotation.z = r;
+      });
+    });
+    addPointLight(0xff53d1, 5, 20, [0, 0, 2], ferris);
+
+    // Stant üreticisi: gövde, tente, tabela ve sıcak tezgâh ışığı
+    function buildStand({ name, color, accent, position, rotation = 0, kind }) {
+      const stand = new THREE.Group();
+      stand.position.set(...position);
+      stand.rotation.y = rotation;
+      world.add(stand);
+      box([6, 3.4, 4], color, [0, 1.7, 0], stand);
+      box([6.6, .32, 4.6], accent, [0, 3.55, 0], stand);
+      box([4.8, 1.45, .18], 0x100f20, [0, 2.25, 2.08], stand);
+      box([5.4, .35, 1], accent, [0, 1.38, 2.55], stand);
+      const sign = box([4.3, .8, .18], 0x11101d, [0, 4.35, .12], stand);
+      sign.material = neon(accent);
+      sign.userData.label = name;
+      for (let i = -2; i <= 2; i++) {
+        const bulb = mesh(new THREE.SphereGeometry(.09, 8, 8), neon(i % 2 ? 0xfff08a : 0xffffff), stand);
+        bulb.position.set(i * .9, 4.36, .25);
+        animatedBulbs.push(bulb);
+      }
+      if (kind === 'ticket') {
+        [-1.35, 1.35].forEach(x => box([1.5, 1.05, .1], 0x7ae9ff, [x, 2.2, 2.2], stand, neon(0x4fdff4)));
+      } else if (kind === 'game') {
+        [-1.5, 0, 1.5].forEach((x, i) => {
+          const target = mesh(new THREE.TorusGeometry(.34, .1, 8, 18), neon([0xffdf5b, 0xff4fbd, 0x5bf2ff][i]), stand);
+          target.position.set(x, 2.25, 2.2);
+        });
+      } else {
+        const cone = mesh(new THREE.ConeGeometry(.48, 1.35, 16), standard(0xd69a55), stand);
+        cone.position.set(0, 4.9, 0);
+        const scoop = mesh(new THREE.SphereGeometry(.48, 16, 12), neon(0xff7aba), stand);
+        scoop.position.set(0, 5.65, 0);
+      }
+      addPointLight(accent, 2.4, 10, [0, 3, 3.5], stand);
+      return stand;
+    }
+    buildStand({ name: 'BİLET', color: 0x6c255e, accent: 0x58e9ff, position: [-6, 0, 13], rotation: -.1, kind: 'ticket' });
+    buildStand({ name: 'OYUN', color: 0x243c77, accent: 0xff4db8, position: [-15, 0, 5], rotation: Math.PI / 2.7, kind: 'game' });
+    buildStand({ name: 'LEZZET', color: 0x71342b, accent: 0xffc547, position: [1, 0, -11], rotation: Math.PI, kind: 'food' });
+
+    // Giriş kemeri ve yönlendirme ışıkları
+    const entrance = new THREE.Group();
+    entrance.position.set(-2, 0, 22);
+    entrance.rotation.y = Math.PI;
+    world.add(entrance);
+    [-3.2, 3.2].forEach(x => box([.48, 5.7, .48], 0x303552, [x, 2.85, 0], entrance));
+    const arch = mesh(new THREE.TorusGeometry(3.2, .22, 10, 36, Math.PI), neon(0x54efff), entrance);
+    arch.position.y = 5.45;
+    for (let i = 0; i < 10; i++) {
+      const a = i / 10 * Math.PI;
+      const bulb = mesh(new THREE.SphereGeometry(.13, 8, 8), neon(i % 2 ? 0xff4ccf : 0xffdc54), entrance);
+      bulb.position.set(Math.cos(a) * 3.2, 5.45 + Math.sin(a) * 3.2, .08);
+      animatedBulbs.push(bulb);
+    }
+    addPointLight(0x54eaff, 4, 15, [0, 5, 2], entrance);
+
+    // Kamera: otomatik yörünge + sınırlı sürükleme ve yakınlaştırma
+    const pointer = { down: false, x: 0, y: 0 };
+    let userYaw = 0, userPitch = .08, targetYaw = 0, targetPitch = .08, cameraRadius = 49;
+    renderer.domElement.addEventListener('pointerdown', event => {
+      pointer.down = true; pointer.x = event.clientX; pointer.y = event.clientY;
+      renderer.domElement.setPointerCapture(event.pointerId);
+    });
+    renderer.domElement.addEventListener('pointermove', event => {
+      if (!pointer.down) return;
+      targetYaw += (event.clientX - pointer.x) * .0045;
+      targetPitch = THREE.MathUtils.clamp(targetPitch + (event.clientY - pointer.y) * .003, -.08, .48);
+      targetYaw = THREE.MathUtils.clamp(targetYaw, -1.2, 1.2);
+      pointer.x = event.clientX; pointer.y = event.clientY;
+    });
+    const releasePointer = () => { pointer.down = false; };
+    renderer.domElement.addEventListener('pointerup', releasePointer);
+    renderer.domElement.addEventListener('pointercancel', releasePointer);
+    renderer.domElement.addEventListener('wheel', event => {
+      event.preventDefault();
+      cameraRadius = THREE.MathUtils.clamp(cameraRadius + event.deltaY * .018, 33, 66);
+    }, { passive: false });
+
+    let festivalTarget = 0;
+    let festivalMix = 0;
+    const normalButton = document.querySelector('#normalMode');
+    const festivalButton = document.querySelector('#festivalMode');
+    const status = document.querySelector('#status');
+    function setFestival(enabled) {
+      festivalTarget = enabled ? 1 : 0;
+      normalButton.classList.toggle('active', !enabled);
+      festivalButton.classList.toggle('active', enabled);
+      normalButton.setAttribute('aria-pressed', String(!enabled));
+      festivalButton.setAttribute('aria-pressed', String(enabled));
+      status.textContent = enabled ? 'Festival ışıkları aktif' : 'Sakin gece atmosferi';
+    }
+    normalButton.addEventListener('click', () => setFestival(false));
+    festivalButton.addEventListener('click', () => setFestival(true));
+
+    const clock = new THREE.Clock();
+    let elapsed = 0;
+    const forward = new THREE.Vector3(0, 0, 1);
+    renderer.setAnimationLoop(() => {
+      const delta = Math.min(clock.getDelta(), .05);
+      elapsed += delta;
+      festivalMix = THREE.MathUtils.damp(festivalMix, festivalTarget, 3.2, delta);
+      const pace = 1 + festivalMix * .42;
+
+      train.forEach((car, i) => {
+        const t = (elapsed * .032 * pace - i * .015 + 1) % 1;
+        const point = trackCurve.getPointAt(t);
+        const tangent = trackCurve.getTangentAt(t).normalize();
+        car.position.copy(point).add(new THREE.Vector3(0, .28, 0));
+        car.quaternion.setFromUnitVectors(forward, tangent);
+      });
+
+      wheel.rotation.z = elapsed * .11 * pace;
+      animatedBulbs.slice(0, 12).forEach(gondola => { gondola.rotation.z = -wheel.rotation.z; });
+
+      const pulse = .76 + Math.sin(elapsed * (2.2 + festivalMix * 5)) * (.08 + festivalMix * .2);
+      neonMaterials.forEach((material, i) => {
+        material.opacity = THREE.MathUtils.clamp(pulse + Math.sin(elapsed * 4 + i) * festivalMix * .12, .5, 1);
+        material.transparent = true;
+      });
+      festivalLights.forEach((light, i) => {
+        light.intensity = light.userData.baseIntensity * (1 + festivalMix * 1.4) * (1 + Math.sin(elapsed * 7 + i) * festivalMix * .18);
+      });
+      renderer.toneMappingExposure = 1.05 + festivalMix * .35;
+      scene.fog.density = .018 - festivalMix * .004;
+      scene.background.setRGB(.02 + festivalMix * .025, .016, .075 + festivalMix * .035);
+
+      userYaw = THREE.MathUtils.damp(userYaw, targetYaw, 5, delta);
+      userPitch = THREE.MathUtils.damp(userPitch, targetPitch, 5, delta);
+      const orbit = elapsed * .045 + userYaw;
+      camera.position.set(
+        Math.sin(orbit) * cameraRadius,
+        20 + Math.sin(userPitch) * 25,
+        Math.cos(orbit) * cameraRadius
+      );
+      camera.lookAt(0, 5.5, 0);
+      renderer.render(scene, camera);
+    });
+
+    addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    });
+  </script>
+</body>
+</html>

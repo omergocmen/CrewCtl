@@ -12,7 +12,7 @@ function nodeOk() {
   return { major, ok: major >= 18 };
 }
 
-function main() {
+function main(options = {}) {
   store.ensureDirs();
   const n = nodeOk();
   console.log(`\n${B}CLI Team — Ortam Teşhisi${X}\n`);
@@ -31,8 +31,13 @@ function main() {
   }
 
   const cfg = store.loadConfig();
-  const changed = cliRegistry.addMissingAgents(cfg, clis) | cliRegistry.ensureValidOperator(cfg, clis);
-  if (changed) store.saveConfig(cfg);
+  // Varsayilan teshis salt okunurdur. Farkli bir PATH ile calisan doctor komutu
+  // kullanicinin mevcut agent'larini sessizce devre disi birakmamalidir.
+  let changed = false;
+  if (options.fix) {
+    changed = Boolean(cliRegistry.addMissingAgents(cfg, clis) | cliRegistry.ensureValidOperator(cfg, clis));
+    if (changed) store.saveConfig(cfg);
+  }
   const agents = Object.entries(cfg.agents).filter(([, a]) => a.enabled !== false);
   console.log(`\n${B}Yapılandırma${X}`);
   console.log(`  Operatör CLI: ${cfg.operator?.cli || "(yok)"}`);
@@ -50,7 +55,10 @@ function main() {
   } else {
     console.log(ok(`Hazır. ${B}npm start${X} ile paneli açın.`));
   }
+  if (options.fix) console.log(changed ? ok("Yapilandirma guncellendi.") : `${DIM}Yapilandirma degisikligi gerekmedi.${X}`);
   console.log("");
 }
 
-main();
+if (require.main === module) main({ fix: process.argv.includes("--fix") });
+
+module.exports = { main, nodeOk };

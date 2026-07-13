@@ -148,39 +148,65 @@ function serveStatic(res, file) {
 
 // ---- Klasor gezgini ----
 let driveCache = { at: 0, value: [] };
+function uniqExistingDirs(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item.path || seen.has(item.path.toLowerCase())) return false;
+    seen.add(item.path.toLowerCase());
+    try { return fs.statSync(item.path).isDirectory(); } catch { return false; }
+  });
+}
 function listDrives() {
   if (Date.now() - driveCache.at < 30000) return driveCache.value.slice();
-  const drives = [];
+  const found = new Set();
+  for (const d of [process.env.SystemDrive, process.env.HOMEDRIVE]) {
+    if (d) found.add(path.parse(d).root || `${d.replace(/[\\/]$/, "")}\\`);
+  }
   for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
     const d = c + ":\\";
-    try { fs.accessSync(d); drives.push(d); } catch {}
+    try {
+      if (fs.statSync(d).isDirectory()) found.add(d);
+    } catch {}
   }
+  const drives = [...found].sort((a, b) => a.localeCompare(b));
   driveCache = { at: Date.now(), value: drives };
   return drives.slice();
 }
 function explorerPlaces() {
   const home = os.homedir();
+  const oneDrive = process.env.OneDrive || process.env.OneDriveConsumer || process.env.OneDriveCommercial;
   const candidates = [
     { id: "home", label: "Ana klasör", icon: "⌂", path: home },
     { id: "desktop", label: "Masaüstü", icon: "▣", path: path.join(home, "Desktop") },
+    oneDrive && { id: "onedrive-desktop", label: "OneDrive Masaüstü", icon: "▣", path: path.join(oneDrive, "Desktop") },
     { id: "documents", label: "Belgeler", icon: "▤", path: path.join(home, "Documents") },
+    oneDrive && { id: "onedrive-documents", label: "OneDrive Belgeler", icon: "▤", path: path.join(oneDrive, "Documents") },
     { id: "downloads", label: "İndirilenler", icon: "↓", path: path.join(home, "Downloads") },
     { id: "project", label: "Orkestratör", icon: "◇", path: store.ROOT },
-  ];
-  return candidates.filter((place) => {
-    try { return fs.statSync(place.path).isDirectory(); } catch { return false; }
-  });
+  ].filter(Boolean);
+  return uniqExistingDirs(candidates);
 }
-function browseDir(p) {
+function rootBrowse(message) {
+  if (process.platform === "win32") {
+    const drives = listDrives();
+    return {
+      path: "",
+      parent: null,
+      dirs: drives,
+      drives,
+      entries: drives.map((drive) => ({ name: drive, path: drive, type: "drive", modifiedAt: null })),
+      places: explorerPlaces(),
+      isRoot: true,
+      warning: message || "",
+    };
+  }
+  return browseDir("/", message);
+}
+function browseDir(p, warning = "") {
   try {
-    if (!p) {
-      if (process.platform === "win32") {
-        const dirs = listDrives();
-        return { path: "", parent: null, dirs, drives: dirs, entries: dirs.map((drive) => ({ name: drive, path: drive, type: "drive", modifiedAt: null })), places: explorerPlaces(), isRoot: true };
-      }
-      p = "/";
-    }
+    if (!p) return rootBrowse(warning);
     const abs = path.resolve(p);
+    if (!fs.statSync(abs).isDirectory()) throw new Error("Klasör değil");
     const entries = fs
       .readdirSync(abs, { withFileTypes: true })
       .filter((e) => { try { return e.isDirectory(); } catch { return false; } })
@@ -197,9 +223,10 @@ function browseDir(p) {
     const up = path.dirname(abs);
     const parent = isDriveRoot ? "" : up === abs ? null : up;
     const drives = process.platform === "win32" ? listDrives() : [];
-    return { path: abs, parent, dirs, drives, entries, places: explorerPlaces() };
+    return { path: abs, parent, dirs, drives, entries, places: explorerPlaces(), warning };
   } catch (e) {
-    return { path: p || "", parent: null, dirs: [], drives: process.platform === "win32" ? listDrives() : [], entries: [], places: explorerPlaces(), error: e.message };
+    const requested = p ? String(p) : "";
+    return rootBrowse(requested ? `"${requested}" açılamadı; bu bilgisayar gösteriliyor.` : e.message);
   }
 }
 
@@ -236,6 +263,14 @@ const server = http.createServer(async (req, res) => {
           workingDirAbs: path.resolve(store.ROOT, cfg.workingDir || "."),
         });
       }
+      if (pathname === "/api/security/autonomous-consent" && req.method === "POST") {
+        const { accepted } = await readBody(req);
+        if (accepted !== true) return send(res, 400, { error: "Acik kabul gerekli." });
+        const cfg = store.loadConfig();
+        cfg.autonomousConsentAcceptedAt = cfg.autonomousConsentAcceptedAt || new Date().toISOString();
+        store.saveConfig(cfg);
+        return send(res, 200, { accepted: true, acceptedAt: cfg.autonomousConsentAcceptedAt });
+      }
       if (pathname === "/api/fs" && req.method === "GET") {
         return send(res, 200, browseDir(url.parse(req.url, true).query.path));
       }
@@ -246,7 +281,8 @@ const server = http.createServer(async (req, res) => {
         // Operatör, uzman agent'lardan bağımsız bir CLI'dır (claude/codex/gemini/opencode);
         // operator.md rolüyle ekibi yönetir. Belirtilmemiş/geçersizse kurulu bir CLI'ye geçilir.
         const cliEntry = (name) => cliStatus.find((c) => c.id === name);
-        const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed);
+        const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed
+          && (name !== "opencode" || c.ready !== false || Boolean(cfg.operator?.model)));
         const usableCli = (name) => {
           const entry = cliEntry(name);
           return installedCli(name) && (!entry?.health || entry.health.status === "ready");
@@ -285,14 +321,11 @@ const server = http.createServer(async (req, res) => {
         const found = store.findTask(m[1]);
         if (!found) return send(res, 404, { error: "gorev yok" });
         if (m[2] === "approve") {
-          if (found.task.planHash && found.task.planPreview && found.task.planHash !== store.hashText(found.task.planPreview)) {
-            return send(res, 409, { error: "plan onaydan sonra degismis; onay reddedildi" });
-          }
-          found.task.approved = true;
-          found.task.status = "pending";
-          store.moveTask(found.state, "pending", found.task);
+          try { store.approveTask(m[1]); }
+          catch (error) { return send(res, 409, { error: error.message }); }
         } else {
-          store.moveTask(found.state, "failed", found.task);
+          try { store.rejectTask(m[1]); }
+          catch (error) { return send(res, 409, { error: error.message }); }
         }
         broadcast("queue", snapshot());
         return send(res, 200, { ok: true });
@@ -300,9 +333,13 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         cliStatus = cliRegistry.discoverInstalled();
         const cfg = store.loadConfig();
+        const body = await readBody(req);
+        if (Array.isArray(body.ignoredAdapters)) {
+          cfg.discoveryIgnoredAdapters = [...new Set(body.ignoredAdapters.filter((id) => cliRegistry.KNOWN_CLIS.includes(id)))];
+        }
         let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
         if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-        if (changed) store.saveConfig(cfg);
+        if (changed || Array.isArray(body.ignoredAdapters)) store.saveConfig(cfg);
         await refreshCliHealth(true);
         return send(res, 200, { cliStatus, changed, config: store.loadConfig() });
       }
@@ -360,7 +397,10 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/engine" && req.method === "POST") {
         const { action, mode } = await readBody(req);
         if (mode) engine.setMode(mode);
-        if (action === "start") engine.start();
+        if (action === "start") {
+          if (!store.loadConfig().autonomousConsentAcceptedAt) return send(res, 409, { error: "Otonom CLI kosullarini once onaylayin.", code: "AUTONOMOUS_CONSENT_REQUIRED" });
+          engine.start();
+        }
         if (action === "stop") engine.stop();
         return send(res, 200, engine.status());
       }
