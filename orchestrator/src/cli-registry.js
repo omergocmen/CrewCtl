@@ -1,4 +1,4 @@
-const { spawnSync } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -168,6 +168,139 @@ function discoverInstalled() {
   return Object.entries(DEFINITIONS).map(([id, definition]) => ({ id, ...definition, ...probe(id, definition) }));
 }
 
+function healthCommand(command, args) {
+  if (!isWin) return { file: command, args, shell: false };
+  const bare = !path.isAbsolute(command) && !/[\\/]/.test(command);
+  if (bare) return { file: command, args, shell: true };
+  if (!/\.(cmd|bat)$/i.test(command)) return { file: command, args, shell: false };
+  const quote = (value) => `"${String(value).replace(/"/g, '""')}"`;
+  return { file: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${[command, ...args].map(quote).join(" ")}"`], shell: false, verbatim: true };
+}
+
+function healthPrompt(id) {
+  return [
+    "CLI_TEAM_HEALTH_CHECK",
+    `Bu ${id} cli aracinin kullanilabilirlik testidir.`,
+    "Yalnizca HEALTH_OK yaz.",
+    "Dosya olusturma, degistirme, silme, komut calistirma veya dis sisteme istek gonderme.",
+  ].join("\n");
+}
+
+function classifyHealthFailure(text) {
+  const raw = String(text || "");
+  if (/requires a newer version|upgrade to the latest|version.*unsupported|unsupported.*version|model metadata.*not found|unsupported.*model/i.test(raw)) return { status: "version-incompatible", label: "Sürüm uyumsuz", detail: raw };
+  if (/api key|unauthorized|unauthenticated|authentication|login required|not logged in|sign in|giriÅŸ gerekli/i.test(raw)) return { status: "auth-required", label: "Giriş gerekli", detail: raw };
+  if (/rate.?limit|quota|too many requests|billing|credit/i.test(raw)) return { status: "quota", label: "Kota veya ödeme gerekli", detail: raw };
+  if (/timeout|timed out|zaman aÅŸÄ±m/i.test(raw)) return { status: "timeout", label: "Yanıt zaman aşımına uğradı", detail: raw };
+  return { status: "failed", label: "Test başarısız", detail: raw };
+}
+
+function testInstalledCli(id, options = {}) {
+  const definition = DEFINITIONS[id];
+  if (!definition) return Promise.resolve({ id, installed: false, health: { status: "unknown", label: "Bilinmiyor", detail: "Tanımsız CLI" } });
+  const found = probe(id, definition);
+  if (!found.installed) return Promise.resolve({ id, installed: false, version: found.version, error: found.error, health: { status: "not-installed", label: "Kurulu değil", detail: found.error || "CLI bulunamadı" } });
+  const agent = effectiveAgent({ adapter: id, cmd: definition.command, args: definition.defaultArgs.slice() });
+  const command = healthCommand(agent.cmd, agent.args);
+  const timeoutMs = Math.max(10000, Number(options.timeoutMs || 45000));
+  return new Promise((resolve) => {
+    let stdout = "", stderr = "", settled = false;
+    const child = spawn(command.file, command.args, { shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim });
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try { child.kill(); } catch {}
+      resolve({ id, installed: true, version: found.version, health: { status: "timeout", label: "Yanıt zaman aşımına uğradı", detail: `Sağlık testi ${Math.round(timeoutMs / 1000)} saniyede tamamlanmadı.` } });
+    }, timeoutMs);
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (data) => { stdout += String(data); });
+    child.stderr?.on("data", (data) => { stderr += String(data); });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const failure = classifyHealthFailure(error.message);
+      resolve({ id, installed: true, version: found.version, health: failure });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const raw = `${stdout}\n${stderr}`.trim();
+      if (code === 0 && /HEALTH_OK/i.test(raw)) resolve({ id, installed: true, version: found.version, health: { status: "ready", label: "Hazır", detail: "Gerçek sağlık testi başarılı." } });
+      else resolve({ id, installed: true, version: found.version, health: classifyHealthFailure(raw || `Çıkış kodu ${code}`) });
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(healthPrompt(id));
+  });
+}
+
+async function healthCheckAll(discovered = discoverInstalled(), options = {}) {
+  const results = await Promise.all(discovered.map((item) => testInstalledCli(item.id, options)));
+  return discovered.map((item) => ({ ...item, ...(results.find((result) => result.id === item.id) || {}) }));
+}
+
+function listCodexModels(options = {}) {
+  const command = healthCommand("codex", ["app-server", "--listen", "stdio://"]);
+  const timeoutMs = Math.max(5000, Number(options.timeoutMs || 20000));
+  return new Promise((resolve, reject) => {
+    let buffer = "", settled = false, modelRequestSent = false;
+    let child;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child?.kill(); } catch {}
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new Error(`Codex model listesi ${Math.round(timeoutMs / 1000)} saniyede alınamadı.`)), timeoutMs);
+    try { child = spawn(command.file, command.args, { shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim }); }
+    catch (error) { finish(error); return; }
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      buffer += String(chunk);
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        let message;
+        try { message = JSON.parse(line); } catch { continue; }
+        if (message.id === 1 && !modelRequestSent) {
+          modelRequestSent = true;
+          child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "model/list", params: { includeHidden: false, limit: 200 } })}\n`);
+        } else if (message.id === 2) {
+          if (message.error) { finish(new Error(message.error.message || "Codex model listesi alınamadı.")); return; }
+          const models = Array.isArray(message.result?.data) ? message.result.data : [];
+          finish(null, models.filter((model) => model && model.hidden !== true).map((model) => ({
+            id: String(model.id || model.model || ""),
+            model: String(model.model || model.id || ""),
+            displayName: String(model.displayName || model.id || model.model || ""),
+            description: String(model.description || ""),
+            defaultReasoningEffort: String(model.defaultReasoningEffort || "medium"),
+            reasoningEfforts: (model.supportedReasoningEfforts || []).map((item) => ({
+              id: String(item.reasoningEffort || item.id || ""),
+              description: String(item.description || ""),
+            })).filter((item) => item.id),
+            serviceTiers: (model.serviceTiers || []).map((item) => ({
+              id: String(item.id || ""),
+              name: String(item.name || item.id || ""),
+              description: String(item.description || ""),
+            })).filter((item) => item.id),
+            additionalSpeedTiers: Array.isArray(model.additionalSpeedTiers) ? model.additionalSpeedTiers.map(String) : [],
+            defaultServiceTier: model.defaultServiceTier ? String(model.defaultServiceTier) : "",
+            isDefault: model.isDefault === true,
+          })).filter((model) => model.id));
+        }
+      }
+    });
+    child.stderr?.on("data", () => {});
+    child.on("error", finish);
+    child.stdin?.on("error", () => {});
+    child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "cli-team-command-center", version: "1.0.0", title: "CLI Team" } } })}\n`);
+  });
+}
+
 function addMissingAgents(cfg, discovered) {
   cfg.agents ||= {};
   let changed = false;
@@ -225,6 +358,15 @@ function operatorSpec(cli, cfg) {
   const cmd = op.cmd || (definition && definition.command);
   if (!cmd) return null;
   const args = op.cmd ? (Array.isArray(op.args) ? op.args.slice() : []) : (definition ? definition.defaultArgs.slice() : []);
+  if (cli === "codex") {
+    const settings = op.codexSettings || {};
+    const effort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(settings.reasoningEffort)) ? String(settings.reasoningEffort) : "";
+    const model = String(settings.model || "").trim();
+    const serviceTier = ["fast", "priority"].includes(String(settings.serviceTier)) ? String(settings.serviceTier) : "";
+    if (model && !args.includes("--model")) args.push("--model", model);
+    if (effort && !args.some((arg) => String(arg).startsWith("model_reasoning_effort="))) args.push("-c", `model_reasoning_effort="${effort}"`);
+    if (serviceTier && !args.some((arg) => String(arg).startsWith("service_tier="))) args.push("-c", `service_tier="${serviceTier}"`);
+  }
   const timeoutSeconds = op.timeoutSeconds || (cfg && cfg.agentTimeoutSeconds) || 900;
   const adapter = definition ? cli : (op.adapter || adapterId(cmd));
   return effectiveAgent({ adapter, cmd, args, timeoutSeconds });
@@ -253,4 +395,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, effectiveAgent, operatorSpec, discoverInstalled, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, effectiveAgent, operatorSpec, discoverInstalled, healthCheckAll, listCodexModels, addMissingAgents, ensureValidOperator };

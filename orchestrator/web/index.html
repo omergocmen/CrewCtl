@@ -6,14 +6,14 @@
 <title>CLI Team Command Center</title>
 <style>
 *{box-sizing:border-box}
-:root{--bg:#0b0f16;--panel:#131a24;--panel2:#1a2331;--line:#28374c;--tx:#e8eef7;--dim:#8ea0b8;--acc:#65a7ff;--ok:#42d392;--warn:#f2bd57;--err:#ff6b75;--purple:#bd93f9;
+:root{--bg:#0b0f16;--panel:#131a24;--panel2:#1a2331;--line:#28374c;--tx:#e8eef7;--dim:#8ea0b8;--acc:#65a7ff;--ok:#42d392;--warn:#f2bd57;--err:#ff6b75;--purple:#bd93f9;--fail-bg:#24141a;--fail-panel:#2d1820;--fail-line:#8f3341;--fail-soft:#ffc5cc;
 --headerbg:#0d131d;--input:#0c121c;--term:#070b11;--termtx:#cbd7e8;--nodebg:#0c131e;--glow:#65a7ff22;--shadow:0 10px 40px #0007;--appbg:radial-gradient(1100px 520px at 12% -8%,#65a7ff10,transparent),radial-gradient(900px 500px at 92% -6%,#bd93f912,transparent),var(--bg)}
-[data-theme=light]{--bg:#eaeef5;--panel:#ffffff;--panel2:#f2f6fc;--line:#d7dfeb;--tx:#17212f;--dim:#5a6b80;--acc:#2b6fff;--ok:#0f9d63;--warn:#a86a10;--err:#d6404b;--purple:#7c4dff;
+[data-theme=light]{--bg:#eaeef5;--panel:#ffffff;--panel2:#f2f6fc;--line:#d7dfeb;--tx:#17212f;--dim:#5a6b80;--acc:#2b6fff;--ok:#0f9d63;--warn:#a86a10;--err:#d6404b;--purple:#7c4dff;--fail-bg:#fff1f2;--fail-panel:#fff8f8;--fail-line:#d6404b;--fail-soft:#8f1f28;
 --headerbg:#ffffffee;--input:#f4f8fd;--term:#0f1620;--termtx:#cbd7e8;--nodebg:#f6f9fd;--glow:#2b6fff1f;--shadow:0 10px 34px #7a90b81f;--appbg:radial-gradient(1100px 520px at 12% -8%,#2b6fff12,transparent),radial-gradient(900px 500px at 92% -6%,#7c4dff10,transparent),var(--bg)}
 [data-theme=light] .team-node.operator{background:#f1ecff}
-[data-theme=light] .friendly-error{background:#fdecee;color:#8f1f28;border-color:#d6404b55}[data-theme=light] .friendly-error b{color:#c02e39}[data-theme=light] .friendly-error small{color:#9a5a60}
+[data-theme=light] .friendly-error{background:var(--fail-panel);color:var(--fail-soft);border-color:var(--fail-line)}[data-theme=light] .friendly-error b{color:var(--err)}[data-theme=light] .friendly-error small{color:var(--dim)}
 [data-theme=light] .friendly-error.success{background:#e9f8f0;color:#0d5c3c;border-color:#0f9d6355}[data-theme=light] .friendly-error.success b{color:var(--ok)}[data-theme=light] .friendly-error.success small{color:#4f7d68}
-[data-theme=light] .msg.failure,[data-theme=light] .msg.blocked{background:#fdecef}
+[data-theme=light] .msg.failure,[data-theme=light] .msg.blocked{background:var(--fail-bg)}
 body{margin:0;background:var(--appbg);background-attachment:fixed;color:var(--tx);font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif;transition:background .3s,color .3s}
 button,input,textarea,select{font:inherit}
 button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;transition:border-color .18s,background .18s,transform .1s,box-shadow .18s}
@@ -34,7 +34,7 @@ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--acc);box
 textarea{resize:vertical;font:12.5px/1.5 ui-monospace,Consolas,monospace}
 label{display:block;color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin:8px 0 3px}
 .hint{font-size:11px;color:var(--dim);background:var(--input);border:1px solid var(--line);border-radius:8px;padding:8px 9px;margin:8px 0}
-.task{border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:9px;margin:7px 0}
+.task{border:1px solid var(--line);background:var(--panel2);border-radius:9px;padding:9px;margin:7px 0}.failed-section{border-color:var(--fail-line)}.failed-section h2{color:var(--err)}.failed-section .task{border-color:var(--fail-line);background:var(--fail-bg)}.failed-section .task .id{color:var(--err)}.failed-section .task .badge{border-color:var(--fail-line);color:var(--fail-soft);background:var(--fail-panel)}.failed-label{display:flex;align-items:center;gap:7px;color:var(--err);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:8px}.failed-label span{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--err);color:#fff;font-size:12px;font-weight:800}
 .task .id{font:10px ui-monospace;color:var(--dim)}.task .prompt{margin:4px 0}
 .badge{font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 6px;color:var(--dim)}
 details summary{cursor:pointer;color:var(--dim);font-size:12px} pre{white-space:pre-wrap;word-break:break-word}
@@ -47,7 +47,7 @@ details summary{cursor:pointer;color:var(--dim);font-size:12px} pre{white-space:
 .team-node{min-width:140px;border:1px solid var(--line);background:var(--nodebg);border-radius:11px;padding:9px 11px;transition:border-color .3s,transform .2s}
 .team-node.working{transform:translateY(-2px)}
 .team-node.operator{border-color:var(--purple);background:#181430}
-.team-node.working{border-color:var(--ok)}.team-node.failed{border-color:var(--err);background:#25151b}.team-node.done{border-color:#3d6eaa}
+.team-node.working{border-color:var(--ok)}.team-node.failed{border-color:var(--err);background:var(--fail-bg)}.team-node.done{border-color:#3d6eaa}
 .team-node .nrole{font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim)}
 .team-node .nname{font-weight:700;margin-top:2px}.team-node .nstate{font-size:10px;color:var(--dim);margin-top:2px}
 .team-link{height:2px;min-width:40px;flex:1;background:var(--line)}.team-link.active{background:var(--acc)}
@@ -65,14 +65,14 @@ details summary{cursor:pointer;color:var(--dim);font-size:12px} pre{white-space:
 .terminal-wrap summary{padding:7px 10px;background:var(--input)}
 .terminal{height:170px;overflow:auto;margin:0;padding:9px 10px;background:var(--term);color:var(--termtx);font:11.5px/1.45 ui-monospace,Consolas,monospace;border-top:1px solid #ffffff08}
 .stderr{color:#ff9aa2}
-.friendly-error{margin:9px;border:1px solid #ff6b7560;border-radius:9px;padding:10px;background:#2a141b;color:#ffd8db}
-.friendly-error b{display:block;color:#ff8f97;margin-bottom:3px}.friendly-error small{color:#d5aeb2}
+.friendly-error{margin:9px;border:1px solid var(--fail-line);border-radius:9px;padding:10px;background:var(--fail-panel);color:var(--fail-soft)}
+.friendly-error b{display:block;color:var(--err);margin-bottom:3px}.friendly-error small{color:var(--dim)}
 .friendly-error.success{border-color:#42d39255;background:#10261e;color:#d7ffec}.friendly-error.success b{color:var(--ok)}.friendly-error.success small{color:#a7cfbd}
 .plan-pills{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}.plan-pills span{font-size:10px;border:1px solid #42d39255;border-radius:999px;padding:2px 7px}
 /* Birlesik akis (mesaj + olay) */
 .feed{max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:6px}
 .msg{border-left:3px solid var(--purple);background:var(--panel2);border-radius:0 8px 8px 0;padding:7px 9px}
-.msg.result{border-color:var(--ok)}.msg.failure,.msg.blocked{border-color:var(--err);background:#27161d}
+.msg.result{border-color:var(--ok)}.msg.failure,.msg.blocked{border-color:var(--err);background:var(--fail-bg)}
 .msg .route{font-size:11px;color:var(--purple);font-weight:700}
 .msg.result .route{color:var(--ok)}.msg.failure .route,.msg.blocked .route{color:var(--err)}
 .msg .body{font-size:12px;white-space:pre-wrap;max-height:90px;overflow:auto}
@@ -161,7 +161,7 @@ details summary{cursor:pointer;color:var(--dim);font-size:12px} pre{white-space:
     <section class="card"><h2>Bekleyen / çalışan</h2><div id="pending" class="muted">kuyruk boş</div></section>
     <section class="card" id="approvalCard" hidden><h2>Onay bekleyen</h2><div id="approval"></div></section>
     <section class="card"><h2>Tamamlanan</h2><div id="done">—</div></section>
-    <section class="card"><h2>Başarısız</h2><div id="failed">—</div></section>
+    <section class="card failed-section"><h2>Başarısız</h2><div id="failed">—</div></section>
   </aside>
 
   <section class="stack">
@@ -248,11 +248,11 @@ async function addTask(){const prompt=$('#prompt').value.trim(),operatorCli=$('#
 
 /* ---- Kuyruk ---- */
 function deliveryHtml(t){const d=t.delivery;if(!d)return '';const labels={created:'eklendi',modified:'değişti',deleted:'silindi'};return `<div class="delivery"><div class="muted">📁 ${esc(d.location||'')}</div><div class="muted">⚡ ${(d.mode||'').toUpperCase()} · ${d.rounds||0} tur · ${(d.agents||[]).join(', ')}</div>${(d.files||[]).map(f=>`<div class="file-change"><span class="${esc(f.action)}">${esc(labels[f.action]||f.action)}</span><code>${esc(f.path)}</code></div>`).join('')||'<div class="muted">Dosya değişikliği yok.</div>'}${d.verification?`<div class="muted" style="margin-top:5px">✓ ${esc(d.verification)}</div>`:''}</div>`}
-function taskCard(t,state){const actions=state==='approval',done=state==='done',pending=state==='pending',editable=pending&&t.kind!=='operator-chat';const opLabel=t.operatorCli?cliLabel(t.operatorCli):'';return `<div class="task"><div class="row"><span class="id">${esc(t.id)}</span><div class="grow"></div><span class="badge">${esc(t.executionMode||'auto')}</span><span class="badge">${esc(opLabel)}</span></div><div class="prompt">${esc(t.prompt)}</div>${t.summary?`<details><summary>Kısa teslimat özeti</summary><pre>${esc(t.summary)}</pre>${deliveryHtml(t)}</details>`:''}${t.planPreview?`<details><summary>Takım planı</summary><pre>${esc(t.planPreview)}</pre></details>`:''}<div class="row" style="margin-top:6px">${actions?`<button class="ok sm" onclick="approve('${t.id}')">Onayla</button><button class="danger sm" onclick="rejectTask('${t.id}')">Reddet</button>`:`<button class="sm" onclick="inspectRun('${t.id}')">Akışı incele</button>${editable?`<button class="sm" onclick="openEdit('${t.id}')">Düzenle</button><button class="danger sm" onclick="deleteTask('${t.id}')">Sil</button>`:''}${done?`<button class="primary sm" onclick="openChat('${t.id}')">Operatöre Sor</button>`:''}`}</div></div>`}
+function taskCard(t,state){const actions=state==='approval',done=state==='done',pending=state==='pending',failed=state==='failed',editable=pending&&t.kind!=='operator-chat',removable=editable||done||failed;const opLabel=t.operatorCli?cliLabel(t.operatorCli):'';return `<div class="task${failed?' failed-task':''}">${failed?'<div class="failed-label"><span aria-hidden="true">!</span>Başarısız görev</div>':''}<div class="row"><span class="id">${esc(t.id)}</span><div class="grow"></div><span class="badge">${esc(t.executionMode||'auto')}</span><span class="badge">${esc(opLabel)}</span></div><div class="prompt">${esc(t.prompt)}</div>${t.summary?`<details><summary>Kısa teslimat özeti</summary><pre>${esc(t.summary)}</pre>${deliveryHtml(t)}</details>`:''}${t.planPreview?`<details><summary>Takım planı</summary><pre>${esc(t.planPreview)}</pre></details>`:''}<div class="row" style="margin-top:6px">${actions?`<button class="ok sm" onclick="approve('${t.id}')">Onayla</button><button class="danger sm" onclick="rejectTask('${t.id}')">Reddet</button>`:`<button class="sm" onclick="inspectRun('${t.id}')">Akışı incele</button>${editable?`<button class="sm" onclick="openEdit('${t.id}')">Düzenle</button>`:''}${done?`<button class="primary sm" onclick="openChat('${t.id}')">Operatöre Sor</button>`:''}${removable?`<button class="danger sm" onclick="deleteTask('${t.id}','${state}')">Sil</button>`:''}`}</div></div>`}
 function renderQueue(q){STATE.queue=q;$('#pending').innerHTML=q.pending.length?q.pending.map(t=>taskCard(t,'pending')).join(''):'<span class="muted">kuyruk boş</span>';$('#approvalCard').hidden=!q.approval.length;$('#approval').innerHTML=q.approval.map(t=>taskCard(t,'approval')).join('');$('#done').innerHTML=q.done.length?q.done.map(t=>taskCard(t,'done')).join(''):'—';$('#failed').innerHTML=q.failed.length?q.failed.map(t=>taskCard(t,'failed')).join(''):'—'}
 async function approve(id){try{await api(`/api/tasks/${id}/approve`,'POST')}catch(e){alert(e.message)}}
 async function rejectTask(id){try{await api(`/api/tasks/${id}/reject`,'POST')}catch(e){alert(e.message)}}
-async function deleteTask(id){if(!confirm('Bu bekleyen görev silinsin mi?'))return;try{await api(`/api/tasks/${id}`,'DELETE')}catch(e){alert(e.message)}}
+async function deleteTask(id,state='pending'){const labels={pending:'bekleyen',done:'tamamlanan',failed:'başarısız'};if(!confirm(`Bu ${labels[state]||''} görev silinsin mi?`))return;try{await api(`/api/tasks/${id}`,'DELETE')}catch(e){alert(e.message)}}
 /* ---- Klasör seçici ---- */
 let fsTarget=null,fsCurrent='',fsParent=null,fsEntries=[],fsSelected='',fsHistory=[],fsHistoryIndex=-1;
 async function openFs(setter,start){fsTarget=setter;fsHistory=[];fsHistoryIndex=-1;fsSelected='';$('#fsState').textContent='';$('#fsState').style.color='';$('#fsModal').classList.add('open');await fsGo(start&&start.trim()?start.trim():'')}
@@ -330,6 +330,64 @@ async function saveOperatorRole(){await api('/api/roles/operator.md','PUT',{cont
 function renderGeneral(c){c.innerHTML=`<div class="item grid2"><div><label>Varsayılan çalışma klasörü</label><div class="pickrow"><input id="workingDir" value="${esc(STATE.config.workingDir||'..')}"><button type="button" onclick="openFs(v=>$('#workingDir').value=v,$('#workingDir').value)">📁</button></div></div><div><label>Onay modu</label><select id="approvalMode"><option ${STATE.config.approvalMode==='ask'?'selected':''}>ask</option><option ${STATE.config.approvalMode==='auto'?'selected':''}>auto</option></select></div><div><label>Günlük çağrı bütçesi</label><input id="dailyBudget" type="number" value="${STATE.config.dailyCallBudget||150}"></div><div><label>Agent zaman aşımı</label><input id="agentTimeout" type="number" value="${STATE.config.agentTimeoutSeconds||900}"></div><div><label>Hafıza karakter bütçesi</label><input id="memoryBudget" type="number" value="${STATE.config.memoryCharBudget||8000}"></div><div><label>Takım bağlam bütçesi</label><input id="contextBudget" type="number" value="${STATE.config.teamContextCharBudget||30000}"></div></div><details style="margin-top:10px"><summary>Gelişmiş: ham JSON yapılandırması</summary><p class="muted">Doğrudan JSON düzenleyip “Ham JSON'u uygula”ya basın, ardından Kaydet ile kalıcılaştırın.</p><textarea id="rawConfig" rows="16">${esc(JSON.stringify(STATE.config,null,2))}</textarea><button class="sm" style="margin-top:6px" onclick="applyRaw()">Ham JSON'u uygula</button></details>`}
 function applyRaw(){try{STATE.config=JSON.parse($('#rawConfig').value);draftAgents=Object.entries(STATE.config.agents||{}).map(([name,a])=>({name,...JSON.parse(JSON.stringify(a))}));notify('Ham JSON belleğe alındı; Kaydet ile kalıcılaştırın.');renderGeneral($('#settingsContent'))}catch(e){notify('Geçersiz JSON: '+e.message,true)}}
 async function saveSettings(){try{const agents={};for(const a of draftAgents){const {name,...rest}=a;if(name.trim())agents[name.trim()]={...rest,args:rest.args||[]}}STATE.config.agents=agents;if($('#defaultOperator')){STATE.config.operator={...(STATE.config.operator||{}),cli:$('#defaultOperator').value,roleFile:'roles/operator.md',maxRounds:+$('#maxRounds').value,maxDelegationsPerRound:+$('#maxDelegations').value,protocolRetries:+$('#protocolRetries').value}}STATE.config.operator??={};STATE.config.operator.roleFile='roles/operator.md';delete STATE.config.operator.agent;if(!STATE.config.operator.cli)STATE.config.operator.cli=(installedClis()[0]||'codex');if($('#workingDir'))Object.assign(STATE.config,{workingDir:$('#workingDir').value,approvalMode:$('#approvalMode').value,dailyCallBudget:+$('#dailyBudget').value,agentTimeoutSeconds:+$('#agentTimeout').value,memoryCharBudget:+$('#memoryBudget').value,teamContextCharBudget:+$('#contextBudget').value});await api('/api/config','PUT',STATE.config);notify('Kaydedildi; sonraki görevde geçerli.');refreshOperatorSelect(true)}catch(e){notify(e.message,true)}}
+
+// Codex operatör ayarları: mevcut genel Codex ayarlarını değiştirmeden
+// yalnızca bu uygulamanın çağrılarına açıkça aktarılır.
+let codexModelCatalog=[];
+async function loadCodexModels(selected){
+  const select=$('#codexModel');if(!select)return;
+  try{
+    const response=await api('/api/codex/models');codexModelCatalog=response.models||[];
+    select.innerHTML='<option value="">Codex varsayılanı</option>'+codexModelCatalog.map(m=>`<option value="${esc(m.id)}">${esc(m.displayName||m.id)}</option>`).join('');
+    if(selected&&!codexModelCatalog.some(m=>m.id===selected))select.insertAdjacentHTML('beforeend',`<option value="${esc(selected)}">${esc(selected)} (kayıtlı)</option>`);
+    const defaultModel=codexModelCatalog.find(m=>m.isDefault)?.id||'';
+    select.value=selected||defaultModel||'';
+    const hint=$('#codexModelHint');
+    if(hint)hint.textContent=`Codex hesabından ${codexModelCatalog.length} aktif model alındı; effort ve hız seçenekleri seçilen modele göre gösteriliyor.`;
+    updateCodexCapabilities();
+  }catch(error){select.innerHTML='<option value="">Modeller alınamadı</option>';if(selected){select.insertAdjacentHTML('beforeend',`<option value="${esc(selected)}">${esc(selected)} (kayıtlı)</option>`);select.value=selected}const hint=$('#codexModelHint');if(hint)hint.textContent='Aktif model listesi alınamadı: '+error.message}
+}
+function updateCodexCapabilities(){
+  const model=codexModelCatalog.find(x=>x.id===$('#codexModel')?.value),effort=$('#codexEffort'),tier=$('#codexServiceTier');
+  if(effort){const values=(model?.reasoningEfforts||[]).map(x=>x.id);const current=effort.value;effort.innerHTML=values.length?values.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join(''):'<option value="">Model bilgisi bekleniyor</option>';effort.value=values.includes(current)?current:(model?.defaultReasoningEffort||values[0]||'')}
+  if(tier){const values=(model?.serviceTiers||[]).map(x=>({id:x.id,label:x.name||x.id}));if(!values.length)values.push({id:'',label:'Codex varsayılanı'});const current=tier.value;tier.innerHTML=values.map(x=>`<option value="${esc(x.id)}">${esc(x.label)}${x.id?' ('+esc(x.id)+')':''}</option>`).join('');tier.value=values.some(x=>x.id===current)?current:(model?.defaultServiceTier||values[0].id)}
+}
+function renderOperator(c){
+  const o=STATE.config.operator||{},cs=o.codexSettings||{},opts=operatorCliOptions();
+  const curCli=opts.some(x=>x.cli===o.cli)?o.cli:opts[0]?.cli;
+  c.innerHTML=`<div class="hint">Operatör, uzman agent'lardan <b>bağımsız bir CLI'dır</b>. Burada operatörün hangi CLI olacağını seçersiniz; o CLI <code>operator.md</code>'yi giyip ekibi yönetir.</div>
+  <div class="item"><div class="grid2">
+    <div><label>Operatör CLI'sı</label><select id="defaultOperator">${opts.map(x=>`<option value="${x.cli}" ${x.cli===curCli?'selected':''}>${esc(x.label)}</option>`).join('')||'<option value="">Kurulu CLI yok</option>'}</select></div>
+    <div><label>Maksimum takım turu</label><input id="maxRounds" type="number" value="${o.maxRounds||6}"></div>
+    <div><label>Tur başına maksimum delegasyon</label><input id="maxDelegations" type="number" value="${o.maxDelegationsPerRound||8}"></div>
+    <div><label>JSON protokol tekrarları</label><input id="protocolRetries" type="number" value="${o.protocolRetries??1}"></div>
+  </div></div>
+  <div class="item"><b>Codex operatör ayarları</b><p class="muted">Bu değerler yalnızca bu uygulamanın Codex çağrılarına aktarılır; genel Codex ayar dosyanız değiştirilmez.</p>
+    <div class="grid2">
+      <div><label>Model</label><select id="codexModel" onchange="updateCodexCapabilities()"><option value="">Modeller yükleniyor…</option></select><div id="codexModelHint" class="muted" style="margin-top:4px">Codex hesabındaki aktif modeller getiriliyor.</div></div>
+      <div><label>Reasoning effort</label><select id="codexEffort"><option value="${esc(cs.reasoningEffort||'medium')}">${esc(cs.reasoningEffort||'medium')}</option></select></div>
+      <div><label>Servis hızı</label><select id="codexServiceTier"><option value="${esc(cs.serviceTier||'')}">${esc(cs.serviceTier||'Codex varsayılanı')}</option></select></div>
+    </div>
+    <div class="hint" style="margin-top:8px">Değerler, Codex hesabının ve kurulu CLI sürümünün desteklediği seçeneklerle sınırlıdır.</div>
+  </div>
+  <div class="item"><label>Operatör rolü — roles/operator.md</label><div id="operatorRoleBox" class="muted">yükleniyor…</div></div>`;
+  loadOperatorRole();loadCodexModels(cs.model||'');
+}
+
+async function saveSettings(){
+  try{
+    const agents={};
+    for(const a of draftAgents){const {name,...rest}=a;if(name.trim())agents[name.trim()]={...rest,args:rest.args||[]}}
+    STATE.config.agents=agents;
+    if($('#defaultOperator')){
+      STATE.config.operator={...(STATE.config.operator||{}),cli:$('#defaultOperator').value,roleFile:'roles/operator.md',maxRounds:+$('#maxRounds').value,maxDelegationsPerRound:+$('#maxDelegations').value,protocolRetries:+$('#protocolRetries').value,codexSettings:{model:$('#codexModel')?.value.trim()||'',reasoningEffort:$('#codexEffort')?.value||'medium',serviceTier:$('#codexServiceTier')?.value||'fast'}}
+    }
+    STATE.config.operator??={};STATE.config.operator.roleFile='roles/operator.md';delete STATE.config.operator.agent;
+    if(!STATE.config.operator.cli)STATE.config.operator.cli=(installedClis()[0]||'codex');
+    if($('#workingDir'))Object.assign(STATE.config,{workingDir:$('#workingDir').value,approvalMode:$('#approvalMode').value,dailyCallBudget:+$('#dailyBudget').value,agentTimeoutSeconds:+$('#agentTimeout').value,memoryCharBudget:+$('#memoryBudget').value,teamContextCharBudget:+$('#contextBudget').value});
+    await api('/api/config','PUT',STATE.config);notify('Kaydedildi; sonraki görevde geçerli.');refreshOperatorSelect(true)
+  }catch(e){notify(e.message,true)}
+}
 
 api('/api/state').then(s=>{STATE=s;applyStatus(s.status);renderQueue(s.queue);$('#targetDir').placeholder=s.workingDirAbs||'';refreshOperatorSelect()}).catch(e=>alert(e.message));
 </script>

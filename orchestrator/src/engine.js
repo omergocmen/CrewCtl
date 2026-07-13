@@ -55,6 +55,9 @@ function clip(value, limit = 12000) {
 
 function classifyCliError(error) {
   const raw = String(error?.message || error || "Bilinmeyen CLI hatasi");
+  if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
+    return { code: "VERSION_INCOMPATIBLE", summary: "CLI sürümü seçilen modeli desteklemiyor.", action: "CLI aracını güncelleyin veya desteklenen bir model seçin.", raw: clip(raw, 5000) };
+  }
   if (/API key not valid|API_KEY_INVALID/i.test(raw)) {
     return { code: "AUTH_INVALID", summary: "API anahtari gecersiz veya kullanilamiyor.", action: "Bu agentin kimlik bilgilerini duzeltin ya da baska bir agent kullanin.", raw: clip(raw, 5000) };
   }
@@ -73,8 +76,8 @@ function classifyCliError(error) {
   return { code: "CLI_FAILED", summary: clip(raw.split(/\r?\n/)[0], 500), action: "Teknik ayrintiyi inceleyin veya alternatif agent kullanin.", raw: clip(raw, 5000) };
 }
 
-const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_LIMIT", "CLI_NOT_FOUND", "TIMEOUT", "CLI_FAILED"]);
-const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "CLI_NOT_FOUND"]);
+const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_LIMIT", "CLI_NOT_FOUND", "TIMEOUT", "CLI_FAILED", "VERSION_INCOMPATIBLE"]);
+const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "CLI_NOT_FOUND", "VERSION_INCOMPATIBLE"]);
 
 function resolveExecutionMode(task) {
   if (["fast", "balanced", "deep"].includes(task.executionMode)) return task.executionMode;
@@ -160,6 +163,10 @@ function supportsKind(agent, kind) {
   return wanted.some((cap) => caps.has(cap));
 }
 
+function agentUsable(agent) {
+  return agent?.health?.status ? agent.health.status === "ready" : true;
+}
+
 function normalizeAssignments(value, cfg, operatorName, usedIds) {
   if (!Array.isArray(value)) throw new Error("Operator assignments dizisi dondurmedi.");
   const max = Math.max(1, cfg.operator?.maxDelegationsPerRound || 8);
@@ -170,6 +177,7 @@ function normalizeAssignments(value, cfg, operatorName, usedIds) {
     const requestedAgent = String(raw.agent || "");
     if (!cfg.agents[requestedAgent]) throw new Error(`Operator tanimsiz agent secti: ${requestedAgent}`);
     if (cfg.agents[requestedAgent].enabled === false) throw new Error(`Operator devre disi agent secti: ${requestedAgent}`);
+    if (!agentUsable(cfg.agents[requestedAgent])) throw new Error(`Operator kullanilamaz agent secti: ${requestedAgent} (${cfg.agents[requestedAgent].health?.label || "saglik testi basarisiz"})`);
     if (requestedAgent === operatorName) throw new Error("Operator kendisine uzman gorevi atayamaz.");
     const instruction = String(raw.instruction || raw.task || "").trim();
     if (!instruction) throw new Error(`${id} delegasyonunda instruction eksik.`);
@@ -177,7 +185,7 @@ function normalizeAssignments(value, cfg, operatorName, usedIds) {
     let agent = requestedAgent;
     const unavailable = new Set(cfg.runtimeUnavailableAgents || []);
     if (unavailable.has(agent) || !supportsKind(cfg.agents[agent], kind)) {
-      const compatible = Object.entries(cfg.agents).find(([name, candidate]) => name !== operatorName && candidate.enabled !== false && !unavailable.has(name) && supportsKind(candidate, kind));
+      const compatible = Object.entries(cfg.agents).find(([name, candidate]) => name !== operatorName && candidate.enabled !== false && agentUsable(candidate) && !unavailable.has(name) && supportsKind(candidate, kind));
       if (compatible) agent = compatible[0];
       else if (unavailable.has(agent)) throw new Error(`Operator bu oturumda kullanilamaz agent secti: ${requestedAgent}`);
     }
@@ -421,7 +429,7 @@ class Engine extends EventEmitter {
 
   agentCatalog(cfg, operatorName) {
     return Object.entries(cfg.agents)
-      .filter(([name, agent]) => name !== operatorName && agent.enabled !== false && !this.unhealthyAgents.has(name))
+      .filter(([name, agent]) => name !== operatorName && agent.enabled !== false && agentUsable(agent) && !this.unhealthyAgents.has(name))
       .map(([name, a]) => ({
         name,
         description: a.description || "",

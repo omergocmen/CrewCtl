@@ -13,7 +13,12 @@
     "maxRounds": 6,
     "maxDelegationsPerRound": 8,
     "maxInfrastructureRecoveryRounds": 2,
-    "protocolRetries": 1
+    "protocolRetries": 1,
+    "codexSettings": {
+      "model": "",
+      "reasoningEffort": "medium",
+      "serviceTier": "fast"
+    }
   },
   "agents": {},
   "riskyPatterns": [
