@@ -8,6 +8,7 @@
   "memoryCharBudget": 8000,
   "teamContextCharBudget": 30000,
   "agentTimeoutSeconds": 900,
+  "discoveryIgnoredAdapters": [],
   "operator": {
     "roleFile": "roles/operator.md",
     "maxRounds": 6,

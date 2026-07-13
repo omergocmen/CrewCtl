@@ -245,9 +245,13 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         cliStatus = cliRegistry.discoverInstalled();
         const cfg = store.loadConfig();
+        const body = await readBody(req);
+        if (Array.isArray(body.ignoredAdapters)) {
+          cfg.discoveryIgnoredAdapters = [...new Set(body.ignoredAdapters.filter((id) => cliRegistry.KNOWN_CLIS.includes(id)))];
+        }
         let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
         if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-        if (changed) store.saveConfig(cfg);
+        if (changed || Array.isArray(body.ignoredAdapters)) store.saveConfig(cfg);
         return send(res, 200, { cliStatus, changed, config: cfg });
       }
       if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/events$/)) && req.method === "GET") {

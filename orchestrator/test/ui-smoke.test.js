@@ -27,4 +27,7 @@ assert.match(html, /class="agent-avatar"/, "agent panelleri rol kimligi gosterme
 assert.match(html, /class="agent-state-text"/, "agent durum metni canli guncellenebilir olmali");
 assert.match(flowHtml, /\.agent-card:before/, "agent filosu premium durum vurgusunu kullanmali");
 assert.match(flowHtml, /\.node:before/, "akis dugumleri durum rayini kullanmali");
+assert.match(html, /function removeDraftAgent\(/, "silinen otomatik agent tercihi izlenmeli");
+assert.match(html, /draftIgnoredAdapters/, "otomatik kesif engel listesi UI durumunda tutulmali");
+assert.match(html, /yerel taslaklar korundu/, "CLI taramasi kaydedilmemis taslaklari korumali");
 console.log("ui smoke ok");

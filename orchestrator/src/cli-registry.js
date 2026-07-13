@@ -170,9 +170,22 @@ function discoverInstalled() {
 
 function addMissingAgents(cfg, discovered) {
   cfg.agents ||= {};
+  const ignored = new Set(Array.isArray(cfg.discoveryIgnoredAdapters) ? cfg.discoveryIgnoredAdapters.map(String) : []);
   let changed = false;
   for (const cli of discovered) {
-    const existing = Object.values(cfg.agents).find((agent) => (agent.adapter || adapterId(agent.cmd)) === cli.id);
+    const matchingEntries = Object.entries(cfg.agents).filter(([, agent]) => (agent.adapter || adapterId(agent.cmd)) === cli.id);
+    const existingEntry = matchingEntries.find(([, agent]) => !agent.autoDiscovered) || matchingEntries[0];
+    const existing = existingEntry?.[1];
+    // Kullanici otomatik bulunan bir profili sildiyse bu karar kalicidir. O adapter'a ait
+    // elle olusturulmus profil varsa ona dokunma; yalnizca autoDiscovered kaydini temizle.
+    if (ignored.has(cli.id)) {
+      for (const [name, agent] of matchingEntries) {
+        if (!agent.autoDiscovered) continue;
+        delete cfg.agents[name];
+        changed = true;
+      }
+      continue;
+    }
     if (existing) {
       if (cli.installed && existing.autoDiscovered && existing.unavailablePlaceholder) {
         existing.enabled = true;
