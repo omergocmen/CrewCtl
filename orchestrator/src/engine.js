@@ -53,13 +53,30 @@ function clip(value, limit = 12000) {
   return text.length <= limit ? text : `${text.slice(0, limit)}\n...[kesildi]`;
 }
 
+// Bas ve sonu koruyarak kirpar. Denetci raporlarinda VERDICT satiri metnin SONUNDadir;
+// yalnizca bastan kirpmak operatorun karari gormemesine ve gereksiz yeniden inceleme
+// turlarina yol acar.
+function clipMiddle(value, limit = 12000) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  const head = Math.ceil(limit * 0.6);
+  const tail = Math.max(1, limit - head);
+  return `${text.slice(0, head)}\n...[orta kisim kesildi]...\n${text.slice(text.length - tail)}`;
+}
+
+function extractVerdict(text) {
+  const matches = String(text || "").match(/VERDICT:\s*(PASS|FAIL)/gi);
+  if (!matches || !matches.length) return null;
+  return /PASS/i.test(matches[matches.length - 1]) ? "PASS" : "FAIL";
+}
+
 function classifyCliError(error) {
   const raw = String(error?.message || error || "Bilinmeyen CLI hatasi");
   if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
     return { code: "VERSION_INCOMPATIBLE", summary: "CLI sürümü seçilen modeli desteklemiyor.", action: "CLI aracını güncelleyin veya desteklenen bir model seçin.", raw: clip(raw, 5000) };
   }
   if (/sessiz kaldi|cikti uretmedi|CLI_STALLED/i.test(raw)) {
-    return { code: "CLI_STALLED", summary: "CLI yanit veya ilerleme bilgisi uretmeden bekledi ve otomatik durduruldu.", action: "Operator bu oturumda farkli bir agent kullanacak.", raw: clip(raw, 5000) };
+    return { code: "CLI_STALLED", summary: "CLI uzun süre yeni çıktı üretmeyince otomatik durduruldu.", action: "Önceki ilerleme kayıtları korundu; operatör bu oturumda farklı bir agent kullanacak.", raw: clip(raw, 5000) };
   }
   if (/API key not valid|API_KEY_INVALID/i.test(raw)) {
     return { code: "AUTH_INVALID", summary: "API anahtari gecersiz veya kullanilamiyor.", action: "Bu agentin kimlik bilgilerini duzeltin ya da baska bir agent kullanin.", raw: clip(raw, 5000) };
@@ -91,7 +108,9 @@ function resolveExecutionMode(task) {
   const complex = /(mimari|migration|refactor|guvenlik|güvenlik|deploy|production|veritabani|veritabanı|authentication|entegrasyon|çoklu|multi|kapsamli|kapsamlı)/i.test(prompt);
   // Not: "oyun/sayfa" gibi sifirdan build isleri BASIT sayilmaz — bunlar plan+uygula+incele
   // gerektiren gercek gorevlerdir; fast moda dusurulup ekip kullanilmadan gecilmemeli.
-  const simple = prompt.length < 350 && /(basit|ufak|küçük|kucuk|hizli|hızlı|simple|small|quick|dosya)/i.test(prompt);
+  // Not: "dosya" gibi genis kelimeler fast'a dusurmez; yorumdaki ilkeyle celisiyordu
+  // (sifirdan build/dosya olusturma gercek bir gorevdir). Yalnizca acik "kucuk/hizli" sinyalleri.
+  const simple = prompt.length < 350 && /(basit|ufak|küçük|kucuk|hizli|hızlı|simple|small|quick)/i.test(prompt);
   return simple && !complex ? "fast" : "balanced";
 }
 
@@ -103,36 +122,14 @@ function applyExecutionPolicy(base, mode) {
     cfg.memoryCharBudget = Math.min(cfg.memoryCharBudget || 8000, 2500);
     cfg.teamContextCharBudget = Math.min(cfg.teamContextCharBudget || 30000, 10000);
   } else if (mode === "balanced") {
-    cfg.operator.maxRounds = Math.min(cfg.operator.maxRounds || 6, 4);
+    // Saglikli bir balanced gorev tek turda biter (uygulama + zincirli inceleme);
+    // 3 tur, iki duzeltme/yeniden dogrulama turuna yer birakir.
+    cfg.operator.maxRounds = Math.min(cfg.operator.maxRounds || 6, 3);
     cfg.operator.maxDelegationsPerRound = Math.min(cfg.operator.maxDelegationsPerRound || 8, 3);
     cfg.memoryCharBudget = Math.min(cfg.memoryCharBudget || 8000, 6000);
     cfg.teamContextCharBudget = Math.min(cfg.teamContextCharBudget || 30000, 24000);
   }
   return cfg;
-}
-
-function windowsCommand(command, args) {
-  if (!isWin) return { file: command, args, shell: false };
-  const isBare = !path.isAbsolute(command) && !/[\\/]/.test(command);
-  // Bare npm CLI adlarini `where.exe` ile fiziksel yola cevirmiyoruz. where.exe
-  // OEM code-page ile cikti verebildigi icin Unicode kullanici dizinleri (Ömer gibi)
-  // bozulabiliyor. cmd.exe, PATHEXT/PATH cozumlemesini Unicode olarak kendisi yapar.
-  if (isBare) return { file: command, args, shell: true };
-  if (!/\.(cmd|bat)$/i.test(command)) return { file: command, args, shell: false };
-  const quote = (value) => `"${String(value).replace(/"/g, '""')}"`;
-  const line = [command, ...args].map(quote).join(" ");
-  return { file: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${line}"`], shell: false, verbatim: true };
-}
-
-function childEnvironment(agent) {
-  const env = { ...process.env };
-  if (agent.adapter !== "opencode") return env;
-  let inline = {};
-  try { inline = JSON.parse(env.OPENCODE_CONFIG_CONTENT || "{}"); } catch {}
-  // Yeni OpenCode surumlerinde inline config izin sorularini kapatir. Eski surumler
-  // bu alani yok sayar ve non-interaktif `run` varsayilanini kullanir.
-  env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ ...inline, permission: { "*": "allow" } });
-  return env;
 }
 
 function normalizeCliOutput(agent, stdout) {
@@ -164,13 +161,15 @@ function parseJson(text, label) {
 }
 
 function capabilitiesFor(agent) {
-  const caps = new Set(Array.isArray(agent.capabilities) ? agent.capabilities.map((x) => String(x).toLowerCase()) : []);
+  // Rol dosyasi bir uzmanlik dayatiyorsa yetenekler DOGRUDAN rolden turer. Aksi halde
+  // config'teki eski/genis capabilities listesi (or. planner'da "implementation") katalogda
+  // allowedKinds ile celisir ve operatore yaniltici sinyal verirdi. Rol yoksa config'e duseriz.
   const role = String(agent.roleFile || "").toLowerCase();
-  if (role.includes("executor")) caps.add("implementation");
-  if (role.includes("review")) { caps.add("review"); caps.add("testing"); }
-  if (role.includes("planner")) caps.add("planning");
-  if (role.includes("operator")) { caps.add("planning"); caps.add("delegation"); }
-  return caps;
+  if (role.includes("executor")) return new Set(["implementation", "debugging", "testing"]);
+  if (role.includes("review")) return new Set(["review", "testing", "analysis"]);
+  if (role.includes("planner")) return new Set(["planning", "analysis"]);
+  if (role.includes("operator")) return new Set(["planning", "delegation"]);
+  return new Set(Array.isArray(agent.capabilities) ? agent.capabilities.map((x) => String(x).toLowerCase()) : []);
 }
 
 function inferAssignmentKind(raw, instruction) {
@@ -183,7 +182,17 @@ function inferAssignmentKind(raw, instruction) {
   return "implement";
 }
 
+function roleAllowedKinds(agent) {
+  const role = path.basename(String(agent?.roleFile || "")).toLowerCase();
+  if (role.includes("executor")) return ["implement"];
+  if (role.includes("review")) return ["review"];
+  if (role.includes("planner")) return ["plan"];
+  return null;
+}
+
 function supportsKind(agent, kind) {
+  const roleKinds = roleAllowedKinds(agent);
+  if (roleKinds) return roleKinds.includes(kind);
   const caps = capabilitiesFor(agent);
   const wanted = {
     implement: ["implementation", "coding", "development", "debugging"],
@@ -201,9 +210,20 @@ function agentUsable(agent) {
 function normalizeAssignments(value, cfg, operatorName, usedIds) {
   if (!Array.isArray(value)) throw new Error("Operator assignments dizisi dondurmedi.");
   const max = Math.max(1, cfg.operator?.maxDelegationsPerRound || 8);
+  // Operator daha once kullanilan bir kimligi yinelerse gorevi oldurmek yerine kimligi
+  // otomatik yeniden adlandiririz; saatlerce uretilmis teslimat bir ID cakismasi yuzunden
+  // basarisiz sayilmamalidir. Ayni turdaki dependsOn referanslari da yeni ada tasinir.
+  const renames = new Map();
   return value.slice(0, max).map((raw, index) => {
-    const id = String(raw.id || `task-${Date.now()}-${index + 1}`).replace(/[^a-zA-Z0-9_.-]/g, "-");
-    if (usedIds.has(id)) throw new Error(`Tekrarlanan delegasyon kimligi: ${id}`);
+    let id = String(raw.id || `task-${Date.now()}-${index + 1}`).replace(/[^a-zA-Z0-9_.-]/g, "-");
+    let renamedFrom;
+    if (usedIds.has(id)) {
+      let n = 2;
+      while (usedIds.has(`${id}-r${n}`)) n++;
+      renamedFrom = id;
+      renames.set(id, `${id}-r${n}`);
+      id = `${id}-r${n}`;
+    }
     usedIds.add(id);
     const requestedAgent = String(raw.agent || "");
     if (!cfg.agents[requestedAgent]) throw new Error(`Operator tanimsiz agent secti: ${requestedAgent}`);
@@ -222,11 +242,84 @@ function normalizeAssignments(value, cfg, operatorName, usedIds) {
     }
     return {
       id, agent, kind, instruction,
+      renamedFrom,
       requestedAgent: agent === requestedAgent ? undefined : requestedAgent,
       routingReason: agent === requestedAgent ? undefined : `${requestedAgent} ${unavailable.has(requestedAgent) ? "bu oturumda kullanilamaz" : `${kind} yetenegine sahip degil`}; ${agent} secildi.`,
-      dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn.map(String) : [],
+      dependsOn: Array.isArray(raw.dependsOn) ? raw.dependsOn.map((dep) => renames.get(String(dep)) || String(dep)) : [],
     };
   });
+}
+
+function compatibleAgentForKind(cfg, operatorName, kind) {
+  const unavailable = new Set(cfg.runtimeUnavailableAgents || []);
+  return Object.entries(cfg.agents || {}).find(([name, agent]) =>
+    name !== operatorName && agent.enabled !== false && agentUsable(agent) &&
+    !unavailable.has(name) && supportsKind(agent, kind)
+  )?.[0] || "";
+}
+
+function nextAssignmentId(base, usedIds) {
+  let id = base;
+  let suffix = 2;
+  while (usedIds.has(id)) id = `${base}-${suffix++}`;
+  usedIds.add(id);
+  return id;
+}
+
+// Balanced bir uygulama gorevinde katalogda standart roller varsa ilk turu
+// PLAN -> IMPLEMENT -> REVIEW olarak garanti eder. Operatorun bir rolu yanlislikla
+// atlamasi, kullanicinin etkinlestirdigi uzmani sessizce devre disi birakamaz.
+function ensureBalancedRoleChain(assignments, cfg, operatorName, task, usedIds) {
+  if (task.executionMode !== "balanced" || !assignments.some((item) => item.kind === "implement")) return assignments;
+  const chained = assignments.map((item) => ({ ...item, dependsOn: [...item.dependsOn] }));
+  let plan = chained.find((item) => item.kind === "plan");
+  if (!plan) {
+    const planner = compatibleAgentForKind(cfg, operatorName, "plan");
+    if (planner) {
+      plan = {
+        id: nextAssignmentId("balanced-plan", usedIds),
+        agent: planner,
+        kind: "plan",
+        instruction: "Kullanici hedefini ve mevcut calisma klasorunu salt okunur incele. Executor icin dosya kapsamini, uygulama siralamasini, riskleri ve dogrulama adimlarini iceren somut bir plan hazirla; dosyalari degistirme.",
+        dependsOn: [],
+        routingReason: "Balanced rol zinciri: kullanilabilir planner ilk tura otomatik eklendi.",
+      };
+      chained.unshift(plan);
+    }
+  }
+  const implementations = chained.filter((item) => item.kind === "implement");
+  if (plan) {
+    for (const implementation of implementations) {
+      if (!implementation.dependsOn.includes(plan.id)) implementation.dependsOn.push(plan.id);
+    }
+  }
+  let reviews = chained.filter((item) => item.kind === "review");
+  if (!reviews.length) {
+    const reviewer = compatibleAgentForKind(cfg, operatorName, "review");
+    if (reviewer) {
+      const review = {
+        id: nextAssignmentId("balanced-review", usedIds),
+        agent: reviewer,
+        kind: "review",
+        instruction: "Tamamlanan uygulamayi kullanici hedefi ve kabul kriterlerine gore bagimsiz, salt okunur olarak denetle. Dosya ve test kanitlarini raporla; sonunda VERDICT: PASS veya VERDICT: FAIL yaz.",
+        dependsOn: implementations.map((item) => item.id),
+        routingReason: "Balanced rol zinciri: kullanilabilir reviewer ilk tura otomatik eklendi.",
+      };
+      chained.push(review);
+      reviews = [review];
+    }
+  }
+  for (const review of reviews) {
+    // Operator belirli bir uygulamayi incelemeye bagladiysa bu kapsami genisletme;
+    // ayni turdaki bagimsiz/yardimci bir implement hatasi ana incelemeyi bloke etmemeli.
+    if (!review.dependsOn.length) {
+      for (const implementation of implementations) review.dependsOn.push(implementation.id);
+    }
+  }
+  const rank = { plan: 0, research: 1, implement: 2, review: 3 };
+  return chained.map((item, index) => ({ item, index }))
+    .sort((a, b) => (rank[a.item.kind] ?? 2) - (rank[b.item.kind] ?? 2) || a.index - b.index)
+    .map(({ item }) => item);
 }
 
 class Engine extends EventEmitter {
@@ -321,17 +414,19 @@ class Engine extends EventEmitter {
       try {
         await this.runTask(task);
       } catch (error) {
-        const found = store.findTask(task.id);
-        task.status = "failed";
-        task.error = error.message;
-        task.finishedAt = new Date().toISOString();
-        if (found) store.moveTask(found.state, "failed", task);
-        this.publish("log", { level: "error", msg: `HATA: ${error.message}` }, task.id);
-        if (task.kind === "operator-chat") {
-          const failure = classifyCliError(error);
-          this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary }, task.id);
+        if (!this.salvage(task, error)) {
+          const found = store.findTask(task.id);
+          task.status = "failed";
+          task.error = error.message;
+          task.finishedAt = new Date().toISOString();
+          if (found) store.moveTask(found.state, "failed", task);
+          this.publish("log", { level: "error", msg: `HATA: ${error.message}` }, task.id);
+          if (task.kind === "operator-chat") {
+            const failure = classifyCliError(error);
+            this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary }, task.id);
+          }
+          this.emit("queue");
         }
-        this.emit("queue");
       } finally {
         this.busy = false;
         this.current = null;
@@ -344,7 +439,7 @@ class Engine extends EventEmitter {
   // Uzman agent'i (operatorun altindaki ekip) cfg.agents'ten cozup calistirir.
   invokeAgent(agentName, prompt, cfg, meta = {}) {
     const configuredAgent = cfg.agents[agentName];
-    const agent = configuredAgent && cliRegistry.effectiveAgent(configuredAgent);
+    const agent = configuredAgent && cliRegistry.effectiveAgent(configuredAgent, cfg);
     if (!agent) return Promise.reject(new Error(`Agent tanimsiz: ${agentName}`));
     return this.runCli(agentName, agent, prompt, cfg, meta);
   }
@@ -384,7 +479,7 @@ class Engine extends EventEmitter {
         }
         return String(arg);
       });
-      const command = windowsCommand(agent.cmd, rawArgs);
+      const command = cliRegistry.buildCommand(agent.cmd, rawArgs);
       const file = command.file;
       const args = command.args;
       const cwd = this._cwd || path.resolve(store.ROOT, cfg.workingDir || ".");
@@ -398,7 +493,7 @@ class Engine extends EventEmitter {
       this.publish("activity", { ...base, kind: "process.started", cmd: agent.cmd, args: rawArgs, cwd });
 
       let child;
-      try { child = spawn(file, args, { cwd, env: childEnvironment(agent), windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
+      try { child = spawn(file, args, { cwd, env: cliRegistry.agentEnvironment(agent), windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
       catch (error) { return reject(error); }
       this.activeChild = child;
       child.stdout.setEncoding("utf8");
@@ -493,6 +588,7 @@ class Engine extends EventEmitter {
         name,
         description: a.description || "",
         capabilities: [...capabilitiesFor(a)],
+        allowedKinds: roleAllowedKinds(a) || ["implement", "review", "research", "plan"].filter((kind) => supportsKind(a, kind)),
         roleFile: a.roleFile || "",
         costTier: a.costTier || "standard",
       }));
@@ -519,6 +615,31 @@ class Engine extends EventEmitter {
     throw lastError;
   }
 
+  // Insertion sirasi tamamlanma sirasidir; en son biten denetim en gecerli karardir.
+  latestReview(state) {
+    return Object.values(state.results || {}).reverse()
+      .find((result) => result.kind === "review" && result.status === "completed" && result.verdict) || null;
+  }
+
+  // Operatorun karar evresine verilen takim kaydi. Ham state dokumu yerine sonuc odakli
+  // bir ozet uretir; her sonucu kendi icinde ortadan kirpar ki en yeni denetim karari
+  // (metnin sonundaki VERDICT satiri) butce asiminda kaybolmasin.
+  teamDigest(state, cfg) {
+    const results = Object.values(state.results || {});
+    const budget = cfg.teamContextCharBudget || 30000;
+    const perResult = Math.max(900, Math.floor(budget / Math.max(1, results.length)));
+    const digest = {
+      round: state.round,
+      completionCriteria: state.criteria,
+      results: results.map((result) => ({
+        id: result.id, agent: result.agent, kind: result.kind, status: result.status,
+        ...(result.verdict ? { verdict: result.verdict } : {}),
+        result: clipMiddle(result.result, perResult),
+      })),
+    };
+    return clipMiddle(JSON.stringify(digest, null, 2), budget);
+  }
+
   operatorPrompt(task, cfg, memory, state, phase) {
     const operatorCli = task.operatorCli || cfg.operator?.cli;
     // Operatör rolü daima operator.md'dir; operatör bir CLI'dir, uzman agent'lar onun altında çalışır.
@@ -527,14 +648,15 @@ class Engine extends EventEmitter {
     const catalog = this.agentCatalog(cfg, operatorCli);
     const protocol = phase === "plan"
       ? `Yalnizca gecerli JSON dondur: {"summary":"yaklasim", "completionCriteria":["..."], "assignments":[{"id":"benzersiz-id", "agent":"catalog-name", "kind":"implement|review|research|plan", "instruction":"net gorev ve teslimat", "dependsOn":[]}]}. En az bir assignment zorunlu.`
-      : `Yalnizca gecerli JSON dondur. Is tamamlanmadiysa {"status":"continue", "reason":"...", "assignments":[{"id":"...", "agent":"...", "kind":"implement|review|research|plan", "instruction":"...", "dependsOn":[]}]}; tum kabul kriterleri karsilandiysa {"status":"complete", "final":"en fazla 5 kisa maddeyle ne yapildi", "verification":"tek satir dogrulama"}. Dosya listesini motor ekleyecek; final icinde uzun log veya ham agent cevabi tekrarlama. Continue icin en az bir yeni assignment zorunlu.`;
+      : `Yalnizca gecerli JSON dondur. Is tamamlanmadiysa {"status":"continue", "reason":"...", "assignments":[{"id":"...", "agent":"...", "kind":"implement|review|research|plan", "instruction":"...", "dependsOn":[]}]}; tum kabul kriterleri karsilandiysa {"status":"complete", "final":"en fazla 5 kisa maddeyle ne yapildi", "verification":"tek satir dogrulama"}. Dosya listesini motor ekleyecek; final icinde uzun log veya ham agent cevabi tekrarlama. Continue icin en az bir yeni assignment zorunlu.\n` +
+        `INCELEME DISIPLINI: Bagimsiz denetim VERDICT: PASS verdiyse ayni teslimat icin YENI review delegasyonu acma; complete dondur ve dusuk/orta onemdeki kalan notlari final metninde kalan risk olarak belirt. Ekipte bulunmayan dogrulama yetenegini (or. canli tarayici) tamamlanma sarti yapma; NOT RUN kalan dusuk riskli kontroller teslimati engellemez.`;
     const strategy = task.executionMode === "fast"
       ? "HIZLI MOD: Kucuk bir is. Tek bir implementation agenti kullan. Ayri planlama veya review delegasyonu acma; uzman raporu hedefi karsiliyorsa ilk degerlendirmede tamamla."
       : task.executionMode === "deep"
         ? "DERIN MOD: Isi uygun uzmanliklar arasinda dagit — planlama, uygulama, test ve bagimsiz inceleme icin AYRI ve dogru uzmanlari kullan."
-        : "DENGELI MOD: Isi uygun uzmanliklar arasinda dagit. Sifirdan bir uygulama/oyun/ozellik ya da cok bilesenli/belirsiz isde once kisa bir PLANLAMA delegasyonu (planlama uzmanina), sonra UYGULAMA, sonra INCELEME ac. Yalnizca kaliteye katki saglayan uzmanlari kullan.";
+        : "DENGELI MOD: Katalogda planner, executor ve reviewer varsa ucunu da ILK planda kullan. PLANLAMA -> UYGULAMA -> BAGIMSIZ INCELEME delegasyonlarini dependsOn ile ayni turda zincirle ve isi tek turda bitirmeyi hedefle. Ayni rolde birden fazla esdeger agent varsa yalnizca en uygun olani sec.";
     return `${role}\n\n---\n## Operator protokolu\n${protocol}\n` +
-      `Yalnizca katalogdaki agent adlarini kullan. Kendine gorev atama. Ayni delegasyon id'sini tekrar kullanma.\n` +
+      `Yalnizca katalogdaki agent adlarini kullan. Her assignment kind degeri secilen agentin allowedKinds listesinde olmali. Kendine gorev atama. Ayni delegasyon id'sini tekrar kullanma.\n` +
       `Bir agent basarisiz veya kullanilamaz raporlandiysa ayni isi ona tekrar verme; katalogdaki alternatif bir uzmani sec.\n` +
       `AJAN SECIMI: Her alt gorevi, katalogdaki YETENEKLERE ve role gore o ise EN UYGUN uzmana ata; tum isi tek bir CLI'ye yigma. Isin ihtiyac duydugu her uzmanlik icin dogru uzmani sec (plan/tasarim -> planlama yetenegi; uygulama -> implementation; inceleme/dogrulama -> review/test; arastirma -> research/web). Ayni KIND icin birden fazla eşdeğer agent varsa YALNIZCA birini (en uygun ve en dusuk maliyetli) kullan; ayni isi iki eşdeğer agente verme. Farkli roller (or. bir uygulayici + bir inceleyici) FARKLI islerdir, tekrar sayilmaz.\n` +
       `## Calisma stratejisi\n${strategy}\n` +
@@ -542,7 +664,10 @@ class Engine extends EventEmitter {
       `## Kullanici gorevi\n${task.prompt}\n` +
       `## Calisma klasoru\n${this._cwd}\n` +
       `## Proje hafizasi\n${clip(memory, cfg.memoryCharBudget || 8000)}\n` +
-      (phase === "review" ? `## Takim calisma kaydi\n${clip(JSON.stringify(state, null, 2), cfg.teamContextCharBudget || 30000)}\n` : "");
+      (phase === "review"
+        ? `## Son bagimsiz denetim\n${(() => { const review = this.latestReview(state); return review ? `${review.id} (${review.agent}) → VERDICT: ${review.verdict}` : "Henuz tamamlanmis denetim yok."; })()}\n` +
+          `## Takim calisma kaydi\n${this.teamDigest(state, cfg)}\n`
+        : "");
   }
 
   specialistPrompt(task, cfg, assignment, state) {
@@ -557,7 +682,7 @@ class Engine extends EventEmitter {
       research: "Delegasyon kapsaminda kanit topla; kaynaklari ve belirsizlikleri ayirarak kisa bir sonuc raporla.",
     };
     const completed = Object.values(state.results).map((r) => ({
-      id: r.id, agent: r.agent, instruction: r.instruction, result: clip(r.result, 5000),
+      id: r.id, agent: r.agent, instruction: r.instruction, ...(r.verdict ? { verdict: r.verdict } : {}), result: clipMiddle(r.result, 5000),
     }));
     return `${role}\n\n---\n## Takim agenti protokolu\n` +
       `Operator sana asagidaki isi devretti. ${instructionByKind[assignment.kind] || instructionByKind.implement} ` +
@@ -589,6 +714,7 @@ class Engine extends EventEmitter {
       state.messages.push({ from: task.operatorCli, to: assignment.agent, messageType: "delegation", assignmentId: assignment.id, body: assignment.instruction, at: new Date().toISOString() });
       this.publish("message", state.messages[state.messages.length - 1], task.id);
       if (assignment.routingReason) this.publish("log", { level: "info", msg: `Otomatik yonlendirme: ${assignment.routingReason}` }, task.id);
+      if (assignment.renamedFrom) this.publish("log", { level: "warn", msg: `Operator delegasyon kimligini yineledi; ${assignment.renamedFrom} otomatik olarak ${assignment.id} yapildi.` }, task.id);
       this.publish("log", { level: "stage", msg: `DELEGE ${assignment.id} -> ${assignment.agent}` }, task.id);
       try {
         const response = await this.invokeAgent(
@@ -598,6 +724,10 @@ class Engine extends EventEmitter {
           { stage: "delegate", assignmentId: assignment.id }
         );
         const result = { ...assignment, status: "completed", result: response.text, durationMs: response.durationMs, callId: response.callId };
+        if (assignment.kind === "review") {
+          result.verdict = extractVerdict(response.text);
+          this.publish("log", { level: "info", msg: `Denetim ${assignment.id}: VERDICT ${result.verdict || "BELIRSIZ"}` }, task.id);
+        }
         state.results[assignment.id] = result;
         const message = { from: assignment.agent, to: task.operatorCli, messageType: "result", assignmentId: assignment.id, body: response.text, at: new Date().toISOString() };
         state.messages.push(message);
@@ -650,10 +780,12 @@ class Engine extends EventEmitter {
     let assignments;
     if (state.plan && task.approved) {
       assignments = normalizeAssignments(state.plan.assignments, cfg, operatorCli, usedIds);
-      this.publish("log", { level: "info", msg: "Onaylanmis operator plani degistirilmeden devam ettiriliyor." }, task.id);
+      assignments = ensureBalancedRoleChain(assignments, cfg, operatorCli, task, usedIds);
+      this.publish("log", { level: "info", msg: "Onaylanmis operator plani zorunlu rol zinciri korunarak devam ettiriliyor." }, task.id);
     } else {
       const plan = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "plan"), cfg, "operator-plan", "Operator plani");
       assignments = normalizeAssignments(plan.assignments, cfg, operatorCli, usedIds);
+      assignments = ensureBalancedRoleChain(assignments, cfg, operatorCli, task, usedIds);
       state.plan = { summary: String(plan.summary || ""), completionCriteria: Array.isArray(plan.completionCriteria) ? plan.completionCriteria.map(String) : [], assignments };
       state.criteria = state.plan.completionCriteria;
       state.operatorDecisions.push({ round: 0, ...state.plan });
@@ -692,6 +824,24 @@ class Engine extends EventEmitter {
         this.publish("log", { level: "info", msg: "FAST mod: uzman teslimati basarili; ikinci operator degerlendirme cagrisi atlandi." }, task.id);
         return this.complete(task, state, "done", reports, {});
       }
+      // PASS hizli yolu: turdaki tum delegasyonlar tamamlandi ve turun kendi bagimsiz
+      // denetimi PASS verdiyse operatorun ikinci degerlendirme cagrisi bilgi eklemez,
+      // yalnizca dakikalar kaybettirir. Bayat bir PASS'in yeni turu kapatmamasi icin
+      // karar en guncel denetim olmalidir. operator.passFastPath=false ile kapatilabilir.
+      const roundReview = assignments
+        .map((assignment) => state.results[assignment.id])
+        .filter((result) => result?.kind === "review" && result.status === "completed" && result.verdict)
+        .pop();
+      if (cfg.operator?.passFastPath !== false
+        && assignments.every((assignment) => state.results[assignment.id]?.status === "completed")
+        && roundReview?.verdict === "PASS"
+        && roundReview === this.latestReview(state)) {
+        this.publish("log", { level: "ok", msg: `Denetim ${roundReview.id} PASS verdi; operator degerlendirme cagrisi atlandi ve teslimat tamamlandi.` }, task.id);
+        const completedWork = Object.values(state.results).filter((result) => result.status === "completed");
+        const final = `Teslimat bagimsiz denetimden gecti (${roundReview.id} → VERDICT: PASS).\n` +
+          completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n");
+        return this.complete(task, state, "done", final, { verification: `${roundReview.agent} → VERDICT: PASS` });
+      }
       const decision = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "review"), cfg, "operator-review", "Operator karari");
       state.operatorDecisions.push({ round: state.round, ...decision });
       task.teamState = state;
@@ -702,8 +852,75 @@ class Engine extends EventEmitter {
       }
       if (String(decision.status).toLowerCase() !== "continue") throw new Error("Operator status alani continue veya complete olmali.");
       assignments = normalizeAssignments(decision.assignments, cfg, operatorCli, new Set(state.usedIds));
+      // Inceleme dongusu valisi: bagimsiz denetim PASS verdiyse ve operator yalnizca yeni
+      // inceleme turlari acmak istiyorsa dongu burada kesilir. Sonsuz review ping-pong'u
+      // hem tur butcesini tuketiyor hem de basarili teslimati kullaniciya geciktiriyordu.
+      const lastReview = this.latestReview(state);
+      if (lastReview?.verdict === "PASS" && assignments.every((assignment) => assignment.kind === "review")) {
+        this.publish("log", { level: "warn", msg: `Denetim ${lastReview.id} PASS verdi; yalnizca yeni inceleme iceren tur acilmadi ve teslimat tamamlandi.` }, task.id);
+        const final = `Teslimat bagimsiz denetimden gecti (${lastReview.id} → VERDICT: PASS). ` +
+          `Operatorun ek inceleme talebi tur butcesini korumak icin motor tarafindan sonlandirildi.` +
+          (String(decision.reason || "").trim() ? `\nOperator notu: ${clip(decision.reason, 600)}` : "");
+        return this.complete(task, state, "done", final, { verification: `${lastReview.agent} → VERDICT: PASS` });
+      }
     }
-    throw new Error(`Operator ${state.round} tur sonunda gorevi tamamlayamadi${recoveryRounds ? ` (${recoveryRounds} CLI kurtarma turu kullanildi)` : ""}.`);
+    if (!this.running) throw new Error("Motor durduruldu; gorev tamamlanmadan kesildi.");
+    return this.finishExhausted(task, state, recoveryRounds);
+  }
+
+  // Tur butcesi doldugunda tamamlanmis isi cope atmak yerine uyarili kismi teslimat yapar.
+  // Kullanicinin gordugu sonuc "saatlerce bekledim ve hata aldim" degil, "teslimat hazir,
+  // su riskler acik kaldi" olmalidir. Hic tamamlanan is yoksa eski davranis korunur.
+  finishExhausted(task, state, recoveryRounds) {
+    const completedWork = Object.values(state.results || {}).filter((result) => result.status === "completed");
+    if (!completedWork.length) {
+      throw new Error(`Operator ${state.round} tur sonunda gorevi tamamlayamadi${recoveryRounds ? ` (${recoveryRounds} CLI kurtarma turu kullanildi)` : ""}.`);
+    }
+    const lastReview = this.latestReview(state);
+    const lastDecision = [...(state.operatorDecisions || [])].reverse().find((decision) => String(decision.status).toLowerCase() === "continue");
+    const warnings = [
+      `Tur butcesi doldu (${state.round} tur); operator complete karari veremeden teslimat kapatildi.`,
+      ...(lastReview ? [`Son bagimsiz denetim: ${lastReview.id} → VERDICT: ${lastReview.verdict}.`] : []),
+      ...(lastDecision && String(lastDecision.reason || "").trim() ? [`Operatorun acik biraktigi konu: ${clip(lastDecision.reason, 400)}`] : []),
+    ];
+    this.publish("log", { level: "warn", msg: `Tur butcesi doldu; tamamlanan is kismi teslimat olarak kapatiliyor (${completedWork.length} tamamlanmis delegasyon).` }, task.id);
+    const final = `KISMI TESLIMAT: Tur butcesi doldugu icin gorev, tamamlanan isle kapatildi.\n` +
+      completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n") +
+      `\nAcik kalan konular teslimat uyarilarinda listelendi.`;
+    return this.complete(task, state, "done", final, {
+      warnings,
+      verification: lastReview ? `${lastReview.agent} → VERDICT: ${lastReview.verdict}` : "",
+    });
+  }
+
+  // Gorev beklenmedik bir hatayla kesildiginde (protokol hatasi, butce asimi vb.) somut is
+  // uretilmisse gorevi failed yerine uyarili kismi teslimatla kapatir. Basarili olamazsa
+  // false doner ve normal hata akisi calisir.
+  salvage(task, error) {
+    try {
+      if (task.kind === "operator-chat") return false;
+      const state = task.teamState;
+      const completedWork = Object.values(state?.results || {}).filter((result) => result.status === "completed");
+      if (!completedWork.length || !this._cwd || !this._snapBefore) return false;
+      const changes = diffSnapshots(this._snapBefore, snapshotDir(this._cwd));
+      const hasImplementation = completedWork.some((result) => result.kind === "implement");
+      if (!hasImplementation && !changes.created.length && !changes.modified.length && !changes.deleted.length) return false;
+      const failure = classifyCliError(error);
+      this.publish("log", { level: "warn", msg: `Gorev hatayla kesildi (${failure.summary}); tamamlanan is kismi teslimat olarak korunuyor.` }, task.id);
+      const lastReview = this.latestReview(state);
+      const final = `KISMI TESLIMAT: Gorev bir altyapi/protokol hatasiyla kesildi fakat tamamlanan is korundu.\n` +
+        completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n");
+      this.complete(task, state, "done", final, {
+        warnings: [
+          `Gorev su hatayla kesildi: ${failure.summary}`,
+          ...(lastReview ? [`Son bagimsiz denetim: ${lastReview.id} → VERDICT: ${lastReview.verdict}.`] : []),
+        ],
+        verification: lastReview ? `${lastReview.agent} → VERDICT: ${lastReview.verdict}` : "",
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async runChatTask(task, cfg) {
@@ -764,6 +981,7 @@ class Engine extends EventEmitter {
     task.summary = concise;
     task.final = finalText;
     task.changes = changes;
+    const warnings = (Array.isArray(decision.warnings) ? decision.warnings : []).map(String).filter(Boolean);
     task.delivery = {
       summary: concise,
       files,
@@ -772,6 +990,7 @@ class Engine extends EventEmitter {
       mode: task.executionMode,
       rounds: state.round,
       agents: [...new Set(Object.values(state.results).map((result) => result.agent))],
+      ...(warnings.length ? { warnings } : {}),
     };
     task.teamState = state;
     const found = store.findTask(task.id);
@@ -784,3 +1003,5 @@ class Engine extends EventEmitter {
 }
 
 module.exports = new Engine();
+// Testlerin dis davranisla birlikte kritik saf kurallari da dogrudan dogrulayabilmesi icin.
+module.exports._internals = { normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle };

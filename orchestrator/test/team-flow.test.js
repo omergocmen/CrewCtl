@@ -1,6 +1,20 @@
 const assert = require("assert");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
+// Testi canli runtime'dan izole et: store'u require etmeden ONCE kendi gecici ROOT'unu ayarla.
+// Boylece gercek config.json/queue'ya hic dokunmaz, canli sunucuyla dosya kilitlemesi (EPERM)
+// yasanmaz ve test yarida coker kalsa bile kullanicinin gercek konfigurasyonu bozulmaz.
+const REAL_ROOT = path.join(__dirname, "..");
+const TEST_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "cli-team-teamflow-"));
+process.env.CLI_TEAM_ROOT = TEST_ROOT;
+// NOT: fs.cpSync Windows'ta non-ASCII yollarda (or. C:\Users\Ömer) EIO/cokme veriyor; bu yuzden
+// tum kod tabani gibi Unicode-guvenli copyFileSync kullaniyoruz. roles/ duz bir .md klasoru.
+fs.mkdirSync(path.join(TEST_ROOT, "roles"), { recursive: true });
+for (const file of fs.readdirSync(path.join(REAL_ROOT, "roles"))) {
+  fs.copyFileSync(path.join(REAL_ROOT, "roles", file), path.join(TEST_ROOT, "roles", file));
+}
+fs.copyFileSync(path.join(REAL_ROOT, "config.default.json"), path.join(TEST_ROOT, "config.default.json"));
 const store = require("../src/store");
 const cliRegistry = require("../src/cli-registry");
 
@@ -15,16 +29,21 @@ async function main() {
   const approvalWorkspace = path.join(__dirname, ".tmp-approval-workspace");
   const recoveryWorkspace = path.join(__dirname, ".tmp-recovery-workspace");
   const routingWorkspace = path.join(__dirname, ".tmp-routing-workspace");
+  const reviewLoopWorkspace = path.join(__dirname, ".tmp-review-loop-workspace");
+  const reviewGovernorWorkspace = path.join(__dirname, ".tmp-review-governor-workspace");
+  const partialWorkspace = path.join(__dirname, ".tmp-partial-workspace");
   const openCodeWorkspace = path.join(__dirname, ".tmp-opencode-workspace");
   const fakeCli = path.join(__dirname, "fake-cli.js");
   const originalPath = process.env.PATH;
   const callFile = path.join(store.ROOT, "state", `calls-${new Date().toISOString().slice(0, 10)}.txt`);
   const originalCalls = fs.existsSync(callFile) ? fs.readFileSync(callFile, "utf8") : null;
-  fs.mkdirSync(workspace, { recursive: true });
-  fs.mkdirSync(approvalWorkspace, { recursive: true });
-  fs.mkdirSync(recoveryWorkspace, { recursive: true });
-  fs.mkdirSync(routingWorkspace, { recursive: true });
-  fs.mkdirSync(openCodeWorkspace, { recursive: true });
+  // Windows'ta bir onceki kosunun teardown'i gecici bir kilit (EBUSY/EPERM) nedeniyle
+  // klasoru silememis olabilir. Stale bir workspace, icindeki eski dosyayi "onceden vardi"
+  // sayarak snapshot diff'ini bozar ve YANLIS bir basarisizlik uretir. Best-effort ve
+  // asla firlatmayan bu yardimci hem baslangicta hem teardown'da kullanilir.
+  const removeWorkspace = (dir) => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } catch {} };
+  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, openCodeWorkspace];
+  for (const dir of workspaces) { removeWorkspace(dir); fs.mkdirSync(dir, { recursive: true }); }
   const tasks = [];
   try {
     const base = JSON.parse(originalConfig);
@@ -42,8 +61,10 @@ async function main() {
     base.operator = { cli: "operator", cmd: agent.cmd, args: agent.args, timeoutSeconds: agent.timeoutSeconds, roleFile: "roles/operator.md", maxRounds: 3, maxDelegationsPerRound: 3 };
     base.agents = {
       worker: { ...agent, description: "test worker", capabilities: ["implementation"], roleFile: "roles/executor.md" },
+      flaky: { ...agent, description: "delegasyon bazli kontrollu hata agenti", capabilities: ["implementation"], roleFile: "roles/executor.md" },
       broken: { cmd: "fake-failing-cli", args: [], timeoutSeconds: 20, description: "unavailable test worker", capabilities: ["implementation"] },
       planner: { ...agent, description: "plan only", capabilities: ["planning"], roleFile: "roles/planner.md" },
+      reviewer: { ...agent, description: "independent reviewer", capabilities: ["review"], roleFile: "roles/reviewer.md" },
       // OpenCode adapteri argumanlari kendisi kurar (run/--format/--file), bu yuzden cmd tek bir
       // calistirilabilir olmali: Windows'ta .cmd shim'i, POSIX'te shebang'li betigin kendisi.
       openworker: { cmd: path.join(__dirname, process.platform === "win32" ? "fake-opencode.cmd" : "fake-opencode.js"), adapter: "opencode", args: [], timeoutSeconds: 20, description: "OpenCode worker", capabilities: ["implementation"] },
@@ -51,7 +72,7 @@ async function main() {
     store.saveConfig(base);
     delete require.cache[require.resolve("../src/engine")];
     const engine = require("../src/engine");
-    const task = store.addTask("Takim halinde bir test dosyasi olustur.", workspace, "operator");
+    const task = store.addTask("Takim halinde bir test dosyasi olustur.", workspace, "operator", "fast");
     tasks.push(task);
     engine.running = true;
     await engine.runTask(task);
@@ -90,7 +111,7 @@ async function main() {
     base.riskyPatterns = ["team-output.txt"];
     base.workingDir = approvalWorkspace;
     store.saveConfig(base);
-    const approvalTask = store.addTask("Onayli takim planiyla dosya olustur.", approvalWorkspace, "operator");
+    const approvalTask = store.addTask("Onayli takim planiyla dosya olustur.", approvalWorkspace, "operator", "fast");
     tasks.push(approvalTask);
     engine.running = true;
     await engine.runTask(approvalTask);
@@ -106,12 +127,12 @@ async function main() {
     assert.equal(approvalFound.state, "done");
     const approvalEvents = store.listRunEvents(approvalTask.id);
     assert.equal(approvalEvents.filter((event) => event.type === "activity" && event.kind === "process.started" && event.stage === "operator-plan").length, 1);
-    assert.ok(approvalEvents.some((event) => event.type === "log" && event.msg.includes("degistirilmeden")));
+    assert.ok(approvalEvents.some((event) => event.type === "log" && event.msg.includes("zorunlu rol zinciri")));
 
     base.approvalMode = "auto";
     base.workingDir = recoveryWorkspace;
     store.saveConfig(base);
-    const recoveryTask = store.addTask("Hata toleransi ile takim dosyasi olustur.", recoveryWorkspace, "operator");
+    const recoveryTask = store.addTask("Hata toleransi ile takim dosyasi olustur.", recoveryWorkspace, "operator", "fast");
     tasks.push(recoveryTask);
     engine.running = true;
     await engine.runTask(recoveryTask);
@@ -125,6 +146,11 @@ async function main() {
     assert.ok(fs.existsSync(path.join(recoveryWorkspace, "team-output.txt")));
     assert.ok(!engine.agentCatalog(base, "operator").some((agent) => agent.name === "broken"));
     assert.ok(store.listRunEvents(recoveryTask.id).some((event) => event.type === "log" && event.msg.includes("tur butcesinden dusulmedi")));
+
+    const roleCatalog = engine.agentCatalog(base, "operator");
+    assert.deepEqual(roleCatalog.find((item) => item.name === "worker").allowedKinds, ["implement"]);
+    assert.deepEqual(roleCatalog.find((item) => item.name === "reviewer").allowedKinds, ["review"]);
+    assert.deepEqual(roleCatalog.find((item) => item.name === "planner").allowedKinds, ["plan"]);
 
     const effectiveCodex = cliRegistry.effectiveAgent({ cmd: "codex", args: [] });
     assert.deepEqual(effectiveCodex.args.slice(0, 2), ["exec", "--skip-git-repo-check"]);
@@ -141,6 +167,90 @@ async function main() {
     assert.equal(routingFound.task.teamState.results["auto-route"].agent, "worker");
     assert.equal(routingFound.task.teamState.results["auto-route"].requestedAgent, "planner");
     assert.ok(fs.existsSync(path.join(routingWorkspace, "team-output.txt")));
+
+    // PASS hizli yolu: ayni turdaki tum delegasyonlar tamamlanip denetci PASS verdiginde
+    // ikinci operator cagrisi yapilmadan teslimat tamamlanmalidir.
+    base.workingDir = reviewLoopWorkspace;
+    store.saveConfig(base);
+    const loopTask = store.addTask("Inceleme dongusu senaryosunu takim akisiyla calistir.", reviewLoopWorkspace, "operator");
+    tasks.push(loopTask);
+    engine.running = true;
+    await engine.runTask(loopTask);
+    engine.running = false;
+    const loopFound = store.findTask(loopTask.id);
+    assert.equal(loopFound.state, "done");
+    assert.equal(loopFound.task.executionMode, "balanced");
+    assert.equal(loopFound.task.teamState.results["balanced-plan"].status, "completed");
+    assert.equal(loopFound.task.teamState.results["balanced-plan"].agent, "planner");
+    assert.ok(loopFound.task.teamState.results["loop-build"].dependsOn.includes("balanced-plan"));
+    assert.ok(loopFound.task.teamState.results["loop-review"].dependsOn.includes("loop-build"));
+    assert.equal(loopFound.task.teamState.results["loop-review"].verdict, "PASS");
+    assert.ok(!loopFound.task.teamState.results["loop-review-r2"], "PASS sonrasi ek inceleme calistirilmamali");
+    assert.equal(loopFound.task.teamState.round, 1);
+    assert.ok(loopFound.task.delivery.verification.includes("VERDICT: PASS"));
+    assert.ok(fs.existsSync(path.join(reviewLoopWorkspace, "team-output.txt")));
+    const loopEvents = store.listRunEvents(loopTask.id);
+    assert.ok(loopEvents.some((event) => event.type === "log" && event.msg.includes("operator degerlendirme cagrisi atlandi")));
+    assert.equal(loopEvents.filter((event) => event.type === "activity" && event.kind === "process.started" && event.stage === "operator-plan").length, 1);
+    assert.equal(loopEvents.filter((event) => event.type === "activity" && event.kind === "process.started" && event.stage === "operator-review").length, 0);
+
+    // Vali yedegi: turdaki bir altyapi hatasi PASS hizli yolunu kapatir. Operator yalnizca
+    // yeni inceleme isterse mevcut taze PASS ile dongu kesilmelidir.
+    base.workingDir = reviewGovernorWorkspace;
+    store.saveConfig(base);
+    const governorTask = store.addTask("Inceleme valisi senaryosunu takim akisiyla calistir.", reviewGovernorWorkspace, "operator");
+    tasks.push(governorTask);
+    engine.running = true;
+    await engine.runTask(governorTask);
+    engine.running = false;
+    const governorFound = store.findTask(governorTask.id);
+    assert.equal(governorFound.state, "done");
+    assert.equal(governorFound.task.teamState.results["governor-review"].verdict, "PASS");
+    assert.equal(governorFound.task.teamState.results["governor-broken"].status, "failed");
+    assert.ok(!governorFound.task.teamState.results["governor-review-r2"]);
+    assert.ok(store.listRunEvents(governorTask.id).some((event) => event.type === "log" && event.msg.includes("yalnizca yeni inceleme")));
+
+    // Kismi teslimat: operator hicbir turda complete demezse tamamlanan is failed yerine
+    // uyarili done olarak teslim edilmelidir.
+    base.workingDir = partialWorkspace;
+    store.saveConfig(base);
+    const partialTask = store.addTask("Kismi teslimat senaryosunu takim akisiyla calistir.", partialWorkspace, "operator");
+    tasks.push(partialTask);
+    engine.running = true;
+    await engine.runTask(partialTask);
+    engine.running = false;
+    const partialFound = store.findTask(partialTask.id);
+    assert.equal(partialFound.state, "done");
+    assert.equal(partialFound.task.teamState.round, 3);
+    assert.ok(partialFound.task.final.startsWith("KISMI TESLIMAT"));
+    assert.ok(Array.isArray(partialFound.task.delivery.warnings) && partialFound.task.delivery.warnings.length >= 2);
+    assert.ok(partialFound.task.delivery.warnings.some((warning) => warning.includes("Tur butcesi doldu")));
+    assert.ok(fs.existsSync(path.join(partialWorkspace, "team-output.txt")));
+    assert.ok(store.listRunEvents(partialTask.id).some((event) => event.type === "log" && event.msg.includes("kismi teslimat")));
+
+    // Saf kurallar: kimlik cakismasi yeniden adlandirilmali, verdict metnin sonundan okunmali.
+    const { normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle } = engine._internals;
+    const dedupeUsed = new Set(["fix-1"]);
+    const dedupeCfg = { operator: { maxDelegationsPerRound: 5 }, agents: { worker: { capabilities: ["implementation"] } } };
+    const deduped = normalizeAssignments([
+      { id: "fix-1", agent: "worker", kind: "implement", instruction: "duzelt", dependsOn: [] },
+      { id: "verify-1", agent: "worker", kind: "implement", instruction: "uygula ve kontrol et", dependsOn: ["fix-1"] },
+    ], dedupeCfg, "operator", dedupeUsed);
+    assert.equal(deduped[0].id, "fix-1-r2");
+    assert.equal(deduped[0].renamedFrom, "fix-1");
+    assert.deepEqual(deduped[1].dependsOn, ["fix-1-r2"]);
+    const chainUsed = new Set(["build", "review"]);
+    const chained = ensureBalancedRoleChain([
+      { id: "build", agent: "worker", kind: "implement", instruction: "uygula", dependsOn: [] },
+      { id: "review", agent: "reviewer", kind: "review", instruction: "incele", dependsOn: [] },
+    ], base, "operator", { executionMode: "balanced" }, chainUsed);
+    assert.deepEqual(chained.map((item) => item.kind), ["plan", "implement", "review"]);
+    assert.equal(chained[0].agent, "planner");
+    assert.deepEqual(chained[1].dependsOn, [chained[0].id]);
+    assert.deepEqual(chained[2].dependsOn, ["build"]);
+    assert.equal(extractVerdict("BULGULAR: eski karar VERDICT: FAIL idi\nDOĞRULAMA: tamam\nVERDICT: PASS"), "PASS");
+    assert.equal(extractVerdict("verdict icermeyen rapor"), null);
+    assert.ok(clipMiddle(`${"a".repeat(9000)}VERDICT: PASS`, 400).endsWith("VERDICT: PASS"), "kirpma sondaki karari korumali");
 
     const effectiveOpenCode = cliRegistry.effectiveAgent({ cmd: "opencode", adapter: "opencode", args: [], model: "opencode/test-model" });
     assert.equal(cliRegistry.DEFINITIONS.opencode.timeoutSeconds, 1800);
@@ -199,15 +309,12 @@ async function main() {
       const eventFile = path.join(store.ROOT, "state", "events", `${task.id}.jsonl`);
       if (fs.existsSync(eventFile)) fs.rmSync(eventFile);
     }
-    const removeWorkspace = (dir) => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    removeWorkspace(workspace);
-    removeWorkspace(approvalWorkspace);
-    removeWorkspace(recoveryWorkspace);
-    removeWorkspace(routingWorkspace);
-    removeWorkspace(openCodeWorkspace);
+    for (const dir of workspaces) removeWorkspace(dir);
     if (originalCalls === null) {
       if (fs.existsSync(callFile)) fs.rmSync(callFile);
     } else fs.writeFileSync(callFile, originalCalls);
+    // Izole gecici ROOT'u tamamen kaldir; gercek runtime zaten hic kullanilmadi.
+    removeWorkspace(TEST_ROOT);
   }
 }
 

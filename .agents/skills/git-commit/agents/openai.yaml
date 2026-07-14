@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit"
+  short_description: "Stage all changes and create a standard commit"
+  default_prompt: "Use $git-commit to review, stage, and commit all current Git changes with a standard message."

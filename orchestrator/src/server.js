@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
 const WEB = path.join(store.ROOT, "web");
 const HEALTH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const HEALTH_CACHE_VERSION = 2;
 const CODEX_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 let codexModelRefreshDue = false;
 let codexModelCache = { checkedAt: 0, models: [] };
@@ -28,13 +29,19 @@ let cliStatus = cliRegistry.discoverInstalled();
   };
   codexModelRefreshDue = !codexModelCache.models.length || startupCount % 10 === 0;
   cfg.codexModelCache = { ...savedModels, startupCount, lastStartedAt: new Date().toISOString() };
-  const cached = cfg.cliHealthCache?.results;
+  const healthCacheValid = cfg.cliHealthCache?.version === HEALTH_CACHE_VERSION;
+  const cached = healthCacheValid ? cfg.cliHealthCache?.results : null;
+  let staleHealthCleared = false;
   if (cached && typeof cached === "object") {
     cliStatus = cliStatus.map((cli) => cached[cli.id] ? { ...cli, health: cached[cli.id] } : cli);
+  } else {
+    for (const agent of Object.values(cfg.agents || {})) {
+      if (agent.health) { delete agent.health; staleHealthCleared = true; }
+    }
   }
   let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
   if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-  if (changed || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
+  if (changed || staleHealthCleared || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
 }
 
 // ---- SSE istemcileri ----
@@ -78,7 +85,7 @@ function applyHealthToConfig(results) {
       }
     }
   }
-  const nextCache = { checkedAt: new Date().toISOString(), results: cachedResults };
+  const nextCache = { version: HEALTH_CACHE_VERSION, checkedAt: new Date().toISOString(), results: cachedResults };
   if (JSON.stringify(cfg.cliHealthCache || {}) !== JSON.stringify(nextCache)) {
     cfg.cliHealthCache = nextCache;
     changed = true;
@@ -99,8 +106,9 @@ async function getCodexModels(force = false) {
 }
 async function refreshCliHealth(force = false) {
   if (healthRunning) return cliStatus;
-  const cachedAt = Date.parse(store.loadConfig().cliHealthCache?.checkedAt || "");
-  if (!force && Number.isFinite(cachedAt) && Date.now() - cachedAt < HEALTH_CACHE_TTL_MS) {
+  const cfg = store.loadConfig();
+  const cachedAt = Date.parse(cfg.cliHealthCache?.checkedAt || "");
+  if (!force && cfg.cliHealthCache?.version === HEALTH_CACHE_VERSION && Number.isFinite(cachedAt) && Date.now() - cachedAt < HEALTH_CACHE_TTL_MS) {
     broadcast("cli-health", cliStatus);
     return cliStatus;
   }
@@ -108,7 +116,7 @@ async function refreshCliHealth(force = false) {
   cliStatus = cliStatus.map((cli) => ({ ...cli, health: { status: "testing", label: "Test ediliyor", detail: "Gerçek CLI sağlık testi çalışıyor." } }));
   broadcast("cli-health", cliStatus);
   try {
-    cliStatus = await cliRegistry.healthCheckAll(cliStatus, { timeoutMs: 45000 });
+    cliStatus = await cliRegistry.healthCheckAll(cliStatus, { timeoutMs: 45000, cfg });
     applyHealthToConfig(cliStatus);
     broadcast("cli-health", cliStatus);
     return cliStatus;
@@ -282,7 +290,7 @@ const server = http.createServer(async (req, res) => {
         // operator.md rolüyle ekibi yönetir. Belirtilmemiş/geçersizse kurulu bir CLI'ye geçilir.
         const cliEntry = (name) => cliStatus.find((c) => c.id === name);
         const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed
-          && (name !== "opencode" || c.ready !== false || Boolean(cfg.operator?.model)));
+          && (name !== "opencode" || c.ready !== false || Boolean(cfg.cliSettings?.opencode?.model)));
         const usableCli = (name) => {
           const entry = cliEntry(name);
           return installedCli(name) && (!entry?.health || entry.health.status === "ready");
@@ -408,16 +416,21 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, store.loadConfig());
       }
       if (pathname === "/api/config" && req.method === "PUT") {
-        const cfg = await readBody(req);
+        let cfg = await readBody(req);
         if (!cfg.agents || typeof cfg.agents !== "object") return send(res, 400, { error: "agents nesnesi gerekli" });
         if (Object.keys(cfg.agents).length < 1) return send(res, 400, { error: "operatorun altinda calisacak en az bir uzman agent gerekli" });
         if (!cfg.operator?.cli || !cliRegistry.KNOWN_CLIS.includes(cfg.operator.cli)) return send(res, 400, { error: "operator.cli gecerli bir CLI olmali (claude/codex/gemini/opencode)" });
         cfg.operator.roleFile = "roles/operator.md";
         delete cfg.operator.agent;
-        cfg.operator.codexSettings ||= {};
-        if (cfg.operator.codexSettings.reasoningEffort && !["low", "medium", "high", "xhigh", "max", "ultra"].includes(cfg.operator.codexSettings.reasoningEffort)) return send(res, 400, { error: "operator.codexSettings.reasoningEffort gecersiz" });
-        if (cfg.operator.codexSettings.serviceTier && !/^[A-Za-z0-9._-]{1,64}$/.test(cfg.operator.codexSettings.serviceTier)) return send(res, 400, { error: "operator.codexSettings.serviceTier gecersiz" });
-        if (cfg.operator.codexSettings.model != null && typeof cfg.operator.codexSettings.model !== "string") return send(res, 400, { error: "operator.codexSettings.model metin olmali" });
+        // Eski UI govdeleri (operator.codexSettings / operator.model) yeni cliSettings
+        // yapisina tasinir; dogrulama tek semada yapilir.
+        cfg = store.normalizeConfig(cfg);
+        cliRegistry.normalizeAgentAdapters(cfg);
+        if (cfg.cliSettings.codex.reasoningEffort && !["low", "medium", "high", "xhigh", "max", "ultra"].includes(cfg.cliSettings.codex.reasoningEffort)) return send(res, 400, { error: "cliSettings.codex.reasoningEffort gecersiz" });
+        if (cfg.cliSettings.codex.serviceTier && !/^[A-Za-z0-9._-]{1,64}$/.test(cfg.cliSettings.codex.serviceTier)) return send(res, 400, { error: "cliSettings.codex.serviceTier gecersiz" });
+        for (const id of ["codex", "opencode"]) {
+          if (cfg.cliSettings[id].model != null && typeof cfg.cliSettings[id].model !== "string") return send(res, 400, { error: `cliSettings.${id}.model metin olmali` });
+        }
         for (const [name, agent] of Object.entries(cfg.agents)) {
           if (!name.trim() || !agent.cmd || typeof agent.cmd !== "string") return send(res, 400, { error: `gecersiz agent: ${name}` });
           if (!Array.isArray(agent.args)) return send(res, 400, { error: `${name}.args dizi olmali` });

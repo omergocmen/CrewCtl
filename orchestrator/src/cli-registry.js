@@ -10,6 +10,8 @@ const DEFINITIONS = {
     command: "codex",
     versionArgs: ["--version"],
     defaultArgs: ["exec", "--skip-git-repo-check"],
+    // Codex calisirken surekli ilerleme akitir; 3 dakikalik sessizlik gercek bir takilmadir.
+    silenceTimeoutSeconds: 180,
     description: "OpenAI Codex kodlama, hata ayiklama ve inceleme agenti",
     capabilities: ["implementation", "debugging", "testing", "review", "analysis"],
     roleFile: "roles/executor.md",
@@ -27,6 +29,8 @@ const DEFINITIONS = {
     versionArgs: ["--version"],
     // Argumansiz gemini interaktif TUI acar ve izin bekler; yolo ile otonom, stdin'den prompt alir.
     defaultArgs: ["--approval-mode", "yolo"],
+    // Gemini de akis halinde cikti verir; uzun sessizlik takilma isaretidir.
+    silenceTimeoutSeconds: 180,
     description: "Gemini CLI analiz, uygulama ve web arastirma agenti",
     capabilities: ["implementation", "planning", "analysis", "research", "web"],
     roleFile: "roles/executor.md",
@@ -72,22 +76,29 @@ function selectOpenCodeModel(models) {
   return "";
 }
 
+// `opencode models` ciktisindan saglayici/model satirlarini ayiklar. Baslik, bos satir ve
+// log gurultusunu eler; her "saglayici/model" bicimli satir gecerli sayilir.
+function parseOpenCodeModels(stdout) {
+  const found = new Set();
+  for (const line of String(stdout || "").split(/\r?\n/)) {
+    const model = line.trim();
+    if (/^[A-Za-z0-9._-]+\/.+/.test(model) && !/\s/.test(model)) found.add(model);
+  }
+  return [...found];
+}
+
 function listOpenCodeModels(command) {
   try {
-    const found = new Set();
-    // Genel liste yuzlerce kayitli ama yetkilendirilmemis modeli dondurebilir veya
-    // sadece kullanicinin yerel varsayilanini gosterebilir. OpenCode'un kendi
-    // saglayici listesini sorgulamak her kurulumda daha kesin ve daha kucuk bir listedir.
-    const result = spawnSync(command, ["models", "opencode"], {
+    // Tum saglayicilarin listesi sorgulanir. Kullanicilarin ucretli abonelikleri
+    // (opencode-go, minimax-coding-plan vb.) ayri saglayici olarak gorunur; yalnizca
+    // "opencode" saglayicisini sorgulamak bu modelleri gizliyor ve kurulum yanlislikla
+    // "hazir degil" sayiliyordu. Otomatik oneri siralamasini selectOpenCodeModel yapar.
+    const result = spawnSync(command, ["models"], {
       encoding: "utf8", timeout: 20000, windowsHide: true,
       shell: isWin && (!path.isAbsolute(command) || /\.(cmd|bat)$/i.test(command)),
     });
     if (result.status !== 0) return [];
-    for (const line of String(result.stdout || "").split(/\r?\n/)) {
-      const model = line.trim();
-      if (/^opencode\/.+/.test(model)) found.add(model);
-    }
-    return [...found];
+    return parseOpenCodeModels(result.stdout);
   } catch { return []; }
 }
 
@@ -139,16 +150,55 @@ function commonCandidates(id) {
   ];
 }
 
-function effectiveAgent(agent) {
+// Bilinen bir CLI komutu adapter alanindan daha guvenilir kaynaktir. Eski veya elle
+// duzenlenmis config'te adapter=claude + cmd=codex gibi bir celiski varsa hedef CLI'nin
+// guvenli varsayilan argumanlarina donulur; boylece bir CLI'ye digerinin bayragi gitmez.
+function normalizeAgentAdapter(agent) {
+  if (!agent || typeof agent !== "object") return false;
+  const configured = String(agent.adapter || "").trim().toLowerCase();
+  const inferred = adapterId(agent.cmd);
+  const adapter = inferred !== "custom" ? inferred : (DEFINITIONS[configured] ? configured : "custom");
+  let changed = false;
+  if (inferred !== "custom" && configured && configured !== inferred) {
+    agent.args = DEFINITIONS[inferred].defaultArgs.slice();
+    delete agent.model;
+    delete agent.modelOverride;
+    changed = true;
+  }
+  if (agent.adapter !== adapter) {
+    agent.adapter = adapter;
+    changed = true;
+  }
+  return changed;
+}
+
+function normalizeAgentAdapters(cfg) {
+  if (!cfg?.agents || typeof cfg.agents !== "object") return false;
+  let changed = false;
+  for (const agent of Object.values(cfg.agents)) if (normalizeAgentAdapter(agent)) changed = true;
+  return changed;
+}
+
+// cfg verilirse cfg.cliSettings[adapter] o CLI'nin varsayilan model ayari olarak uygulanir.
+// Oncelik: agent.model (profil bazli) > cliSettings[adapter].model (global) > CLI varsayilani.
+function effectiveAgent(agent, cfg) {
   const copy = { ...agent, args: Array.isArray(agent.args) ? agent.args.map(String) : [] };
-  const adapter = agent.adapter || adapterId(agent.cmd);
-  copy.adapter = adapter;
+  normalizeAgentAdapter(copy);
+  const adapter = copy.adapter;
+  const commandAdapter = adapterId(copy.cmd);
+  const settings = (cfg && cfg.cliSettings && cfg.cliSettings[adapter]) || {};
   if (!copy.silenceTimeoutSeconds && DEFINITIONS[adapter]?.silenceTimeoutSeconds) copy.silenceTimeoutSeconds = DEFINITIONS[adapter].silenceTimeoutSeconds;
-  if (adapter !== "custom" && RESOLVED.has(adapter) && !path.isAbsolute(copy.cmd)) copy.cmd = RESOLVED.get(adapter);
+  if (commandAdapter === adapter && RESOLVED.has(adapter) && !path.isAbsolute(copy.cmd)) copy.cmd = RESOLVED.get(adapter);
   if (adapter === "codex") {
     const commands = new Set(["exec", "review", "resume", "apply"]);
     if (!copy.args.some((arg) => commands.has(arg))) copy.args.unshift("exec", "--skip-git-repo-check");
     else if (copy.args.includes("exec") && !copy.args.includes("--skip-git-repo-check")) copy.args.splice(copy.args.indexOf("exec") + 1, 0, "--skip-git-repo-check");
+    const model = String(copy.model || settings.model || "").trim();
+    const effort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(settings.reasoningEffort)) ? String(settings.reasoningEffort) : "";
+    const serviceTier = /^[A-Za-z0-9._-]{1,64}$/.test(String(settings.serviceTier || "")) ? String(settings.serviceTier) : "";
+    if (model && !copy.args.includes("--model") && !copy.args.includes("-m")) copy.args.push("--model", model);
+    if (effort && !copy.args.some((arg) => String(arg).startsWith("model_reasoning_effort="))) copy.args.push("-c", `model_reasoning_effort="${effort}"`);
+    if (serviceTier && !copy.args.some((arg) => String(arg).startsWith("service_tier="))) copy.args.push("-c", `service_tier="${serviceTier}"`);
   }
   if (adapter === "claude") {
     if (!copy.args.includes("-p") && !copy.args.includes("--print")) copy.args.unshift("-p");
@@ -166,7 +216,7 @@ function effectiveAgent(agent) {
     if (formatAt >= 0) copy.args.splice(formatAt, 2);
     copy.args.splice(copy.args.indexOf("run") + 1, 0, "--format", "json");
     const hasModel = copy.args.includes("--model") || copy.args.includes("-m");
-    const model = copy.model || selectOpenCodeModel(OPEN_CODE_MODELS);
+    const model = copy.model || String(settings.model || "").trim() || selectOpenCodeModel(OPEN_CODE_MODELS);
     if (!hasModel && model) copy.args.splice(copy.args.indexOf("run") + 3, 0, "--model", model);
     if (model) copy.model = model;
     if (!copy.args.includes("{PROMPT}") && !copy.args.includes("{PROMPT_FILE}")) {
@@ -225,7 +275,10 @@ function discoverInstalled() {
   return Object.entries(DEFINITIONS).map(([id, definition]) => ({ id, ...definition, ...probe(id, definition) }));
 }
 
-function healthCommand(command, args) {
+// Tek kaynak: hem gercek gorev calistirici (engine.runCli) hem saglik testi ve model
+// listeleme ayni komut kurulumunu kullanir. Bare npm CLI adlarini where.exe ile fiziksel
+// yola cevirmiyoruz; cmd.exe PATHEXT/PATH cozumlemesini Unicode olarak kendisi yapar.
+function buildCommand(command, args) {
   if (!isWin) return { file: command, args, shell: false };
   const bare = !path.isAbsolute(command) && !/[\\/]/.test(command);
   if (bare) return { file: command, args, shell: true };
@@ -243,6 +296,48 @@ function healthPrompt(id) {
   ].join("\n");
 }
 
+// Normal gorev calistiricisi {PROMPT}/{PROMPT_FILE} yer tutucularini cagridan once
+// doldurur. Health check de ayni sozlesmeyi kullanmali; aksi halde OpenCode literal
+// `{PROMPT_FILE}` yolunu acmaya calisir ve saglikli agent katalogdan yanlislikla elenir.
+function preparePromptArgs(args, prompt) {
+  let tempDir = "", promptFile = "", useStdin = true;
+  const prepared = (Array.isArray(args) ? args : []).map((arg) => {
+    const value = String(arg);
+    if (value.includes("{PROMPT}")) {
+      useStdin = false;
+      return value.replaceAll("{PROMPT}", prompt);
+    }
+    if (value.includes("{PROMPT_FILE}")) {
+      useStdin = false;
+      if (!promptFile) {
+        tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-team-health-"));
+        promptFile = path.join(tempDir, "prompt.md");
+        fs.writeFileSync(promptFile, prompt, "utf8");
+      }
+      return value.replaceAll("{PROMPT_FILE}", promptFile);
+    }
+    return value;
+  });
+  return {
+    args: prepared,
+    useStdin,
+    promptFile,
+    cleanup() { if (tempDir) { try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {} } },
+  };
+}
+
+// Tek kaynak: OpenCode icin otonom izinler surumden bagimsiz olarak OPENCODE_CONFIG_CONTENT
+// ile aktarilir. Hem engine.runCli hem saglik testi bu ortami kullanir ki test ile gercek
+// calistirma ayni izinlerle calissin.
+function agentEnvironment(agent) {
+  const env = { ...process.env };
+  if (agent.adapter !== "opencode") return env;
+  let inline = {};
+  try { inline = JSON.parse(env.OPENCODE_CONFIG_CONTENT || "{}"); } catch {}
+  env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ ...inline, permission: { "*": "allow" } });
+  return env;
+}
+
 function classifyHealthFailure(text) {
   const raw = String(text || "");
   if (/requires a newer version|upgrade to the latest|version.*unsupported|unsupported.*version|model metadata.*not found|unsupported.*model/i.test(raw)) return { status: "version-incompatible", label: "Sürüm uyumsuz", detail: raw };
@@ -257,16 +352,25 @@ function testInstalledCli(id, options = {}) {
   if (!definition) return Promise.resolve({ id, installed: false, health: { status: "unknown", label: "Bilinmiyor", detail: "Tanımsız CLI" } });
   const found = probe(id, definition);
   if (!found.installed) return Promise.resolve({ id, installed: false, version: found.version, error: found.error, health: { status: "not-installed", label: "Kurulu değil", detail: found.error || "CLI bulunamadı" } });
-  const agent = effectiveAgent({ adapter: id, cmd: definition.command, args: definition.defaultArgs.slice() });
-  const command = healthCommand(agent.cmd, agent.args);
+  const agent = effectiveAgent({ adapter: id, cmd: definition.command, args: definition.defaultArgs.slice() }, options.cfg);
+  const prompt = healthPrompt(id);
+  const prepared = preparePromptArgs(agent.args, prompt);
+  const command = buildCommand(agent.cmd, prepared.args);
   const timeoutMs = Math.max(10000, Number(options.timeoutMs || 45000));
   return new Promise((resolve) => {
     let stdout = "", stderr = "", settled = false;
-    const child = spawn(command.file, command.args, { shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim });
+    let child;
+    try {
+      child = spawn(command.file, command.args, { env: agentEnvironment(agent), shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim });
+    } catch (error) {
+      prepared.cleanup();
+      return resolve({ id, installed: true, version: found.version, health: classifyHealthFailure(error.message) });
+    }
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
       try { child.kill(); } catch {}
+      prepared.cleanup();
       resolve({ id, installed: true, version: found.version, health: { status: "timeout", label: "Yanıt zaman aşımına uğradı", detail: `Sağlık testi ${Math.round(timeoutMs / 1000)} saniyede tamamlanmadı.` } });
     }, timeoutMs);
     child.stdout?.setEncoding("utf8");
@@ -277,6 +381,7 @@ function testInstalledCli(id, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      prepared.cleanup();
       const failure = classifyHealthFailure(error.message);
       resolve({ id, installed: true, version: found.version, health: failure });
     });
@@ -284,12 +389,13 @@ function testInstalledCli(id, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      prepared.cleanup();
       const raw = `${stdout}\n${stderr}`.trim();
       if (code === 0 && /HEALTH_OK/i.test(raw)) resolve({ id, installed: true, version: found.version, health: { status: "ready", label: "Hazır", detail: "Gerçek sağlık testi başarılı." } });
       else resolve({ id, installed: true, version: found.version, health: classifyHealthFailure(raw || `Çıkış kodu ${code}`) });
     });
     child.stdin?.on("error", () => {});
-    child.stdin?.end(healthPrompt(id));
+    child.stdin?.end(prepared.useStdin ? prompt : "");
   });
 }
 
@@ -299,7 +405,7 @@ async function healthCheckAll(discovered = discoverInstalled(), options = {}) {
 }
 
 function listCodexModels(options = {}) {
-  const command = healthCommand("codex", ["app-server", "--listen", "stdio://"]);
+  const command = buildCommand("codex", ["app-server", "--listen", "stdio://"]);
   const timeoutMs = Math.max(5000, Number(options.timeoutMs || 20000));
   return new Promise((resolve, reject) => {
     let buffer = "", settled = false, modelRequestSent = false;
@@ -361,9 +467,9 @@ function listCodexModels(options = {}) {
 function addMissingAgents(cfg, discovered) {
   cfg.agents ||= {};
   const ignored = new Set(Array.isArray(cfg.discoveryIgnoredAdapters) ? cfg.discoveryIgnoredAdapters.map(String) : []);
-  let changed = false;
+  let changed = normalizeAgentAdapters(cfg);
   for (const cli of discovered) {
-    const usable = cli.installed && (cli.id !== "opencode" || cli.ready !== false);
+    const usable = cli.installed && (cli.id !== "opencode" || cli.ready !== false || Boolean(cfg.cliSettings?.opencode?.model));
     const matchingEntries = Object.entries(cfg.agents).filter(([, agent]) => (agent.adapter || adapterId(agent.cmd)) === cli.id);
     const existingEntry = matchingEntries.find(([, agent]) => !agent.autoDiscovered) || matchingEntries[0];
     const existing = existingEntry?.[1];
@@ -384,8 +490,11 @@ function addMissingAgents(cfg, discovered) {
         delete existing.unavailablePlaceholder;
         changed = true;
       }
-      if (usable && cli.id === "opencode" && existing.autoDiscovered && cli.recommendedModel && existing.model !== cli.recommendedModel) {
-        existing.model = cli.recommendedModel;
+      // Eski surumler otomatik oneriyi agent.model alanina yaziyordu. Bu alan global
+      // CLI ayarini ezdigi icin, kullanici tarafindan acikca override olarak isaretlenmemis
+      // otomatik profiller modeli daima CLI ayarindan/otomatik secimden miras alir.
+      if (cli.id === "opencode" && existing.autoDiscovered && existing.model && existing.modelOverride !== true) {
+        delete existing.model;
         changed = true;
       }
       if (cli.installed && cli.id === "opencode" && existing.autoDiscovered && Number(existing.timeoutSeconds || 0) < cli.timeoutSeconds) {
@@ -415,7 +524,6 @@ function addMissingAgents(cfg, discovered) {
       costTier: "standard",
       timeoutSeconds: cli.timeoutSeconds || 1200,
       ...(cli.silenceTimeoutSeconds ? { silenceTimeoutSeconds: cli.silenceTimeoutSeconds } : {}),
-      ...(cli.recommendedModel ? { model: cli.recommendedModel } : {}),
       autoDiscovered: true,
       ...(!usable ? { unavailablePlaceholder: true } : {}),
     };
@@ -435,19 +543,12 @@ function operatorSpec(cli, cfg) {
   const cmd = op.cmd || (definition && definition.command);
   if (!cmd) return null;
   const args = op.cmd ? (Array.isArray(op.args) ? op.args.slice() : []) : (definition ? definition.defaultArgs.slice() : []);
-  if (cli === "codex") {
-    const settings = op.codexSettings || {};
-    const effort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(settings.reasoningEffort)) ? String(settings.reasoningEffort) : "";
-    const model = String(settings.model || "").trim();
-    const serviceTier = ["fast", "priority"].includes(String(settings.serviceTier)) ? String(settings.serviceTier) : "";
-    if (model && !args.includes("--model")) args.push("--model", model);
-    if (effort && !args.some((arg) => String(arg).startsWith("model_reasoning_effort="))) args.push("-c", `model_reasoning_effort="${effort}"`);
-    if (serviceTier && !args.some((arg) => String(arg).startsWith("service_tier="))) args.push("-c", `service_tier="${serviceTier}"`);
-  }
+  // Model/effort/tier secimi CLI bazlidir (cfg.cliSettings) ve effectiveAgent icinde uygulanir;
+  // ayni ayar o CLI'yi kullanan operator ve tum uzman agent'lar icin gecerlidir.
   const timeoutSeconds = op.timeoutSeconds || (cfg && cfg.agentTimeoutSeconds) || 900;
   const silenceTimeoutSeconds = op.silenceTimeoutSeconds || (definition && definition.silenceTimeoutSeconds) || (cfg && cfg.cliSilenceTimeoutSeconds) || 300;
   const adapter = definition ? cli : (op.adapter || adapterId(cmd));
-  return effectiveAgent({ adapter, cmd, args, timeoutSeconds, silenceTimeoutSeconds, model: op.model });
+  return effectiveAgent({ adapter, cmd, args, timeoutSeconds, silenceTimeoutSeconds }, cfg);
 }
 
 // Operator gecerli, kurulu bir CLI olmali. Eski semada operator.agent (uzman agent adi)
@@ -464,7 +565,7 @@ function ensureValidOperator(cfg, discovered) {
   }
   if ("agent" in cfg.operator) { delete cfg.operator.agent; changed = true; }
   const installed = Array.isArray(discovered) ? discovered
-    .filter((x) => x.installed && (x.id !== "opencode" || x.ready !== false || Boolean(cfg.operator.model)))
+    .filter((x) => x.installed && (x.id !== "opencode" || x.ready !== false || Boolean(cfg.cliSettings?.opencode?.model)))
     .map((x) => x.id) : null;
   const known = !!DEFINITIONS[cfg.operator.cli];
   const availableOnHost = !installed || installed.length === 0 || installed.includes(cfg.operator.cli);
@@ -475,4 +576,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, effectiveAgent, operatorSpec, discoverInstalled, healthCheckAll, listCodexModels, selectOpenCodeModel, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, healthCheckAll, listCodexModels, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

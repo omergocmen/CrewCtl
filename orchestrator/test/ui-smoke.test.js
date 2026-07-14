@@ -38,5 +38,18 @@ assert.match(html, /@keyframes teamRail/, "dashboard takim baglantilari animasyo
 assert.match(html, /@keyframes nodeOrbit/, "dashboard agent dugumu katmanli hareket kimligi kullanmali");
 assert.match(html, /process\.progress/, "sessiz CLI icin canli bekleme durumu gosterilmeli");
 assert.match(html, /process\.silence-timeout/, "sessiz CLI otomatik durdurma durumu gosterilmeli");
+assert.match(html, /uzun süre yeni çıktı vermediği için otomatik durduruldu/, "sessizlik mesaji onceki ilerlemeyi yok saymamalı");
 assert.match(html, /OpenCode modeli/, "OpenCode agenti icin kesfedilen model secimi sunulmali");
+assert.match(html, /data-tab="clis"/, "CLI ve model ayarlari ayri sekmede olmali");
+assert.match(html, /function renderClis\(/, "CLI ayarlari ayri renderer kullanmali");
+assert.match(html, /id="codexModel"/, "Codex global model secimi bulunmali");
+assert.match(html, /id="opencodeModel"/, "OpenCode global model secimi bulunmali");
+assert.doesNotMatch(html, /id="operatorModel"/, "operator sekmesi model ayari icermemeli");
+assert.match(html, /CLI ayarını kullan \(/, "agent model secimi miras alinan CLI modelini gostermeli");
+assert.doesNotMatch(html, /serbest model adı/, "Claude ve Gemini icin serbest metin model alani olmamali");
+assert.match(html, /doğrulanmış model kataloğu yok/, "katalogsuz CLI'lar varsayilan model davranisini aciklamali");
+assert.match(html, /function setAgentCommand\(/, "CLI komutu degisince adapter UI tarafinda eslenmeli");
+assert.match(html, /adapter ve güvenli varsayılan argümanlar otomatik eşitlenir/, "adapter esleme davranisi kullaniciya aciklanmali");
+assert.match(html, /rolü görev türünü bağlayıcı biçimde sınırlar/, "uzman rolunun gorev turunu sinirladigi aciklanmali");
+assert.match(html, /planner → executor → reviewer/, "balanced rol zinciri agent ayarlarinda aciklanmali");
 console.log("ui smoke ok");

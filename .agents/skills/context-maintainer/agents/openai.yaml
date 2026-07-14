@@ -1,0 +1,4 @@
+interface:
+  display_name: "Context Maintainer"
+  short_description: "Keep project context accurate after every change"
+  default_prompt: "Use $context-maintainer to update relevant module and page context after the current repository changes."
