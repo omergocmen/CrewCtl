@@ -14,6 +14,7 @@ const MEM = path.join(ROOT, "memory");
 const STATE = path.join(ROOT, "state");
 const EVENTS = path.join(STATE, "events");
 const ROLES = path.join(ROOT, "roles");
+const SKILLS = path.join(ROOT, "skills");
 
 // Windows'ta rename/unlink; antivirus, arama dizinleyici veya kuyrugu ayni anda tarayan
 // canli sunucu dosyada kisa sureli bir handle tuttugunda gecici olarak EPERM/EACCES/EBUSY
@@ -45,7 +46,7 @@ function sweepStaleTemp(dir, maxAgeMs = 5 * 60 * 1000) {
 // her stdout parcasinda dizin taramasi yapmayalim.
 let lastSweepAt = 0;
 function ensureDirs() {
-  const dirs = [...STATES.map((s) => path.join(Q, s)), MEM, STATE, EVENTS, ROLES];
+  const dirs = [...STATES.map((s) => path.join(Q, s)), MEM, STATE, EVENTS, ROLES, SKILLS];
   dirs.forEach((d) => fs.mkdirSync(d, { recursive: true }));
   if (Date.now() - lastSweepAt > 60 * 1000) {
     lastSweepAt = Date.now();
@@ -95,6 +96,7 @@ const FALLBACK_CONFIG = {
     codex: { model: "", reasoningEffort: "medium", serviceTier: "fast" },
     opencode: { model: "" },
   },
+  skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200 },
   agents: {}, riskyPatterns: [],
 };
 // Eski sema, model ayarlarini operator altina gomuyordu (operator.codexSettings ve
@@ -107,6 +109,7 @@ function normalizeConfig(cfg) {
   const legacyOpenCodeModel = typeof cfg.operator?.model === "string" ? cfg.operator.model : "";
   const normalized = {
     ...cfg,
+    skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200, ...(cfg.skills || {}) },
     cliSettings: {
       codex: { model: "", reasoningEffort: "medium", serviceTier: "fast", ...legacyCodex, ...(current.codex || {}) },
       opencode: { model: legacyOpenCodeModel, ...(current.opencode || {}) },

@@ -27,6 +27,18 @@ Motor her çağrıda çalışma evresini, agent kataloğunu, çalışma modunu v
   işi de tek uzmana yığma.
 - Benzersiz, kısa ve anlamlı delegasyon kimlikleri kullan; daha önce kullanılan kimliği yineleme.
 
+## Beceriler
+
+- Motorun görev için tarayıp verdiği kısa listeden gerçekten ilgili en fazla birkaç beceriyi delegasyonun
+  `skills` alanına ekle. Yalnızca listedeki adları kullan; uygun beceri yoksa alanı boş bırak. Uzman ayrıntılı
+  rehberi ihtiyaç halinde dosyadan okuyacaktır.
+- "Beceriler (OTORİTER kaynak)" bölümü sistemin beceri envanteridir ve tek doğru kaynaktır. Beceri sayısı, adı
+  veya varlığı sorulduğunda daima bu bölümü esas al; çalıştığın CLI'nin kendi dahili becerilerini bu sistemin
+  becerileri gibi sayma veya karıştırma. Bu bölüm hiç yoksa sistemde etkin beceri yok demektir.
+- Kullanıcı yalnızca beceri sayısını/listesini/varlığını soruyorsa bu bilgi zaten sende var. Delegasyon açma;
+  plan protokolündeki doğrudan yanıt biçimini kullan: `{"status":"complete","final":"...","verification":"..."}`.
+  Bir uzman raporunda beceri sayısı bu envanterden farklı çıkarsa uzmanın sayısını DEĞİL bu bölümdeki değeri kullan.
+
 ## Sonuç değerlendirme
 
 - Uzman raporlarını iddia değil kanıt olarak sorgula: yapılan değişikliği, testleri ve kabul

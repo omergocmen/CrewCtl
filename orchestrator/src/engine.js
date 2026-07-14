@@ -4,6 +4,7 @@ const path = require("path");
 const { EventEmitter } = require("events");
 const store = require("./store");
 const cliRegistry = require("./cli-registry");
+const skillRegistry = require("./skill-registry");
 
 const isWin = process.platform === "win32";
 
@@ -207,7 +208,7 @@ function agentUsable(agent) {
   return agent?.health?.status ? agent.health.status === "ready" : true;
 }
 
-function normalizeAssignments(value, cfg, operatorName, usedIds) {
+function normalizeAssignments(value, cfg, operatorName, usedIds, taskText = "") {
   if (!Array.isArray(value)) throw new Error("Operator assignments dizisi dondurmedi.");
   const max = Math.max(1, cfg.operator?.maxDelegationsPerRound || 8);
   // Operator daha once kullanilan bir kimligi yinelerse gorevi oldurmek yerine kimligi
@@ -233,6 +234,15 @@ function normalizeAssignments(value, cfg, operatorName, usedIds) {
     const instruction = String(raw.instruction || raw.task || "").trim();
     if (!instruction) throw new Error(`${id} delegasyonunda instruction eksik.`);
     const kind = inferAssignmentKind(raw, instruction);
+    // Beceriler kullanici-kapilidir: operator yalnizca cfg.skills.enabled icindekileri iliştirebilir.
+    // Tanimsiz/etkin olmayan beceri sessizce dusurulur; asla gorevi olduren bir hata degildir.
+    const hasExplicitSkills = Object.prototype.hasOwnProperty.call(raw, "skills");
+    const requestedSkills = Array.isArray(raw.skills)
+      ? raw.skills
+      : (!hasExplicitSkills && cfg.skills?.autoMatch !== false
+          ? skillRegistry.suggest(cfg, `${taskText}\n${instruction}`, kind)
+          : []);
+    const skills = skillRegistry.resolveForAssignment(requestedSkills, cfg).map((skill) => skill.name);
     let agent = requestedAgent;
     const unavailable = new Set(cfg.runtimeUnavailableAgents || []);
     if (unavailable.has(agent) || !supportsKind(cfg.agents[agent], kind)) {
@@ -241,7 +251,7 @@ function normalizeAssignments(value, cfg, operatorName, usedIds) {
       else if (unavailable.has(agent)) throw new Error(`Operator bu oturumda kullanilamaz agent secti: ${requestedAgent}`);
     }
     return {
-      id, agent, kind, instruction,
+      id, agent, kind, instruction, skills,
       renamedFrom,
       requestedAgent: agent === requestedAgent ? undefined : requestedAgent,
       routingReason: agent === requestedAgent ? undefined : `${requestedAgent} ${unavailable.has(requestedAgent) ? "bu oturumda kullanilamaz" : `${kind} yetenegine sahip degil`}; ${agent} secildi.`,
@@ -276,12 +286,14 @@ function ensureBalancedRoleChain(assignments, cfg, operatorName, task, usedIds) 
   if (!plan) {
     const planner = compatibleAgentForKind(cfg, operatorName, "plan");
     if (planner) {
+      const instruction = "Kullanici hedefini ve mevcut calisma klasorunu salt okunur incele. Executor icin dosya kapsamini, uygulama siralamasini, riskleri ve dogrulama adimlarini iceren somut bir plan hazirla; dosyalari degistirme.";
       plan = {
         id: nextAssignmentId("balanced-plan", usedIds),
         agent: planner,
         kind: "plan",
-        instruction: "Kullanici hedefini ve mevcut calisma klasorunu salt okunur incele. Executor icin dosya kapsamini, uygulama siralamasini, riskleri ve dogrulama adimlarini iceren somut bir plan hazirla; dosyalari degistirme.",
+        instruction,
         dependsOn: [],
+        skills: cfg.skills?.autoMatch === false ? [] : skillRegistry.suggest(cfg, `${task.prompt || ""}\n${instruction}`, "plan"),
         routingReason: "Balanced rol zinciri: kullanilabilir planner ilk tura otomatik eklendi.",
       };
       chained.unshift(plan);
@@ -297,12 +309,14 @@ function ensureBalancedRoleChain(assignments, cfg, operatorName, task, usedIds) 
   if (!reviews.length) {
     const reviewer = compatibleAgentForKind(cfg, operatorName, "review");
     if (reviewer) {
+      const instruction = "Tamamlanan uygulamayi kullanici hedefi ve kabul kriterlerine gore bagimsiz, salt okunur olarak denetle. Dosya ve test kanitlarini raporla; sonunda VERDICT: PASS veya VERDICT: FAIL yaz.";
       const review = {
         id: nextAssignmentId("balanced-review", usedIds),
         agent: reviewer,
         kind: "review",
-        instruction: "Tamamlanan uygulamayi kullanici hedefi ve kabul kriterlerine gore bagimsiz, salt okunur olarak denetle. Dosya ve test kanitlarini raporla; sonunda VERDICT: PASS veya VERDICT: FAIL yaz.",
+        instruction,
         dependsOn: implementations.map((item) => item.id),
+        skills: cfg.skills?.autoMatch === false ? [] : skillRegistry.suggest(cfg, `${task.prompt || ""}\n${instruction}`, "review"),
         routingReason: "Balanced rol zinciri: kullanilabilir reviewer ilk tura otomatik eklendi.",
       };
       chained.push(review);
@@ -646,9 +660,32 @@ class Engine extends EventEmitter {
     const roleFile = cfg.operator?.roleFile || "roles/operator.md";
     const role = store.readRole(path.basename(roleFile));
     const catalog = this.agentCatalog(cfg, operatorCli);
+    const skillContext = `${task.prompt}\n${phase === "review" ? Object.values(state.results || {}).map((result) => result.instruction || "").join("\n") : ""}`;
+    const skillDiscovery = skillRegistry.discover(cfg, skillContext);
+    const skillCatalog = skillDiscovery.catalog;
+    const skillStats = skillDiscovery.stats;
+    const enabledSkillNames = skillRegistry.enabledSkills(cfg).map((skill) => skill.name);
+    // Beceri envanteri motor tarafindan uretilen OTORITER veridir. Operatore TAM etkin listeyi
+    // (sayi + tum adlar) DAIMA veririz; boylece "kac beceri var" gibi sorular icin operatorun
+    // kendi CLI'sinin dahili becerilerini veya bir alt agent'in iddiasini kullanmasi gerekmez.
+    // Eslesen kisa liste yalnizca DELEGASYONA iliştirme icindir, envanterin tamami degildir.
+    const skillSection = skillStats.enabled
+      ? `## Beceriler (OTORITER kaynak)\nSistemde tam olarak ${skillStats.enabled} etkin beceri var: ${enabledSkillNames.join(", ")}.\n` +
+        `Beceri sayisi/adi/varligi sorulursa YALNIZCA bu listeyi esas al ve dogrudan kendin cevapla; calistigin CLI'nin dahili becerilerini bu sisteme KATMA, bir alt agent farkli bir sayi soylerse bu listeyi degil onu YOK say.\n` +
+        (skillCatalog.length
+          ? `Bu goreve en ilgili ${skillCatalog.length} beceri (delegasyonun skills alanina yalnizca bunlardan uygun olanlari ekle):\n${JSON.stringify(skillCatalog, null, 2)}\n`
+          : `Bu goreve gore taramada eslesme cikmadi; bu delegasyonlarda beceri iliştirme.\n`)
+      : "";
+    // Beceriler tamamen opsiyoneldir ve YALNIZCA kullanici etkinlestirdiginde katalogda gorunur.
+    // Operator, assignment'a yalnizca bu kataloktaki adlari "skills" dizisinde iliştirebilir.
+    const skillField = skillCatalog.length ? `, "skills":["beceri-adi"]` : "";
+    const skillProtocol = skillCatalog.length
+      ? ` BECERI: Kisa listedeki gercekten ilgili adlari skills dizisine ekle; ilgisiz veya liste disi ad kullanma, uygun yoksa alani bos birak.`
+      : "";
     const protocol = phase === "plan"
-      ? `Yalnizca gecerli JSON dondur: {"summary":"yaklasim", "completionCriteria":["..."], "assignments":[{"id":"benzersiz-id", "agent":"catalog-name", "kind":"implement|review|research|plan", "instruction":"net gorev ve teslimat", "dependsOn":[]}]}. En az bir assignment zorunlu.`
-      : `Yalnizca gecerli JSON dondur. Is tamamlanmadiysa {"status":"continue", "reason":"...", "assignments":[{"id":"...", "agent":"...", "kind":"implement|review|research|plan", "instruction":"...", "dependsOn":[]}]}; tum kabul kriterleri karsilandiysa {"status":"complete", "final":"en fazla 5 kisa maddeyle ne yapildi", "verification":"tek satir dogrulama"}. Dosya listesini motor ekleyecek; final icinde uzun log veya ham agent cevabi tekrarlama. Continue icin en az bir yeni assignment zorunlu.\n` +
+      ? `Yalnizca gecerli JSON dondur. Gorev bir is/degisiklik/arastirma gerektiriyorsa delege et: {"summary":"yaklasim", "completionCriteria":["..."], "assignments":[{"id":"benzersiz-id", "agent":"catalog-name", "kind":"implement|review|research|plan", "instruction":"net gorev ve teslimat", "dependsOn":[]${skillField}}]} (en az bir assignment). ` +
+        `Gorev yalnizca bir bilgi/soru ise ve yaniti sana verilen baglamdan (or. Beceriler bolumu, agent katalogu, proje hafizasi) dogrudan biliyorsan, HICBIR delegasyon acmadan: {"status":"complete", "final":"kisa ve net cevap", "verification":"cevabin dayandigi kaynak"}. Gercek is gerektiren gorevi bu kestirmeyle atlatma.${skillProtocol}`
+      : `Yalnizca gecerli JSON dondur. Is tamamlanmadiysa {"status":"continue", "reason":"...", "assignments":[{"id":"...", "agent":"...", "kind":"implement|review|research|plan", "instruction":"...", "dependsOn":[]${skillField}}]}; tum kabul kriterleri karsilandiysa {"status":"complete", "final":"en fazla 5 kisa maddeyle ne yapildi", "verification":"tek satir dogrulama"}. Dosya listesini motor ekleyecek; final icinde uzun log veya ham agent cevabi tekrarlama. Continue icin en az bir yeni assignment zorunlu.${skillProtocol}\n` +
         `INCELEME DISIPLINI: Bagimsiz denetim VERDICT: PASS verdiyse ayni teslimat icin YENI review delegasyonu acma; complete dondur ve dusuk/orta onemdeki kalan notlari final metninde kalan risk olarak belirt. Ekipte bulunmayan dogrulama yetenegini (or. canli tarayici) tamamlanma sarti yapma; NOT RUN kalan dusuk riskli kontroller teslimati engellemez.`;
     const strategy = task.executionMode === "fast"
       ? "HIZLI MOD: Kucuk bir is. Tek bir implementation agenti kullan. Ayri planlama veya review delegasyonu acma; uzman raporu hedefi karsiliyorsa ilk degerlendirmede tamamla."
@@ -661,6 +698,7 @@ class Engine extends EventEmitter {
       `AJAN SECIMI: Her alt gorevi, katalogdaki YETENEKLERE ve role gore o ise EN UYGUN uzmana ata; tum isi tek bir CLI'ye yigma. Isin ihtiyac duydugu her uzmanlik icin dogru uzmani sec (plan/tasarim -> planlama yetenegi; uygulama -> implementation; inceleme/dogrulama -> review/test; arastirma -> research/web). Ayni KIND icin birden fazla eşdeğer agent varsa YALNIZCA birini (en uygun ve en dusuk maliyetli) kullan; ayni isi iki eşdeğer agente verme. Farkli roller (or. bir uygulayici + bir inceleyici) FARKLI islerdir, tekrar sayilmaz.\n` +
       `## Calisma stratejisi\n${strategy}\n` +
       `## Agent katalogu\n${JSON.stringify(catalog, null, 2)}\n` +
+      skillSection +
       `## Kullanici gorevi\n${task.prompt}\n` +
       `## Calisma klasoru\n${this._cwd}\n` +
       `## Proje hafizasi\n${clip(memory, cfg.memoryCharBudget || 8000)}\n` +
@@ -684,9 +722,15 @@ class Engine extends EventEmitter {
     const completed = Object.values(state.results).map((r) => ({
       id: r.id, agent: r.agent, instruction: r.instruction, ...(r.verdict ? { verdict: r.verdict } : {}), result: clipMiddle(r.result, 5000),
     }));
+    // Progressive disclosure: operatorun bu delegasyona sectigi becerilerin tam govdesini YIGMAYIZ;
+    // yalnizca ad + kisa ozet + rehber dosya yolunu veririz. Uzman gercekten ihtiyac duyarsa dosyayi
+    // kendisi okur. Operator hicbir beceri secmediyse (veya beceriler kapali ise) blok bostur.
+    const skills = skillRegistry.resolveForAssignment(assignment.skills, cfg);
+    const skillRefs = skillRegistry.toPromptRefs(skills, cfg.skills?.referenceCharBudget || 1200);
     return `${role}\n\n---\n## Takim agenti protokolu\n` +
       `Operator sana asagidaki isi devretti. ${instructionByKind[assignment.kind] || instructionByKind.implement} ` +
       `Planda olmayan riskli bir is gerekiyorsa yapma; BLOCKED olarak bildir. Yalnizca gercekten gozlemledigin veya dogruladigin sonuclari yaz.\n` +
+      (skillRefs ? `## Uygulanacak beceriler\nBu is icin asagidaki beceri rehberleri secildi. Her satirda becerinin OZETI ve TAM rehberin DOSYA YOLU var. Ozet yeterliyse dogrudan uygula; daha fazla ayrinti gerekiyorsa ilgili dosyayi OKU ve prosedure uy. Ilgisiz bir sey varsa gormezden gel.\n${skillRefs}\n` : "") +
       `## Ana hedef\n${task.prompt}\n## Delegasyon\nID: ${assignment.id}\n${assignment.instruction}\n` +
       `## Onceki tamamlanan takim isleri\n${clip(JSON.stringify(completed, null, 2), cfg.teamContextCharBudget || 30000)}`;
   }
@@ -716,6 +760,7 @@ class Engine extends EventEmitter {
       if (assignment.routingReason) this.publish("log", { level: "info", msg: `Otomatik yonlendirme: ${assignment.routingReason}` }, task.id);
       if (assignment.renamedFrom) this.publish("log", { level: "warn", msg: `Operator delegasyon kimligini yineledi; ${assignment.renamedFrom} otomatik olarak ${assignment.id} yapildi.` }, task.id);
       this.publish("log", { level: "stage", msg: `DELEGE ${assignment.id} -> ${assignment.agent}` }, task.id);
+      if (assignment.skills?.length) this.publish("log", { level: "info", msg: `Beceriler: ${assignment.skills.join(", ")}` }, task.id);
       try {
         const response = await this.invokeAgent(
           assignment.agent,
@@ -779,12 +824,22 @@ class Engine extends EventEmitter {
 
     let assignments;
     if (state.plan && task.approved) {
-      assignments = normalizeAssignments(state.plan.assignments, cfg, operatorCli, usedIds);
+      assignments = normalizeAssignments(state.plan.assignments, cfg, operatorCli, usedIds, task.prompt);
       assignments = ensureBalancedRoleChain(assignments, cfg, operatorCli, task, usedIds);
       this.publish("log", { level: "info", msg: "Onaylanmis operator plani zorunlu rol zinciri korunarak devam ettiriliyor." }, task.id);
     } else {
       const plan = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "plan"), cfg, "operator-plan", "Operator plani");
-      assignments = normalizeAssignments(plan.assignments, cfg, operatorCli, usedIds);
+      // Bilgi sorusu kestirmesi: operator, delege edilecek bir is olmadan yaniti dogrudan
+      // verdiginde (or. "kac beceri var") tek turda tamamla. Boylece motorun otoriter verisi
+      // bir alt agente aktarilirken kaybolmaz/carpitilmaz ve zorunlu assignment semasi bu
+      // tur sorularda gorevi bosuna oldurmez.
+      if (plan && String(plan.status).toLowerCase() === "complete" && !Array.isArray(plan.assignments)) {
+        if (!String(plan.final || "").trim()) throw new Error("Operator complete dedi fakat final sonucu bos birakti.");
+        this.publish("log", { level: "info", msg: "Operator gorevi delegasyona gerek gormeden dogrudan yanitladi." }, task.id);
+        task.teamState = state;
+        return this.complete(task, state, "done", String(plan.final), plan);
+      }
+      assignments = normalizeAssignments(plan.assignments, cfg, operatorCli, usedIds, task.prompt);
       assignments = ensureBalancedRoleChain(assignments, cfg, operatorCli, task, usedIds);
       state.plan = { summary: String(plan.summary || ""), completionCriteria: Array.isArray(plan.completionCriteria) ? plan.completionCriteria.map(String) : [], assignments };
       state.criteria = state.plan.completionCriteria;
@@ -851,7 +906,7 @@ class Engine extends EventEmitter {
         return this.complete(task, state, "done", String(decision.final), decision);
       }
       if (String(decision.status).toLowerCase() !== "continue") throw new Error("Operator status alani continue veya complete olmali.");
-      assignments = normalizeAssignments(decision.assignments, cfg, operatorCli, new Set(state.usedIds));
+      assignments = normalizeAssignments(decision.assignments, cfg, operatorCli, new Set(state.usedIds), task.prompt);
       // Inceleme dongusu valisi: bagimsiz denetim PASS verdiyse ve operator yalnizca yeni
       // inceleme turlari acmak istiyorsa dongu burada kesilir. Sonsuz review ping-pong'u
       // hem tur butcesini tuketiyor hem de basarili teslimati kullaniciya geciktiriyordu.

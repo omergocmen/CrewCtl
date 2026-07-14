@@ -35,6 +35,7 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 - [Agent ekleme](#-agent-ekleme)
 - [Canlı görünürlük](#-canlı-görünürlük)
 - [Markdown roller](#-markdown-roller)
+- [Beceriler (Skills)](#-beceriler-skills)
 - [Tamamlanan görevle sohbet](#-tamamlanan-görevle-sohbet)
 - [Onay ve güvenlik](#-onay-ve-güvenlik)
 - [Depolama](#-depolama)
@@ -264,6 +265,37 @@ Roller davranış ve uzmanlık talimatlarıdır; panelden oluşturulup agent'a a
 durum yönetimi Markdown'a bağlı değildir, bu yüzden rol metni değişse bile delegasyon şeması korunur.
 İyi bir uzman rolü şunları belirtir: sorumluluk alanı ve sınırlar, kullanılabilecek araçlar, kod/test
 standartları, beklenen teslimat biçimi ve hangi durumda `BLOCKED` bildirileceği.
+
+## 🧠 Beceriler (Skills)
+
+Roller bir agentın **kim** olduğunu (uygulayıcı/denetçi/planlayıcı) tanımlar; **beceriler** ise bir
+işin **nasıl** yapılacağını anlatan yeniden kullanılabilir prosedür rehberleridir — `skills/*.md`
+altında frontmatter'lı Markdown dosyaları. Dağıtım; yazılım, test, güvenlik, dokümantasyon, SEO ve
+arayüz tasarımını kapsayan **60 yerel beceri** içerir. Hiçbiri API anahtarı veya harici ücretli servis
+gerektirmez.
+
+Beceriler **kullanıcı-kapılıdır**: yalnızca **Ayarlar → Beceriler** bölümünde etkinleştirdikleriniz
+taranır. Motor, tüm etkin kataloğu her çağrıda prompta yığmak yerine görev metni ve delegasyon türüne
+göre puanlayıp sabit bütçeli bir kısa listeyi operatöre verir. Operatör uygun adları `skills` alanıyla
+iliştirir; alanı atlarsa `autoMatch` aynı seçimi yerel olarak yapabilir. Uzman yalnızca kısa açıklama ve
+mutlak rehber yolunu görür, tam Markdown gövdesini gerçekten gerekiyorsa dosyadan okur. Hiçbir beceri
+etkin değilse davranış eskisi gibi kalır.
+
+```json
+"skills": {
+  "enabled": ["design-review", "write-tests", "seo-technical-audit"],
+  "autoMatch": true,
+  "catalogLimit": 12,
+  "maxSkillsPerAssignment": 3,
+  "charBudget": 2400,
+  "referenceCharBudget": 1200
+}
+```
+
+`charBudget` operatör kısa listesini, `referenceCharBudget` uzman promptundaki ad/açıklama/yol
+referanslarını sınırlar. Yeni beceri aynı bölümden (veya `skills/` klasörüne `.md` ekleyerek)
+oluşturulabilir. Frontmatter alanları: `name`, `description`, `category`, `appliesTo`
+(implement/review/plan/research) ve eşleştirme için `match`.
 
 ## 💬 Tamamlanan görevle sohbet
 
