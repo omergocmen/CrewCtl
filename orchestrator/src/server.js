@@ -7,6 +7,7 @@ const url = require("url");
 const store = require("./store");
 const engine = require("./engine");
 const cliRegistry = require("./cli-registry");
+const skillRegistry = require("./skill-registry");
 
 const PORT = process.env.PORT || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
@@ -266,6 +267,7 @@ const server = http.createServer(async (req, res) => {
           queue: snapshot(),
           config: cfg,
           roles: store.listRoles(),
+          skills: skillRegistry.allSkills().map((s) => ({ name: s.name, file: s.file, description: s.description, category: s.category, appliesTo: s.appliesTo, match: s.match })),
           cliStatus,
           platform: process.platform,
           workingDirAbs: path.resolve(store.ROOT, cfg.workingDir || "."),
@@ -431,6 +433,16 @@ const server = http.createServer(async (req, res) => {
         for (const id of ["codex", "opencode"]) {
           if (cfg.cliSettings[id].model != null && typeof cfg.cliSettings[id].model !== "string") return send(res, 400, { error: `cliSettings.${id}.model metin olmali` });
         }
+        if (cfg.skills !== undefined) {
+          if (typeof cfg.skills !== "object" || cfg.skills === null) return send(res, 400, { error: "skills nesne olmali" });
+          if (cfg.skills.enabled !== undefined && (!Array.isArray(cfg.skills.enabled) || cfg.skills.enabled.some((x) => typeof x !== "string"))) return send(res, 400, { error: "skills.enabled metin dizisi olmali" });
+          if (cfg.skills.charBudget !== undefined && (typeof cfg.skills.charBudget !== "number" || !Number.isFinite(cfg.skills.charBudget) || cfg.skills.charBudget < 200)) return send(res, 400, { error: "skills.charBudget en az 200 olmali" });
+          if (cfg.skills.referenceCharBudget !== undefined && (typeof cfg.skills.referenceCharBudget !== "number" || !Number.isFinite(cfg.skills.referenceCharBudget) || cfg.skills.referenceCharBudget < 300)) return send(res, 400, { error: "skills.referenceCharBudget en az 300 olmali" });
+          for (const key of ["catalogLimit", "maxSkillsPerAssignment"]) {
+            if (cfg.skills[key] !== undefined && (!Number.isInteger(cfg.skills[key]) || cfg.skills[key] < 1)) return send(res, 400, { error: `skills.${key} pozitif tam sayi olmali` });
+          }
+          if (cfg.skills.autoMatch !== undefined && typeof cfg.skills.autoMatch !== "boolean") return send(res, 400, { error: "skills.autoMatch boolean olmali" });
+        }
         for (const [name, agent] of Object.entries(cfg.agents)) {
           if (!name.trim() || !agent.cmd || typeof agent.cmd !== "string") return send(res, 400, { error: `gecersiz agent: ${name}` });
           if (!Array.isArray(agent.args)) return send(res, 400, { error: `${name}.args dizi olmali` });
@@ -438,6 +450,34 @@ const server = http.createServer(async (req, res) => {
         store.saveConfig(cfg);
         broadcast("status", engine.status());
         return send(res, 200, { ok: true });
+      }
+      if (pathname === "/api/skills" && req.method === "GET") {
+        return send(res, 200, { skills: skillRegistry.allSkills().map((s) => ({ name: s.name, file: s.file, description: s.description, category: s.category, appliesTo: s.appliesTo, match: s.match })) });
+      }
+      if ((m = pathname.match(/^\/api\/skills\/(.+)$/))) {
+        let file = decodeURIComponent(m[1]);
+        if (!file.endsWith(".md")) file += ".md";
+        if (path.basename(file) !== file) return send(res, 400, { error: "gecersiz beceri adi" });
+        if (req.method === "GET") return send(res, 200, { file, content: skillRegistry.readRaw(file) });
+        if (req.method === "PUT") {
+          const { content } = await readBody(req);
+          const validation = skillRegistry.validateSkill(file, content || "");
+          if (!validation.ok) return send(res, 400, { error: validation.errors.join("; ") });
+          const saved = skillRegistry.writeSkill(file, content);
+          return send(res, 200, { ok: true, file: saved });
+        }
+        if (req.method === "DELETE") {
+          // Silmeden once beceri adini coz; etkin liste dosya adini degil frontmatter `name`i tutar.
+          const existing = skillRegistry.loadSkill(file);
+          const names = new Set([file.replace(/\.md$/i, ""), existing?.name].filter(Boolean));
+          skillRegistry.deleteSkill(file);
+          const cfg = store.loadConfig();
+          if (Array.isArray(cfg.skills?.enabled) && cfg.skills.enabled.some((name) => names.has(name))) {
+            cfg.skills.enabled = cfg.skills.enabled.filter((name) => !names.has(name));
+            store.saveConfig(cfg);
+          }
+          return send(res, 200, { ok: true });
+        }
       }
       if ((m = pathname.match(/^\/api\/roles\/(.+)$/))) {
         let file = decodeURIComponent(m[1]);

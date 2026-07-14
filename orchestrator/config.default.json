@@ -22,6 +22,15 @@
     "codex": { "model": "", "reasoningEffort": "medium", "serviceTier": "fast" },
     "opencode": { "model": "" }
   },
+  "skills": {
+    "_comment": "Yalnizca enabled listesindeki beceriler taranir. Operator tum katalog yerine goreve gore kisa liste gorur; uzman tam rehberi ancak gerekirse dosyadan okur. Bos enabled = beceri kullanilmaz.",
+    "enabled": [],
+    "autoMatch": true,
+    "catalogLimit": 12,
+    "maxSkillsPerAssignment": 3,
+    "charBudget": 2400,
+    "referenceCharBudget": 1200
+  },
   "agents": {},
   "riskyPatterns": [
     "rm -rf",

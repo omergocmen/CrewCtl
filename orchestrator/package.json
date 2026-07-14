@@ -23,7 +23,7 @@
     "start": "node src/server.js",
     "cli": "node src/cli.js",
     "doctor": "node src/doctor.js",
-    "test": "node test/ui-smoke.test.js && node test/cli.test.js && node test/team-flow.test.js"
+    "test": "node test/ui-smoke.test.js && node test/cli.test.js && node test/skills.test.js && node test/team-flow.test.js"
   },
   "engines": {
     "node": ">=18"
