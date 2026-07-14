@@ -1,6 +1,6 @@
 <div align="center">
 
-# CLI Team Command Center 🛰️
+# CrewCtl 🛰️
 
 **Kurulu CLI kodlama agent'larınızı — Codex, Claude Code, Gemini ve OpenCode — tek bir operatör‑liderliğindeki takım halinde çalıştıran, sıfır bağımlılıklı, yerel ve açık kaynak Node.js çok‑agent (multi‑agent) AI orkestratörü.**
 
@@ -16,6 +16,9 @@ _A zero‑dependency, local, self‑hosted **multi‑agent AI orchestrator** tha
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 
 📖 **[Tam dokümantasyon → orchestrator/README.md](orchestrator/README.md)**
+
+![CrewCtl arayüz örneği](image.png)
+
 
 </div>
 

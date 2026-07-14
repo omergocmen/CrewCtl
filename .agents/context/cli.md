@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Web paneline gerek olmadan sunucuyu, engine'i ve dosya tabanlı görev kuyruğunu terminalden yöneten `cli-team` giriş noktasıdır.
+Web paneline gerek olmadan sunucuyu, engine'i ve dosya tabanlı görev kuyruğunu terminalden yöneten `crewctl` giriş noktasıdır.
 
 ## Current commands
 
@@ -19,6 +19,7 @@ Web paneline gerek olmadan sunucuyu, engine'i ve dosya tabanlı görev kuyruğun
 
 ## Contracts and invariants
 
+- `package.json` global executable'ı `crewctl` adıyla yayımlar; help ve hata yönlendirmeleri de aynı komut adını kullanır.
 - Geçerli görev modları `auto`, `fast`, `balanced`, `deep`'tir.
 - Bilinmeyen option veya değersiz option hata üretir.
 - `run --once` yalnızca ilk pending görevi çalıştırır ve engine running durumunu `finally` ile kapatır.
@@ -35,4 +36,11 @@ Kuyruk ve config için `store.js`, yürütme için `engine.js`, doctor için `do
 
 ## Major Changes
 
-Henüz kayıt yok.
+### 2026-07-14 — Global komut adı crewctl oldu
+
+- **Change:** CLI yardım başlığı, kullanım örnekleri, bilinmeyen komut yönlendirmesi ve paket `bin` kaydı `crewctl` olarak güncellendi.
+- **Reason:** Terminal giriş noktasını CrewCtl ürün adıyla tutarlı hale getirmek.
+- **Impact:** Global kurulum veya `npm link` kullananlar komutları `crewctl` ile çalıştırır.
+- **Compatibility:** Önceki executable için alias bırakılmadı; mevcut otomasyonların komut adını değiştirmesi gerekir.
+- **Verification:** `node test/cli.test.js`, `npm run cli -- help`, `npm run cli -- version`.
+- **Files:** `orchestrator/package.json`, `orchestrator/src/cli.js`, `orchestrator/test/cli.test.js`, `orchestrator/add-task.ps1`, `orchestrator/approve.ps1`

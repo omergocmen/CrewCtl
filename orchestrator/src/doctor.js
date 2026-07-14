@@ -15,7 +15,7 @@ function nodeOk() {
 function main(options = {}) {
   store.ensureDirs();
   const n = nodeOk();
-  console.log(`\n${B}CLI Team — Ortam Teşhisi${X}\n`);
+  console.log(`\n${B}CrewCtl — Ortam Teşhisi${X}\n`);
   console.log(n.ok ? ok(`Node.js ${process.versions.node} (>=18 gerekli)`) : no(`Node.js ${process.versions.node} — 18+ gerekli!`));
 
   const clis = cliRegistry.discoverInstalled();

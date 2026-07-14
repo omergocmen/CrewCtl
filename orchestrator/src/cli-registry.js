@@ -460,7 +460,7 @@ function listCodexModels(options = {}) {
     child.stderr?.on("data", () => {});
     child.on("error", finish);
     child.stdin?.on("error", () => {});
-    child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "cli-team-command-center", version: "1.0.0", title: "CLI Team" } } })}\n`);
+    child.stdin?.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "crewctl", version: "1.0.0", title: "CrewCtl" } } })}\n`);
   });
 }
 

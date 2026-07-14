@@ -8,6 +8,8 @@
 
 Yerel web sunucusunu, JSON API'yi, SSE olay akışını, CLI sağlık/model keşfini ve statik sayfa sunumunu sağlar.
 
+Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkestratör açıklamasından ayrı gösterir.
+
 ## Current API
 
 - `GET /api/events`: `status` ve `queue` snapshot'ıyla başlayan SSE bağlantısı.

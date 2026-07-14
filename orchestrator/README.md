@@ -1,4 +1,4 @@
-# CLI Team Command Center 🛰️
+# CrewCtl 🛰️
 
 > **Kurulu CLI kodlama agent'larınızı — Codex, Claude Code, Gemini ve OpenCode — tek bir operatör‑liderliğindeki takım halinde çalıştıran, sıfır bağımlılıklı, yerel ve açık kaynak Node.js çok‑agent (multi‑agent) AI orkestratörü. Canlı web komuta merkezi dahil.**
 >
@@ -25,7 +25,7 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 
 ## İçindekiler
 
-- [Neden CLI Team?](#-neden-cli-team-why)
+- [Neden CrewCtl?](#-neden-crewctl-why)
 - [Öne çıkanlar](#-öne-çıkanlar-features)
 - [Hızlı başlangıç](#-hızlı-başlangıç-quickstart)
 - [Desteklenen CLI'lar](#-desteklenen-clilar)
@@ -45,7 +45,7 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 
 ---
 
-## 🎯 Neden CLI Team? (Why)
+## 🎯 Neden CrewCtl? (Why)
 
 - **Elindeki araçları kullan.** Ekstra API anahtarı veya SaaS aboneliği yok; zaten kurulu
   olan CLI agent'larının kendi oturumlarını ve sağlayıcılarını kullanır.
@@ -85,23 +85,23 @@ npm run cli -- doctor  # salt-okunur ortam kontrolü
 npm run cli -- start   # sunucuyu başlatır ve tarayıcıyı açar
 ```
 
-İsterseniz `npm link` ile `cli-team` komutunu sisteme bağlayın. Bundan sonra web paneli ve
+İsterseniz `npm link` ile `crewctl` komutunu sisteme bağlayın. Bundan sonra web paneli ve
 headless kullanım aynı giriş noktasındadır:
 
 ```bash
-cli-team status
-cli-team task "Testleri düzelt" --dir .. --mode balanced
-cli-team run --once
-cli-team approvals
-cli-team start
+crewctl status
+crewctl task "Testleri düzelt" --dir .. --mode balanced
+crewctl run --once
+crewctl approvals
+crewctl start
 ```
 
-`cli-team doctor` ayarları değiştirmez. Yalnızca keşif sonucunu `config.json` dosyasına uygulamak
-istediğinizde açıkça `cli-team doctor --fix` kullanın.
+`crewctl doctor` ayarları değiştirmez. Yalnızca keşif sonucunu `config.json` dosyasına uygulamak
+istediğinizde açıkça `crewctl doctor --fix` kullanın.
 
 > **Yeni klonladıysanız:** `config.json` ilk `npm start` anında üretilir. Ondan önce çalıştırılan
 > salt-okunur `doctor`, CLI'larınızı kurulu görse bile “Operatör CLI: (yok) / Uzman ajan sayısı: 0”
-> raporlar. Bu bir hata değildir; `npm start` (veya `cli-team doctor --fix`) yapılandırmayı kurar.
+> raporlar. Bu bir hata değildir; `npm start` (veya `crewctl doctor --fix`) yapılandırmayı kurar.
 
 `npm start` çalışınca:
 
@@ -381,4 +381,4 @@ yerel yapay zeka geliştirme aracı · komut satırı ajan yönetimi.
 
 ## Lisans
 
-[MIT](LICENSE) © CLI Team Command Center katkıda bulunanları.
+[MIT](LICENSE) © CrewCtl katkıda bulunanları.

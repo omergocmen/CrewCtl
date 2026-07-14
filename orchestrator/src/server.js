@@ -476,7 +476,7 @@ function startupBanner() {
   const installed = cliStatus.filter((c) => c.installed);
   const cfg = store.loadConfig();
   const url = `http://${HOST}:${PORT}`;
-  console.log(`\n  ${B}${C}CLI Team Command Center${X}`);
+  console.log(`\n  ${B}${C}CrewCtl${X}`);
   console.log(`  ${DIM}operatör-liderliğinde çok-agent orkestratörü${X}\n`);
   const cliLine = cliStatus.map((c) => `${c.installed ? G + "●" : DIM + "○"} ${c.id}${X}`).join("   ");
   console.log(`  CLI:      ${cliLine}`);

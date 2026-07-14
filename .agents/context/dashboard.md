@@ -10,6 +10,7 @@ Motor durumunu, yeni görev oluşturmayı, kuyrukları, aktif ekip haritasını,
 
 ## Current behavior
 
+- Tarayıcı başlığı ve header ürün adını `CrewCtl` olarak gösterir; “Command Center” arayüzün açıklayıcı suffix'idir.
 - Header engine durumu, aktif agent, günlük çağrı bütçesi, onay modu, başlat/durdur, flow/settings ve tema kontrollerini taşır.
 - İlk otonom engine başlatmada kalıcı consent modalı gösterilir.
 - Görev alanı ve kuyruk sol sütunda; misyon, ekip haritası, feed ve teknik terminaller sağ sütundadır.

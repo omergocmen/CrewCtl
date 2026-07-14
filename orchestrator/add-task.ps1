@@ -1,4 +1,4 @@
-<# Geriye uyumluluk sarmalayicisi. Yeni kullanim: cli-team task "..." #>
+<# Geriye uyumluluk sarmalayicisi. Yeni kullanim: crewctl task "..." #>
 param(
   [Parameter(Position = 0, ValueFromRemainingArguments = $true)]
   [string[]]$Words,
