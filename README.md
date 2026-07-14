@@ -47,8 +47,8 @@ Her şey **yerel** çalışır, **ekstra API anahtarı gerekmez** ve **sıfır b
 (Codex, Claude Code, Gemini veya OpenCode).
 
 ```bash
-git clone https://github.com/omergocmen/cli.git
-cd cli/orchestrator
+git clone https://github.com/omergocmen/CrewCtl.git
+cd crewctl/orchestrator
 npm install          # bağımlılık yok — yalnızca projeyi hazırlar
 npm run doctor       # (opsiyonel) Node + kurulu CLI'ları kontrol eder
 npm start            # sunucuyu başlatır ve tarayıcıyı açar → http://localhost:4317
