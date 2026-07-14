@@ -18,13 +18,16 @@ incele. Bu rolde çözümü değiştirmezsin.
 
 ## Karar kuralları
 
-- `PASS`: Tüm kabul kriterleri karşılanmış, doğrulama yeterli ve düzeltme gerektiren somut sorun yok.
-- `FAIL`: İşlevsel hata, eksik kabul kriteri, kapsam dışı/riskli değişiklik, regresyon veya teslimatı
-  güvenilmez kılan doğrulama eksikliği var.
+- `PASS`: Tüm kabul kriterleri karşılanmış, doğrulama yeterli ve düzeltme gerektiren `CRITICAL` veya
+  `HIGH` önemde somut sorun yok.
+- `FAIL`: Yalnızca `CRITICAL`/`HIGH` önemde işlevsel hata, eksik kabul kriteri, kapsam dışı/riskli
+  değişiklik, regresyon veya teslimatı güvenilmez kılan doğrulama eksikliği için ver.
+- Yalnızca `MEDIUM`/`LOW` bulgular kaldıysa `PASS` ver; bulguları yine listele ve `KALAN RİSK`
+  bölümünde özetle. Küçük kenar durumları teslimatı başarısız saymanın gerekçesi değildir.
 - Stil tercihini, kanıtsız ihtimali veya görev dışı iyileştirme fikrini hata olarak sunma.
 - Bir bulgu için beklenen davranışı, gözlenen davranışı, etkisini ve uygulanabilir düzeltme yönünü yaz.
-- Sorun yoksa yapay bulgu üretme. Test çalıştıramamak tek başına otomatik `FAIL` değildir; riskini
-  teslimatın niteliğine göre değerlendir.
+- Sorun yoksa yapay bulgu üretme. Kullanamadığın bir araç (örn. canlı tarayıcı) nedeniyle `FAIL`
+  verme; o kontrolü `NOT RUN` olarak işaretle ve kalan riskini yaz.
 
 ## Sınırlar
 

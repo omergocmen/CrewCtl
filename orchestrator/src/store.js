@@ -3,7 +3,11 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-const ROOT = path.resolve(__dirname, "..");
+const isWin = process.platform === "win32";
+// ROOT normalde repo kokudur. CLI_TEAM_ROOT env'i verilirse (izole test/CI veya alternatif
+// runtime dizini icin) onu kullaniriz; bu sayede testler canli config.json/queue'ya hic
+// dokunmadan kendi gecici klasorlerinde calisabilir. Ayar yoksa davranis aynen korunur.
+const ROOT = path.resolve(process.env.CLI_TEAM_ROOT || path.join(__dirname, ".."));
 const Q = path.join(ROOT, "queue");
 const STATES = ["pending", "done", "failed", "approval"];
 const MEM = path.join(ROOT, "memory");
@@ -11,32 +15,110 @@ const STATE = path.join(ROOT, "state");
 const EVENTS = path.join(STATE, "events");
 const ROLES = path.join(ROOT, "roles");
 
+// Windows'ta rename/unlink; antivirus, arama dizinleyici veya kuyrugu ayni anda tarayan
+// canli sunucu dosyada kisa sureli bir handle tuttugunda gecici olarak EPERM/EACCES/EBUSY
+// verir. Tek seferlik cagri bu durumda tum gorevi coldururdu; kisa artan beklemelerle yeniden
+// deneriz. Bu kod yolu tum saveTask/saveConfig/addTask cagrilarinin sicak yolu.
+const TRANSIENT_FS_CODES = new Set(["EPERM", "EACCES", "EBUSY", "ENOENT", "EEXIST"]);
+function sleepSync(ms) {
+  try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch {}
+}
+function isTransientFsError(error) {
+  return isWin && error && TRANSIENT_FS_CODES.has(error.code);
+}
+
+function sweepStaleTemp(dir, maxAgeMs = 5 * 60 * 1000) {
+  // Kalici olarak yeniden adlandirilamamis eski .tmp dosyalarini birak birikmesin diye temizle.
+  let entries;
+  try { entries = fs.readdirSync(dir); } catch { return; }
+  const now = Date.now();
+  for (const name of entries) {
+    if (!name.endsWith(".tmp")) continue;
+    const full = path.join(dir, name);
+    try {
+      if (now - fs.statSync(full).mtimeMs > maxAgeMs) fs.rmSync(full, { force: true });
+    } catch {}
+  }
+}
+
+// ensureDirs, olay akisinda cok sik cagrilir; temizligi dakikada bir defayla sinirla ki
+// her stdout parcasinda dizin taramasi yapmayalim.
+let lastSweepAt = 0;
 function ensureDirs() {
-  [...STATES.map((s) => path.join(Q, s)), MEM, STATE, EVENTS, ROLES].forEach((d) =>
-    fs.mkdirSync(d, { recursive: true })
-  );
+  const dirs = [...STATES.map((s) => path.join(Q, s)), MEM, STATE, EVENTS, ROLES];
+  dirs.forEach((d) => fs.mkdirSync(d, { recursive: true }));
+  if (Date.now() - lastSweepAt > 60 * 1000) {
+    lastSweepAt = Date.now();
+    for (const s of STATES) sweepStaleTemp(path.join(Q, s));
+  }
 }
 
 // Atomik yazma: once .tmp'ye yaz, sonra rename et. Rename ayni disk uzerinde atomiktir;
 // boylece surec ortasinda cokme olsa bile yarim/bozuk JSON dosyasi kalmaz (her PC'de guvenli).
+// Windows'ta rename gecici olarak kilitlenebildigi icin (bkz. TRANSIENT_FS_CODES) yeniden dener.
 function atomicWrite(file, data) {
-  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  const tmp = `${file}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
   fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, file);
+  let lastError;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientFsError(error)) break;
+      sleepSync(20 * (attempt + 1));
+    }
+  }
+  // Rename kalici olarak basarisiz. Gorevi tamamen kaybetmektense hedefe dogrudan (atomik
+  // olmayan) yazmayi son care olarak dene; sonra gecici dosyayi temizle.
+  try {
+    fs.writeFileSync(file, data);
+    try { fs.rmSync(tmp, { force: true }); } catch {}
+    return;
+  } catch {}
+  try { fs.rmSync(tmp, { force: true }); } catch {}
+  throw lastError;
 }
 
 // ---- Config ----
 // Minimal geri-donus varsayilani (config.default.json de yoksa kullanilir) — sistem her
 // zaman calisir durumda acilsin diye.
 const FALLBACK_CONFIG = {
-  approvalMode: "auto", workingDir: "..", maxIterationsPerTask: 3, dailyCallBudget: 150,
+  approvalMode: "auto", workingDir: "..", dailyCallBudget: 150,
   autonomousConsentAcceptedAt: null,
   pollSeconds: 15, memoryCharBudget: 8000, teamContextCharBudget: 30000, agentTimeoutSeconds: 900,
   cliSilenceTimeoutSeconds: 300,
   discoveryIgnoredAdapters: [],
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
+  cliSettings: {
+    codex: { model: "", reasoningEffort: "medium", serviceTier: "fast" },
+    opencode: { model: "" },
+  },
   agents: {}, riskyPatterns: [],
 };
+// Eski sema, model ayarlarini operator altina gomuyordu (operator.codexSettings ve
+// operator.model). Yeni sema CLI bazlidir: cliSettings[adapter] o CLI'nin operator ve
+// uzman kullanimlarinin tumune uygulanir. Saf ve idempotent olmali; loadConfig sicak yoldur.
+function normalizeConfig(cfg) {
+  if (!cfg || typeof cfg !== "object") return cfg;
+  const current = cfg.cliSettings && typeof cfg.cliSettings === "object" ? cfg.cliSettings : {};
+  const legacyCodex = cfg.operator && typeof cfg.operator.codexSettings === "object" ? cfg.operator.codexSettings : {};
+  const legacyOpenCodeModel = typeof cfg.operator?.model === "string" ? cfg.operator.model : "";
+  const normalized = {
+    ...cfg,
+    cliSettings: {
+      codex: { model: "", reasoningEffort: "medium", serviceTier: "fast", ...legacyCodex, ...(current.codex || {}) },
+      opencode: { model: legacyOpenCodeModel, ...(current.opencode || {}) },
+    },
+  };
+  if (cfg.operator && typeof cfg.operator === "object") {
+    normalized.operator = { ...cfg.operator };
+    delete normalized.operator.codexSettings;
+    delete normalized.operator.model;
+  }
+  return normalized;
+}
 // config.json kisiye ozeldir (gitignore). Yoksa config.default.json sablonundan uretilir;
 // boylece kullanici klonlayip `npm start` dedigi anda calisir ve kurulu CLI'lar keşifle eklenir.
 function loadConfig() {
@@ -46,7 +128,7 @@ function loadConfig() {
     const seed = fs.existsSync(template) ? fs.readFileSync(template, "utf8") : JSON.stringify(FALLBACK_CONFIG, null, 2);
     atomicWrite(file, seed);
   }
-  return JSON.parse(fs.readFileSync(file, "utf8"));
+  return normalizeConfig(JSON.parse(fs.readFileSync(file, "utf8")));
 }
 function saveConfig(cfg) {
   atomicWrite(path.join(ROOT, "config.json"), JSON.stringify(cfg, null, 2));
@@ -207,6 +289,7 @@ module.exports = {
   ROOT,
   ensureDirs,
   loadConfig,
+  normalizeConfig,
   saveConfig,
   listRoles,
   readRole,

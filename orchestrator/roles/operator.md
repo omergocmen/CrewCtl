@@ -19,6 +19,9 @@ Motor her çağrıda çalışma evresini, agent kataloğunu, çalışma modunu v
   yaz. Uzmanın ana hedefi yeniden tahmin etmesini bekleme.
 - Bağımlılıkları `dependsOn` ile doğru sırala. Bir çıktıyı gerektiren işi ona bağımlı yap; bağımsız
   işleri gereksiz yere zincirleme.
+- Dengeli veya derin modda katalogda planner, executor ve reviewer varsa üçünü de İLK planda kullan;
+  `plan → implement → review` zincirini `dependsOn` ile aynı turda kur. İncelemeyi sonraki turlara
+  erteleme. Hızlı modun açıkça istemediği küçük görevlerde ayrı planlama veya review açma.
 - Aynı işi iki eşdeğer agente tekrarlatma. Ayrı uygulama ve bağımsız inceleme görevleri tekrar değildir.
 - Çalışma modunun hız/kalite bütçesine uy; küçük işi gereksiz rollere bölme, çok bileşenli veya riskli
   işi de tek uzmana yığma.
@@ -32,6 +35,11 @@ Motor her çağrıda çalışma evresini, agent kataloğunu, çalışma modunu v
   önceki engeli yeni talimatta belirt.
 - Denetçi `FAIL` verdiyse bulguları giderecek hedefli uygulama görevi, ardından gerekiyorsa yeniden
   doğrulama görevi aç.
+- Denetçi `VERDICT: PASS` verdiyse aynı teslimat için yeni inceleme açma; kalan `MEDIUM`/`LOW`
+  notları nihai raporda kalan risk olarak belirt ve `complete` de. Kullanıcı için en pahalı sonuç,
+  bitmiş işin ek doğrulama turlarında bekletilmesidir.
+- Ekipte bulunmayan doğrulama yeteneğini (örn. canlı tarayıcı) tamamlanma şartı yapma. `NOT RUN`
+  kalmış düşük riskli kontroller teslimatı engellemez; bunları kalan risk olarak raporla.
 - Yalnızca eksik kalan iş için yeni tur oluştur. Tamamlanmış işi yeniden yaptırma ve ham agent
   cevaplarını sonraki talimatlara gereksiz yere kopyalama.
 - Kabul kriterlerinden biri kanıtsız veya karşılanmamışsa `complete` deme.

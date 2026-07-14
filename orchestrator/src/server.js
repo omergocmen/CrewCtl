@@ -11,14 +11,37 @@ const cliRegistry = require("./cli-registry");
 const PORT = process.env.PORT || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
 const WEB = path.join(store.ROOT, "web");
+const HEALTH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const HEALTH_CACHE_VERSION = 2;
+const CODEX_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+let codexModelRefreshDue = false;
+let codexModelCache = { checkedAt: 0, models: [] };
 
 store.ensureDirs();
 let cliStatus = cliRegistry.discoverInstalled();
 {
   const cfg = store.loadConfig();
+  const savedModels = cfg.codexModelCache && typeof cfg.codexModelCache === "object" ? cfg.codexModelCache : {};
+  const startupCount = Number(savedModels.startupCount || 0) + 1;
+  codexModelCache = {
+    checkedAt: Date.parse(savedModels.checkedAt || "") || 0,
+    models: Array.isArray(savedModels.models) ? savedModels.models : [],
+  };
+  codexModelRefreshDue = !codexModelCache.models.length || startupCount % 10 === 0;
+  cfg.codexModelCache = { ...savedModels, startupCount, lastStartedAt: new Date().toISOString() };
+  const healthCacheValid = cfg.cliHealthCache?.version === HEALTH_CACHE_VERSION;
+  const cached = healthCacheValid ? cfg.cliHealthCache?.results : null;
+  let staleHealthCleared = false;
+  if (cached && typeof cached === "object") {
+    cliStatus = cliStatus.map((cli) => cached[cli.id] ? { ...cli, health: cached[cli.id] } : cli);
+  } else {
+    for (const agent of Object.values(cfg.agents || {})) {
+      if (agent.health) { delete agent.health; staleHealthCleared = true; }
+    }
+  }
   let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
   if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-  if (changed) store.saveConfig(cfg);
+  if (changed || staleHealthCleared || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
 }
 
 // ---- SSE istemcileri ----
@@ -45,6 +68,61 @@ function snapshot() {
     done: store.listTasks("done").filter((task) => task.kind !== "operator-chat").slice(-30).reverse(),
     failed: store.listTasks("failed").slice(-30).reverse(),
   };
+}
+
+function applyHealthToConfig(results) {
+  const cfg = store.loadConfig();
+  let changed = false;
+  const cachedResults = {};
+  for (const result of results) {
+    cachedResults[result.id] = result.health || { status: "unknown", label: "Bilinmiyor", detail: "" };
+    for (const agent of Object.values(cfg.agents || {})) {
+      if ((agent.adapter || cliRegistry.adapterId(agent.cmd)) !== result.id) continue;
+      const next = result.health || { status: "unknown", label: "Bilinmiyor", detail: "" };
+      if (JSON.stringify(agent.health || {}) !== JSON.stringify(next)) {
+        agent.health = next;
+        changed = true;
+      }
+    }
+  }
+  const nextCache = { version: HEALTH_CACHE_VERSION, checkedAt: new Date().toISOString(), results: cachedResults };
+  if (JSON.stringify(cfg.cliHealthCache || {}) !== JSON.stringify(nextCache)) {
+    cfg.cliHealthCache = nextCache;
+    changed = true;
+  }
+  if (changed) store.saveConfig(cfg);
+  return cfg;
+}
+
+let healthRunning = false;
+async function getCodexModels(force = false) {
+  if (!force && codexModelCache.models.length && Date.now() - codexModelCache.checkedAt < CODEX_MODEL_CACHE_TTL_MS) return codexModelCache.models;
+  const models = await cliRegistry.listCodexModels({ timeoutMs: 20000 });
+  codexModelCache = { checkedAt: Date.now(), models };
+  const cfg = store.loadConfig();
+  cfg.codexModelCache = { ...(cfg.codexModelCache || {}), checkedAt: new Date().toISOString(), models };
+  store.saveConfig(cfg);
+  return models;
+}
+async function refreshCliHealth(force = false) {
+  if (healthRunning) return cliStatus;
+  const cfg = store.loadConfig();
+  const cachedAt = Date.parse(cfg.cliHealthCache?.checkedAt || "");
+  if (!force && cfg.cliHealthCache?.version === HEALTH_CACHE_VERSION && Number.isFinite(cachedAt) && Date.now() - cachedAt < HEALTH_CACHE_TTL_MS) {
+    broadcast("cli-health", cliStatus);
+    return cliStatus;
+  }
+  healthRunning = true;
+  cliStatus = cliStatus.map((cli) => ({ ...cli, health: { status: "testing", label: "Test ediliyor", detail: "Gerçek CLI sağlık testi çalışıyor." } }));
+  broadcast("cli-health", cliStatus);
+  try {
+    cliStatus = await cliRegistry.healthCheckAll(cliStatus, { timeoutMs: 45000, cfg });
+    applyHealthToConfig(cliStatus);
+    broadcast("cli-health", cliStatus);
+    return cliStatus;
+  } finally {
+    healthRunning = false;
+  }
 }
 
 // ---- yardimcilar ----
@@ -210,8 +288,13 @@ const server = http.createServer(async (req, res) => {
         const cfg = store.loadConfig();
         // Operatör, uzman agent'lardan bağımsız bir CLI'dır (claude/codex/gemini/opencode);
         // operator.md rolüyle ekibi yönetir. Belirtilmemiş/geçersizse kurulu bir CLI'ye geçilir.
+        const cliEntry = (name) => cliStatus.find((c) => c.id === name);
         const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed
-          && (name !== "opencode" || c.ready !== false || Boolean(cfg.operator?.model)));
+          && (name !== "opencode" || c.ready !== false || Boolean(cfg.cliSettings?.opencode?.model)));
+        const usableCli = (name) => {
+          const entry = cliEntry(name);
+          return installedCli(name) && (!entry?.health || entry.health.status === "ready");
+        };
         let selectedCli = operatorCli || cfg.operator?.cli;
         if (!installedCli(selectedCli)) {
           if (cliRegistry.ensureValidOperator(cfg, cliStatus)) store.saveConfig(cfg);
@@ -219,6 +302,10 @@ const server = http.createServer(async (req, res) => {
         }
         if (!installedCli(selectedCli)) {
           return send(res, 400, { error: "Kullanılabilir operatör CLI yok. Ayarlar → Operatör bölümünden kurulu bir CLI seçin (Claude/Codex/Gemini/OpenCode) ve gerekiyorsa Yeniden Tara'ya basın." });
+        }
+        if (!usableCli(selectedCli)) {
+          const health = cliEntry(selectedCli)?.health;
+          return send(res, 409, { error: `${cliRegistry.DEFINITIONS[selectedCli].description} şu anda kullanılabilir değil: ${health?.label || "sağlık testi bekleniyor"}. ${health?.detail || "Önce model sağlık testini tamamlayın."}` });
         }
         const mode = ["auto", "fast", "balanced", "deep"].includes(executionMode) ? executionMode : "auto";
         const t = store.addTask(prompt.trim(), targetDir, selectedCli, mode);
@@ -261,7 +348,16 @@ const server = http.createServer(async (req, res) => {
         let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
         if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
         if (changed || Array.isArray(body.ignoredAdapters)) store.saveConfig(cfg);
-        return send(res, 200, { cliStatus, changed, config: cfg });
+        await refreshCliHealth(true);
+        return send(res, 200, { cliStatus, changed, config: store.loadConfig() });
+      }
+      if (pathname === "/api/cli/health" && req.method === "POST") {
+        await refreshCliHealth(true);
+        return send(res, 200, { cliStatus, config: store.loadConfig() });
+      }
+      if (pathname === "/api/codex/models" && req.method === "GET") {
+        try { return send(res, 200, { models: await getCodexModels(false) }); }
+        catch (error) { return send(res, 502, { error: `Codex modelleri alınamadı: ${error.message}` }); }
       }
       if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/events$/)) && req.method === "GET") {
         const limit = Number(url.parse(req.url, true).query.limit) || 1000;
@@ -320,12 +416,21 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, store.loadConfig());
       }
       if (pathname === "/api/config" && req.method === "PUT") {
-        const cfg = await readBody(req);
+        let cfg = await readBody(req);
         if (!cfg.agents || typeof cfg.agents !== "object") return send(res, 400, { error: "agents nesnesi gerekli" });
         if (Object.keys(cfg.agents).length < 1) return send(res, 400, { error: "operatorun altinda calisacak en az bir uzman agent gerekli" });
         if (!cfg.operator?.cli || !cliRegistry.KNOWN_CLIS.includes(cfg.operator.cli)) return send(res, 400, { error: "operator.cli gecerli bir CLI olmali (claude/codex/gemini/opencode)" });
         cfg.operator.roleFile = "roles/operator.md";
         delete cfg.operator.agent;
+        // Eski UI govdeleri (operator.codexSettings / operator.model) yeni cliSettings
+        // yapisina tasinir; dogrulama tek semada yapilir.
+        cfg = store.normalizeConfig(cfg);
+        cliRegistry.normalizeAgentAdapters(cfg);
+        if (cfg.cliSettings.codex.reasoningEffort && !["low", "medium", "high", "xhigh", "max", "ultra"].includes(cfg.cliSettings.codex.reasoningEffort)) return send(res, 400, { error: "cliSettings.codex.reasoningEffort gecersiz" });
+        if (cfg.cliSettings.codex.serviceTier && !/^[A-Za-z0-9._-]{1,64}$/.test(cfg.cliSettings.codex.serviceTier)) return send(res, 400, { error: "cliSettings.codex.serviceTier gecersiz" });
+        for (const id of ["codex", "opencode"]) {
+          if (cfg.cliSettings[id].model != null && typeof cfg.cliSettings[id].model !== "string") return send(res, 400, { error: `cliSettings.${id}.model metin olmali` });
+        }
         for (const [name, agent] of Object.entries(cfg.agents)) {
           if (!name.trim() || !agent.cmd || typeof agent.cmd !== "string") return send(res, 400, { error: `gecersiz agent: ${name}` });
           if (!Array.isArray(agent.args)) return send(res, 400, { error: `${name}.args dizi olmali` });
@@ -386,6 +491,10 @@ function startupBanner() {
 }
 
 server.listen(PORT, HOST, startupBanner);
+setImmediate(() => refreshCliHealth(false).catch((err) => console.error("CLI sağlık testi başlatılamadı:", err.message)));
+setImmediate(() => {
+  if (codexModelRefreshDue) getCodexModels(true).catch((err) => console.error("Codex model kataloğu yenilenemedi:", err.message));
+});
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     console.error(`\n  \x1b[31m✗ ${HOST}:${PORT} kullanımda.\x1b[0m Farklı port ile deneyin:  \x1b[1mPORT=4318 npm start\x1b[0m\n`);

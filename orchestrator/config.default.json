@@ -2,7 +2,6 @@
   "_comment": "ŞABLON. İlk çalıştırmada bu dosya config.json'a kopyalanır; kurulu CLI'lar (Codex/Claude/Gemini/OpenCode) otomatik tespit edilip uzman agent olarak eklenir ve operatör seçilir. config.json kişiye özeldir ve .gitignore'dadır; bu şablonu paylaşabilirsiniz.",
   "approvalMode": "auto",
   "workingDir": "..",
-  "maxIterationsPerTask": 3,
   "dailyCallBudget": 150,
   "pollSeconds": 15,
   "memoryCharBudget": 8000,
@@ -16,7 +15,12 @@
     "maxRounds": 6,
     "maxDelegationsPerRound": 8,
     "maxInfrastructureRecoveryRounds": 2,
-    "protocolRetries": 1
+    "protocolRetries": 1,
+    "passFastPath": true
+  },
+  "cliSettings": {
+    "codex": { "model": "", "reasoningEffort": "medium", "serviceTier": "fast" },
+    "opencode": { "model": "" }
   },
   "agents": {},
   "riskyPatterns": [
