@@ -11,7 +11,7 @@ Gerçek model/provider çağrısı yapmadan CLI, UI syntax/smoke ve uçtan uca e
 ## Current suites
 
 - `test/ui-smoke.test.js`: iki HTML dosyasındaki inline script'leri derler; zorunlu DOM ID'lerini ve kritik UI sözleşmelerini arar.
-- `test/cli.test.js`: config göçü/saflığı, adapter/cmd uzlaştırması, prompt-file health hazırlığı/temizliği, katalog destekli model argümanları, OpenCode miras/override ayrımı, parser/readiness, discovery/ignore davranışı ve help/version/status/task/approval CLI akışlarını test eder.
+- `test/cli.test.js`: config göçü/saflığı, adapter/cmd uzlaştırması, prompt-file health hazırlığı/temizliği, katalog destekli model argümanları, OpenCode miras/override ayrımı, parser/readiness, discovery/ignore davranışı ve `crewctl` help/version/status/task/approval CLI akışlarını test eder.
 - `test/team-flow.test.js`: fake CLI'larla fast/balanced görev, approval devamı, operator chat, recovery/routing, rol bazlı `allowedKinds`, PASS hızlı yolu, inceleme valisi, kısmi teslimat, ID dedupe, OpenCode JSON ve consent davranışlarını test eder.
 - `test/fake-cli.js` ve diğer fake komutlar: operatör/uzman stdout, stderr, auth failure ve silence senaryolarını taklit eder.
 

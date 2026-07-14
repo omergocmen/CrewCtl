@@ -1,4 +1,4 @@
-<# Geriye uyumluluk sarmalayicisi. Yeni kullanim: cli-team approvals|approve|reject #>
+<# Geriye uyumluluk sarmalayicisi. Yeni kullanim: crewctl approvals|approve|reject #>
 param(
   [switch]$List,
   [string]$Approve,

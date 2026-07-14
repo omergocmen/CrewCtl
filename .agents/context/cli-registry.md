@@ -15,6 +15,7 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 - `effectiveAgent()` ile katalog destekli Codex/OpenCode config model ayarlarını adapter'a özgü CLI argümanlarına dönüştürür; Claude/Gemini modelini CLI varsayılanına bırakır.
 - OpenCode'un tüm sağlayıcı model listesini parse eder; erişilebilir modele öncelik verir ve keşfedilmiş ya da elle seçilmiş modeli olmayan OpenCode'u hazır saymaz.
 - CLI sağlık promptlarını çalıştırır; auth, model, timeout ve genel hata durumlarını sınıflandırır.
+- Codex app-server initialize çağrısında istemci kimliğini `crewctl` / `CrewCtl` olarak bildirir.
 - Health check, normal runtime ile aynı `{PROMPT}`/`{PROMPT_FILE}` materyalizasyonunu ve OpenCode otonom izin ortamını kullanır; geçici prompt dosyasını her çıkış yolunda temizler.
 - Otomatik keşfedilen uzmanları config'e ekler; kullanıcının gizlediği adapter'ları geri eklemez ve geçersiz operatörü uygun CLI'a taşır.
 

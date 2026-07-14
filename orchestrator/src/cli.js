@@ -6,19 +6,19 @@ const VERSION = require("../package.json").version;
 const VALID_MODES = new Set(["auto", "fast", "balanced", "deep"]);
 
 function help() {
-  console.log(`CLI Team ${VERSION}
+  console.log(`CrewCtl ${VERSION}
 
 Kurulu kodlama CLI'larini tek kuyrukta yonetin.
 
 Kullanim:
-  cli-team start                         Web panelini baslat
-  cli-team doctor [--fix]                Ortami kontrol et (varsayilan salt okunur)
-  cli-team run [--once] [--approval mod] Kuyrugu panelsiz calistir
-  cli-team status [--json]               Kuyruk ve butce ozetini goster
-  cli-team task <hedef> [secenekler]      Kuyruga gorev ekle
-  cli-team approvals                      Onay bekleyen planlari listele
-  cli-team approve <id>                   Plani onayla
-  cli-team reject <id>                    Plani reddet
+  crewctl start                         Web panelini baslat
+  crewctl doctor [--fix]                Ortami kontrol et (varsayilan salt okunur)
+  crewctl run [--once] [--approval mod] Kuyrugu panelsiz calistir
+  crewctl status [--json]               Kuyruk ve butce ozetini goster
+  crewctl task <hedef> [secenekler]      Kuyruga gorev ekle
+  crewctl approvals                      Onay bekleyen planlari listele
+  crewctl approve <id>                   Plani onayla
+  crewctl reject <id>                    Plani reddet
 
 Task secenekleri:
   --dir <klasor>       Calisma klasoru
@@ -26,7 +26,7 @@ Task secenekleri:
   --mode <mod>         auto | fast | balanced | deep
 
 Ornek:
-  cli-team task "Testleri duzelt" --dir .. --mode balanced
+  crewctl task "Testleri duzelt" --dir .. --mode balanced
   npm run cli -- status
 `);
 }
@@ -117,7 +117,7 @@ async function main(argv = process.argv.slice(2)) {
   if (command === "task") return addTask(args);
   if (command === "approvals") return approvals();
   if (command === "approve" || command === "reject") return decide(args[0], command);
-  throw new Error(`Bilinmeyen komut: ${command}. Yardim icin: cli-team help`);
+  throw new Error(`Bilinmeyen komut: ${command}. Yardim icin: crewctl help`);
 }
 
 if (require.main === module) {

@@ -6,7 +6,7 @@
 
 ## Purpose
 
-Yerel ortamın CLI Team'i çalıştırmaya hazır olup olmadığını terminalde teşhis eder.
+Yerel ortamın CrewCtl'i çalıştırmaya hazır olup olmadığını terminalde teşhis eder.
 
 ## Current behavior
 

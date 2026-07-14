@@ -1,6 +1,6 @@
 # Katkı Rehberi
 
-CLI Team Command Center'a katkıda bulunmak istediğiniz için teşekkürler. Hata düzeltmeleri, yeni özellikler, testler, dokümantasyon iyileştirmeleri ve kullanılabilirlik önerileri memnuniyetle karşılanır.
+CrewCtl'a katkıda bulunmak istediğiniz için teşekkürler. Hata düzeltmeleri, yeni özellikler, testler, dokümantasyon iyileştirmeleri ve kullanılabilirlik önerileri memnuniyetle karşılanır.
 
 ## Katkıdan önce
 

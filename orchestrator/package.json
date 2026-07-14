@@ -1,9 +1,9 @@
 {
-  "name": "cli-team-command-center",
+  "name": "crewctl",
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "description": "Zero-dependency Node.js orchestrator that runs your installed CLI coding agents (Codex, Claude, Gemini, OpenCode) as one operator-led team, with a live web command center.",
+  "description": "CrewCtl — Zero-dependency Node.js orchestrator that runs your installed CLI coding agents (Codex, Claude, Gemini, OpenCode) as one operator-led team, with a live web command center.",
   "keywords": [
     "ai",
     "agents",
@@ -17,7 +17,7 @@
   ],
   "license": "MIT",
   "bin": {
-    "cli-team": "src/cli.js"
+    "crewctl": "src/cli.js"
   },
   "scripts": {
     "start": "node src/server.js",
