@@ -1,4 +1,8 @@
 // server.js — saf Node http sunucusu: REST API + SSE + statik web paneli
+// libuv threadpool'u genislet: bir kac donuk ag/eslesmis surucudeki bloklayan fs.stat
+// cagrisi (Gozat klasor gezgini) varsayilan 4 thread'i tuketip mesru fs islerini ac
+// birakmasin. Ilk async fs kullanimindan ONCE ayarlanmali; bu yuzden en ust satirda.
+process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || "32";
 const http = require("http");
 const fs = require("fs");
 const os = require("os");
@@ -8,6 +12,11 @@ const store = require("./store");
 const engine = require("./engine");
 const cliRegistry = require("./cli-registry");
 const skillRegistry = require("./skill-registry");
+
+// Guvenlik agi: tek bir stray hata (or. kopuk ag surucusu, bir istek isleyicisindeki
+// beklenmeyen throw) TUM sunucuyu oldurmesin. Logla, ayakta kal.
+process.on("uncaughtException", (e) => console.error("[uncaughtException]", (e && e.stack) || e));
+process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", (e && e.stack) || e));
 
 const PORT = process.env.PORT || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
@@ -155,33 +164,49 @@ function serveStatic(res, file) {
   fs.createReadStream(p).pipe(res);
 }
 
-// ---- Klasor gezgini ----
+// ---- Klasor gezgini (async + timeout) ----
+// ONEMLI: eskiden statSync/readdirSync kullaniliyordu. Kopuk bir AG/eslesmis surucu
+// (or. dead SMB share) statSync'te saniyelerce blokladigi icin TEK is parcacikli sunucu
+// tamamen kitleniyordu (Gozat "acilmiyor"/donuyor). Artik tum FS erisimi async ve her
+// cagri kisa bir timeout'a yaristirilir; donuk surucu bloklamaz, atlanir.
 let driveCache = { at: 0, value: [] };
-function uniqExistingDirs(items) {
-  const seen = new Set();
-  return items.filter((item) => {
-    if (!item.path || seen.has(item.path.toLowerCase())) return false;
-    seen.add(item.path.toLowerCase());
-    try { return fs.statSync(item.path).isDirectory(); } catch { return false; }
-  });
+function statSafe(p, ms = 700) {
+  return Promise.race([
+    fs.promises.stat(p).catch(() => null),
+    new Promise((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
 }
-function listDrives() {
+async function uniqExistingDirs(items) {
+  const seen = new Set();
+  const out = [];
+  for (const item of items) {
+    if (!item.path || seen.has(item.path.toLowerCase())) continue;
+    seen.add(item.path.toLowerCase());
+    const st = await statSafe(item.path);
+    if (st && st.isDirectory()) out.push(item);
+  }
+  return out;
+}
+async function listDrives() {
   if (Date.now() - driveCache.at < 30000) return driveCache.value.slice();
   const found = new Set();
   for (const d of [process.env.SystemDrive, process.env.HOMEDRIVE]) {
     if (d) found.add(path.parse(d).root || `${d.replace(/[\\/]$/, "")}\\`);
   }
-  for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
-    const d = c + ":\\";
-    try {
-      if (fs.statSync(d).isDirectory()) found.add(d);
-    } catch {}
-  }
+  // Tum surucu harflerini PARALEL yokla; donuk surucu 700ms sonra atlanir (bloklamaz).
+  const results = await Promise.all(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(async (c) => {
+      const d = c + ":\\";
+      const st = await statSafe(d, 700);
+      return st && st.isDirectory() ? d : null;
+    })
+  );
+  for (const d of results) if (d) found.add(d);
   const drives = [...found].sort((a, b) => a.localeCompare(b));
   driveCache = { at: Date.now(), value: drives };
   return drives.slice();
 }
-function explorerPlaces() {
+async function explorerPlaces() {
   const home = os.homedir();
   const oneDrive = process.env.OneDrive || process.env.OneDriveConsumer || process.env.OneDriveCommercial;
   const candidates = [
@@ -195,44 +220,51 @@ function explorerPlaces() {
   ].filter(Boolean);
   return uniqExistingDirs(candidates);
 }
-function rootBrowse(message) {
+async function rootBrowse(message) {
   if (process.platform === "win32") {
-    const drives = listDrives();
+    const drives = await listDrives();
     return {
       path: "",
       parent: null,
       dirs: drives,
       drives,
       entries: drives.map((drive) => ({ name: drive, path: drive, type: "drive", modifiedAt: null })),
-      places: explorerPlaces(),
+      places: await explorerPlaces(),
       isRoot: true,
       warning: message || "",
     };
   }
   return browseDir("/", message);
 }
-function browseDir(p, warning = "") {
+async function browseDir(p, warning = "") {
   try {
-    if (!p) return rootBrowse(warning);
+    if (!p) return await rootBrowse(warning);
     const abs = path.resolve(p);
-    if (!fs.statSync(abs).isDirectory()) throw new Error("Klasör değil");
-    const entries = fs
-      .readdirSync(abs, { withFileTypes: true })
-      .filter((e) => { try { return e.isDirectory(); } catch { return false; } })
-      .filter((e) => !e.name.startsWith("$") && e.name !== "System Volume Information")
-      .map((e) => {
+    const rootStat = await statSafe(abs, 2000);
+    if (!rootStat || !rootStat.isDirectory()) throw new Error("Klasör değil");
+    const dirents = await fs.promises.readdir(abs, { withFileTypes: true });
+    const wanted = dirents.filter((e) => {
+      let isDir = false;
+      try { isDir = e.isDirectory(); } catch { isDir = false; }
+      return isDir && !e.name.startsWith("$") && e.name !== "System Volume Information";
+    });
+    // mtime'lari PARALEL topla; donuk bir alt klasor 400ms sonra tarihsiz gecer.
+    const entries = await Promise.all(
+      wanted.map(async (e) => {
         const entryPath = path.join(abs, e.name);
+        const st = await statSafe(entryPath, 400);
         let modifiedAt = null;
-        try { modifiedAt = fs.statSync(entryPath).mtime.toISOString(); } catch {}
+        if (st) { try { modifiedAt = st.mtime.toISOString(); } catch {} }
         return { name: e.name, path: entryPath, type: "folder", modifiedAt };
       })
-      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    );
+    entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     const dirs = entries.map((entry) => entry.name);
     const isDriveRoot = /^[A-Za-z]:\\?$/.test(abs);
     const up = path.dirname(abs);
     const parent = isDriveRoot ? "" : up === abs ? null : up;
-    const drives = process.platform === "win32" ? listDrives() : [];
-    return { path: abs, parent, dirs, drives, entries, places: explorerPlaces(), warning };
+    const drives = process.platform === "win32" ? await listDrives() : [];
+    return { path: abs, parent, dirs, drives, entries, places: await explorerPlaces(), warning };
   } catch (e) {
     const requested = p ? String(p) : "";
     return rootBrowse(requested ? `"${requested}" açılamadı; bu bilgisayar gösteriliyor.` : e.message);
@@ -282,7 +314,7 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { accepted: true, acceptedAt: cfg.autonomousConsentAcceptedAt });
       }
       if (pathname === "/api/fs" && req.method === "GET") {
-        return send(res, 200, browseDir(url.parse(req.url, true).query.path));
+        return send(res, 200, await browseDir(url.parse(req.url, true).query.path));
       }
       if (pathname === "/api/tasks" && req.method === "POST") {
         const { prompt, targetDir, operatorCli, executionMode } = await readBody(req);

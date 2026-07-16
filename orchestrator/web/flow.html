@@ -14,7 +14,6 @@
 --headerbg:#ffffffe6;--term:#0d1420;--nodebg:#f7f9fd;--shadow:0 14px 36px #7a90b820;
 --core:radial-gradient(circle at 50% 34%,#f1ecff,#e2dbff);--coretx:#3a2b73;
 --appbg:radial-gradient(1200px 620px at 50% -14%,#3a63f012,transparent),radial-gradient(1000px 520px at 90% -6%,#7350f00e,transparent),var(--bg)}
-[data-theme=light] .tail{color:#7a8aa0}
 body{margin:0;background:var(--appbg);background-attachment:fixed;color:var(--tx);font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif;transition:background .3s,color .3s}
 button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;transition:border-color .18s,transform .1s,box-shadow .18s}
 button:hover{border-color:var(--acc);box-shadow:0 4px 14px color-mix(in srgb,var(--acc) 16%,transparent)}button:active{transform:translateY(1px)}
@@ -43,24 +42,18 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
 .card-h h2{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--dim);margin:0}
 .card-h .count{margin-left:auto;font-size:11px;color:var(--dim);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
 .card-b{padding:12px 14px}
-/* Ajan filosu */
-.roster{display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 210px);overflow:auto;padding:10px 12px 12px;perspective:1200px;perspective-origin:50% 42%}
-/* Gerçek 3B: perspektif + preserve-3d; kart imlece göre eğilir, katmanlar translateZ ile ayrı derinlikte durur */
-.agent-card{--cli:var(--acc);position:relative;display:flex;gap:12px;align-items:center;padding:13px 13px 13px 15px;border:1px solid color-mix(in srgb,var(--cli) 24%,var(--line));border-radius:16px;background:linear-gradient(150deg,color-mix(in srgb,var(--cli) 9%,var(--nodebg)),var(--nodebg) 62%);box-shadow:0 12px 26px #0004;transform-style:preserve-3d;transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform .3s cubic-bezier(.2,.8,.2,1),box-shadow .3s,border-color .3s;will-change:transform}
-.agent-card:hover{box-shadow:0 28px 56px #0007,0 0 0 1px color-mix(in srgb,var(--cli) 32%,transparent);border-color:color-mix(in srgb,var(--cli) 46%,var(--line));z-index:5}
-.agent-card:before{content:'';position:absolute;left:0;top:14%;bottom:14%;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,transparent,var(--cli),transparent);opacity:.55;transform:translateZ(14px)}
-.ac-sheen{position:absolute;inset:0;border-radius:inherit;background:radial-gradient(260px circle at var(--mx,50%) var(--my,0%),#ffffff12,transparent 66%);opacity:0;transition:opacity .3s;pointer-events:none;transform:translateZ(6px)}
-.agent-card:hover .ac-sheen{opacity:1}
-.agent-card.working{border-color:color-mix(in srgb,var(--ok) 48%,var(--line));box-shadow:0 18px 36px #0005,0 0 0 1px color-mix(in srgb,var(--ok) 18%,transparent)}
-.agent-card.working:before{background:var(--ok);opacity:.85}
-.agent-card.done{border-color:color-mix(in srgb,var(--cli) 40%,var(--line))}.agent-card.failed{border-color:color-mix(in srgb,var(--err) 55%,var(--line))}.agent-card.failed:before{background:var(--err)}
-.agent-card.used{background:linear-gradient(150deg,color-mix(in srgb,var(--cli) 11%,var(--nodebg)),var(--nodebg) 60%)}
-@media(prefers-reduced-motion:reduce){.agent-card{transition:none;transform:none}}
-.avatar{position:relative;width:52px;height:52px;flex:none;border-radius:50%;background:radial-gradient(circle at 36% 30%,#ffffff,#ffffffde 4%,#ffffff00 22%),radial-gradient(circle at 50% 128%,color-mix(in srgb,var(--cli,#8b98b0) 55%,#ffffff),transparent 42%),radial-gradient(circle at 42% 36%,color-mix(in srgb,var(--cli,#8b98b0) 78%,#ffffff),var(--cli,#8b98b0) 40%,color-mix(in srgb,var(--cli,#8b98b0) 40%,#000) 100%);box-shadow:inset -6px -8px 16px #000000ad,inset 6px 7px 13px #ffffff45,0 0 0 1px #0006,0 16px 20px -6px #000c;transform:translateZ(48px);transition:box-shadow .3s}
+/* Ajan filosu (yan liste) */
+.roster{display:flex;flex-direction:column;gap:12px;max-height:calc(100vh - 210px);overflow:auto;padding:6px 4px 4px}
+.agent-card{--cli:var(--acc);position:relative;display:flex;gap:12px;align-items:center;padding:11px 12px;border:1px solid color-mix(in srgb,var(--cli) 24%,var(--line));border-radius:14px;background:linear-gradient(150deg,color-mix(in srgb,var(--cli) 9%,var(--nodebg)),var(--nodebg) 62%);box-shadow:0 10px 22px #0004;cursor:pointer;transition:border-color .25s,box-shadow .25s,transform .15s}
+.agent-card:hover{border-color:color-mix(in srgb,var(--cli) 46%,var(--line));box-shadow:0 16px 34px #0006;transform:translateY(-1px)}
+.agent-card.selected{border-color:var(--cli);box-shadow:0 0 0 1px var(--cli),0 16px 34px #0006}
+.agent-card:before{content:'';position:absolute;left:0;top:14%;bottom:14%;width:3px;border-radius:0 3px 3px 0;background:linear-gradient(180deg,transparent,var(--cli),transparent);opacity:.55}
+.agent-card.working{border-color:color-mix(in srgb,var(--ok) 48%,var(--line))}.agent-card.working:before{background:var(--ok);opacity:.85}
+.agent-card.failed{border-color:color-mix(in srgb,var(--err) 55%,var(--line))}.agent-card.failed:before{background:var(--err)}
+.avatar{position:relative;width:46px;height:46px;flex:none;border-radius:50%;background:radial-gradient(circle at 36% 30%,#ffffff,#ffffffde 4%,#ffffff00 22%),radial-gradient(circle at 50% 128%,color-mix(in srgb,var(--cli,#8b98b0) 55%,#ffffff),transparent 42%),radial-gradient(circle at 42% 36%,color-mix(in srgb,var(--cli,#8b98b0) 78%,#ffffff),var(--cli,#8b98b0) 40%,color-mix(in srgb,var(--cli,#8b98b0) 40%,#000) 100%);box-shadow:inset -6px -8px 16px #000000ad,inset 6px 7px 13px #ffffff45,0 0 0 1px #0006,0 12px 16px -6px #000c}
 .avatar .led{position:absolute;z-index:2;right:-2px;bottom:-1px;width:12px;height:12px;border-radius:50%;background:var(--dim);border:3px solid var(--panel);box-shadow:0 0 0 1px var(--line)}
-.agent-card.working .avatar{box-shadow:inset -6px -8px 16px #000000ad,inset 6px 7px 13px #ffffff45,0 16px 20px -6px #000c,0 0 0 2px color-mix(in srgb,var(--ok) 26%,transparent)}
 .agent-card.working .led{background:var(--ok);box-shadow:0 0 5px color-mix(in srgb,var(--ok) 60%,transparent)}.agent-card.done .led{background:var(--acc)}.agent-card.failed .led{background:var(--err)}
-.ai{min-width:0;flex:1;transform:translateZ(22px)}
+.ai{min-width:0;flex:1}
 .ai .n{font-weight:750;font-size:13px;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ai .m{display:flex;gap:5px;align-items:center;margin-top:2px;flex-wrap:wrap}
 .chip{font-size:9.5px;border:1px solid var(--line);border-radius:999px;padding:1px 6px;color:var(--dim)}
@@ -68,63 +61,86 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
 .ai .stt{font-size:10.5px;color:var(--dim);margin-top:3px;display:flex;align-items:center;justify-content:space-between;gap:6px}
 .run-count{font:9.5px ui-monospace,Consolas,monospace;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:1px 6px;white-space:nowrap}
 .agent-card.working .stt{color:var(--ok)}
-/* Orkestrasyon sahnesi */
-.stage{position:relative;background:linear-gradient(180deg,var(--panel),#0f1520);border:1px solid var(--line);border-radius:16px;padding:26px 16px 18px;min-height:520px;overflow:hidden;box-shadow:var(--shadow)}
-[data-theme=light] .stage{background:linear-gradient(180deg,#ffffff,#f4f7fc)}
-.stage::before{content:'';position:absolute;inset:0;background-image:radial-gradient(circle,var(--line) 1px,transparent 1px);background-size:26px 26px;opacity:.14;pointer-events:none}
-.stage svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
-.op-wrap{display:flex;flex-direction:column;align-items:center;position:relative;z-index:2}
-.core{position:relative;isolation:isolate;width:168px;height:168px;border-radius:50%;display:grid;place-items:center;background:var(--core);border:1px solid var(--purple)}
-.core .ci{position:relative;z-index:1}
-.core::before{content:'';position:absolute;inset:-7px;border-radius:50%;background:conic-gradient(from 0deg,transparent 0%,var(--purple) 20%,transparent 45%,transparent 100%);filter:blur(3px);opacity:.6;z-index:0;animation:spin 5s linear infinite}
-.core.active::after{content:'';position:absolute;inset:0;border-radius:50%;animation:ring 2.1s ease-out infinite}
-@keyframes ring{0%{box-shadow:0 0 0 0 #bd93f955}100%{box-shadow:0 0 0 46px #bd93f900}}
-@keyframes spin{to{transform:rotate(360deg)}}
-.core .ci{text-align:center}
-.core .clbl{font-size:9px;letter-spacing:2px;color:var(--purple);font-weight:800}
-.core .cname{font-size:19px;font-weight:800;color:var(--coretx);margin-top:2px}
-.core .cmd{font-size:9px;color:var(--dim);margin-top:3px;font-family:ui-monospace,Consolas,monospace}
-.op-phase{margin-top:12px;font-size:12px;color:var(--dim);background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:5px 13px}
+
+/* ===== 3B Sahne ===== */
+.stage{position:relative;background:radial-gradient(120% 90% at 50% 8%,#26375c,#141f37 55%,#0c1426);border:1px solid var(--line);border-radius:16px;min-height:600px;height:calc(100vh - 210px);overflow:hidden;box-shadow:var(--shadow)}
+[data-theme=light] .stage{background:radial-gradient(120% 90% at 50% 8%,#f2f5fd,#e3e9f7 60%,#d7deef)}
+#scene{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#scene:active{cursor:grabbing}
+.hud{position:absolute;z-index:3;pointer-events:none}
+.hud-tl{top:14px;left:14px;display:flex;flex-direction:column;gap:7px;max-width:60%}
+.hud-op{display:inline-flex;align-items:center;gap:8px;background:#0b1220b0;border:1px solid var(--line);border-radius:12px;padding:7px 12px;backdrop-filter:blur(8px);width:fit-content}
+.hud-op .hud-lbl{font-size:9px;letter-spacing:2px;color:var(--purple);font-weight:800}
+.hud-op #opName{font-size:15px;font-weight:800;color:var(--coretx)}
+.op-phase{width:fit-content;font-size:12px;color:var(--dim);background:#0b1220b0;border:1px solid var(--line);border-radius:999px;padding:5px 13px;backdrop-filter:blur(8px)}
 .op-phase b{color:var(--purple)}
-.op-badge{margin-top:6px;font-size:10.5px;color:var(--dim);font-family:ui-monospace,Consolas,monospace}
-.spine{width:2px;height:30px;margin:10px auto 2px;background:linear-gradient(180deg,var(--purple),transparent);position:relative;z-index:2}
-.team{display:block;position:relative;z-index:2;margin-top:8px;width:100%}
-.team .empty{color:var(--dim);font-size:12.5px;border:1px dashed var(--line);border-radius:12px;padding:22px 16px;text-align:center;width:100%;max-width:460px}
-.workflow-board{width:min(760px,100%);margin:0 auto;display:flex;flex-direction:column;gap:13px}
-.flow-summary{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:12px;background:#ffffff05}
-.flow-summary .eyebrow{font-size:9px;letter-spacing:1.2px;text-transform:uppercase;color:var(--dim);font-weight:800}
-.flow-summary .label{font-size:12px;font-weight:750}.flow-legend{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap;color:var(--dim);font-size:9.5px}
-.flow-legend span{display:flex;align-items:center;gap:4px}.legend-dot{width:6px;height:6px;border-radius:50%;background:var(--dim)}.legend-dot.live{background:var(--ok);box-shadow:0 0 6px var(--ok)}.legend-dot.past{background:var(--acc)}.legend-dot.bad{background:var(--err)}
-.lane{border:1px solid var(--line);border-radius:14px;background:#ffffff03;overflow:hidden}
-.lane-head{display:flex;align-items:center;gap:8px;padding:8px 11px;border-bottom:1px solid var(--line);background:#ffffff04}
-.lane-title{font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);font-weight:800}.lane-count{margin-left:auto;font:10px ui-monospace,Consolas,monospace;color:var(--dim)}
-.jobs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:10px}
-.jobs:empty::after{content:attr(data-empty);grid-column:1/-1;color:var(--dim);font-size:11px;text-align:center;padding:12px;border:1px dashed var(--line);border-radius:10px}
-.history-lane .jobs{max-height:340px;overflow:auto}.history-lane{opacity:.94}
-.node{position:relative;isolation:isolate;min-width:0;border:1px solid color-mix(in srgb,var(--cli,var(--acc)) 22%,var(--line));background:linear-gradient(145deg,color-mix(in srgb,var(--cli,var(--acc)) 6%,var(--nodebg)),var(--nodebg) 58%);border-radius:15px;overflow:hidden;box-shadow:0 12px 28px #0003;transition:border-color .3s,transform .25s,box-shadow .3s,opacity .3s}
-.node:before{content:'';position:absolute;z-index:3;inset:0 0 auto;height:2px;background:linear-gradient(90deg,transparent,var(--cli,var(--acc)),transparent);opacity:.6}.node:after{content:'';position:absolute;z-index:-1;right:-45px;top:-55px;width:125px;height:125px;border-radius:50%;background:var(--cli,var(--acc));filter:blur(58px);opacity:.08}
-.node.working{border-color:color-mix(in srgb,var(--ok) 55%,var(--line));box-shadow:0 14px 32px #0004,0 0 0 1px #42d3921c}.node.working:before{background:linear-gradient(90deg,transparent,var(--ok),transparent);box-shadow:0 0 8px var(--ok)}.node.failed{border-color:color-mix(in srgb,var(--err) 55%,var(--line))}.node.failed:before{background:var(--err)}.node.done{border-color:color-mix(in srgb,var(--acc) 42%,var(--line))}
-.node.blocked{border-color:var(--warn)}.node.historic{opacity:.9}.node.historic:hover{opacity:1;border-color:var(--acc)}
-.node.receiving{transform:translateY(-4px) scale(1.03);border-color:var(--acc);box-shadow:0 0 0 1px var(--acc),0 10px 28px #65a7ff2e}
-.node-head{display:flex;align-items:center;gap:8px;padding:11px 11px 9px;background:linear-gradient(180deg,color-mix(in srgb,var(--panel2) 78%,transparent),transparent)}
-.node-av{position:relative;width:34px;height:34px;flex:none;border-radius:50%;background:radial-gradient(circle at 36% 30%,#ffffff,#ffffffde 4%,#ffffff00 24%),radial-gradient(circle at 50% 128%,color-mix(in srgb,var(--cli,#8b98b0) 55%,#ffffff),transparent 44%),radial-gradient(circle at 42% 36%,color-mix(in srgb,var(--cli,#8b98b0) 78%,#ffffff),var(--cli,#8b98b0) 40%,color-mix(in srgb,var(--cli,#8b98b0) 40%,#000) 100%);box-shadow:inset -4px -6px 11px #000000ad,inset 4px 5px 9px #ffffff45,0 0 0 1px #0006,0 7px 12px #0007}
-.node-step{font:800 8px/1 ui-monospace,Consolas,monospace;letter-spacing:.5px;color:var(--cli,var(--acc));border:1px solid color-mix(in srgb,var(--cli,var(--acc)) 38%,var(--line));background:color-mix(in srgb,var(--cli,var(--acc)) 10%,transparent);border-radius:5px;padding:3px 5px}
-.node .nname{font-weight:700;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.node .nrole{margin-left:auto;font-size:9.5px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:1px 6px}
-.node .nst{padding:5px 10px;font-size:10.5px;color:var(--dim);border-top:1px solid #ffffff0f;display:flex;align-items:center;gap:6px}
-.node.working .nst{color:var(--ok)}
-.node .nst .td{width:6px;height:6px;border-radius:50%;background:var(--dim)}
-.node.working .nst .td{background:var(--ok);box-shadow:0 0 7px var(--ok);animation:beat 1.2s infinite}
-.node.failed .td{background:var(--err)}.node.done .td{background:var(--acc)}.node.blocked .td{background:var(--warn)}
-.job-task{padding:8px 10px;color:var(--tx);font-size:11px;line-height:1.4;min-height:46px;border-top:1px solid #ffffff0f;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.job-meta{display:flex;align-items:center;gap:6px;padding:5px 10px;color:var(--dim);font:9.5px ui-monospace,Consolas,monospace;border-top:1px solid #ffffff0f}.job-meta .duration{margin-left:auto}
-.node .tail{height:64px;overflow:hidden;margin:0;padding:6px 10px;background:var(--term);color:#9fb0c6;font:10px/1.4 ui-monospace,Consolas,monospace;border-top:1px solid #ffffff0f;white-space:pre-wrap;word-break:break-word;display:flex;flex-direction:column-reverse}
-.node:not(.working) .tail:empty{display:none}
-.pulse-dot{fill:var(--acc);filter:drop-shadow(0 0 6px var(--acc))}
-.pulse-dot.up{fill:var(--ok);filter:drop-shadow(0 0 6px var(--ok))}
-.link{stroke:var(--line);stroke-width:1.8;fill:none;stroke-dasharray:4 8;animation:flow 1.1s linear infinite}.link.past{opacity:.25;animation:none}.link.live{stroke:var(--ok)}
-.link.hot{stroke:var(--acc);stroke-width:2.6;opacity:.95}
-@keyframes flow{to{stroke-dashoffset:-24}}
+.hud-tr{top:14px;right:14px;display:flex;gap:8px;pointer-events:auto}
+.mini{background:#0b1220b0;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:12px;color:var(--tx);backdrop-filter:blur(8px)}
+.scene-legend{position:absolute;z-index:3;left:14px;bottom:12px;display:flex;gap:12px;flex-wrap:wrap;background:#0b1220a0;border:1px solid var(--line);border-radius:12px;padding:7px 12px;backdrop-filter:blur(8px);pointer-events:none}
+.scene-legend span{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--dim)}
+.lg-dot{width:8px;height:8px;border-radius:50%;box-shadow:0 0 6px currentColor}
+.scene-hint{position:absolute;z-index:3;right:14px;bottom:12px;font-size:10.5px;color:var(--dim);background:#0b1220a0;border:1px solid var(--line);border-radius:999px;padding:5px 12px;backdrop-filter:blur(8px);pointer-events:none}
+/* 3B sahne her iki temada da koyudur; HUD çipleri koyu arka planlı olduğundan light
+   temada metinler görünmez oluyordu. Light temada yazı/kenarları sabit açık renge çek. */
+[data-theme=light] .mini{color:#eef2fa}
+[data-theme=light] .op-phase,[data-theme=light] .scene-legend span,[data-theme=light] .scene-hint,[data-theme=light] .scene-fallback{color:#c3d0e6}
+[data-theme=light] .hud-op #opName{color:#efeaff}
+[data-theme=light] .op-phase b,[data-theme=light] .hud-op .hud-lbl{color:#c3b0ff}
+[data-theme=light] .scene-fallback h3{color:#f2f6ff}
+[data-theme=light] .hud-op,[data-theme=light] .op-phase,[data-theme=light] .mini,[data-theme=light] .scene-legend,[data-theme=light] .scene-hint{border-color:#2c3a55}
+.scene-fallback{position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:8px;padding:32px;color:var(--dim)}
+.scene-fallback .sf-ic{font-size:40px}.scene-fallback h3{margin:0;color:var(--tx);font-size:16px}.scene-fallback p{margin:0;max-width:420px;font-size:12.5px;line-height:1.6}
+/* 3B yükleme animasyonu */
+.scene-loader{position:absolute;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:radial-gradient(120% 90% at 50% 40%,#1a2745,#0b1224);transition:opacity .45s ease}
+.scene-loader.gone{opacity:0;pointer-events:none}
+.orbit-spinner{position:relative;width:64px;height:64px}
+.orbit-spinner .sun{position:absolute;inset:0;margin:auto;width:16px;height:16px;border-radius:50%;background:radial-gradient(circle at 40% 35%,#e6dcff,#a98bff);box-shadow:0 0 16px #a98bff}
+.orbit-spinner .ring{position:absolute;inset:0;border-radius:50%;border:1.5px solid #2a3d63}
+.orbit-spinner .ring:nth-child(2){inset:8px}.orbit-spinner .ring:nth-child(3){inset:18px}
+.orbit-spinner .planet{position:absolute;top:-4px;left:calc(50% - 4px);width:8px;height:8px;border-radius:50%;background:#5e8bff;box-shadow:0 0 8px #5e8bff}
+.orbit-spinner .o1{animation:orbitspin 2.4s linear infinite}.orbit-spinner .o2{animation:orbitspin 3.6s linear infinite reverse}.orbit-spinner .o3{animation:orbitspin 5s linear infinite}
+.orbit-spinner .o2 .planet{background:#2fd08a;box-shadow:0 0 8px #2fd08a}.orbit-spinner .o3 .planet{background:#d97757;box-shadow:0 0 8px #d97757}
+@keyframes orbitspin{to{transform:rotate(360deg)}}
+.scene-loader .lt{font-size:12px;letter-spacing:.4px;color:var(--dim)}
+@media(prefers-reduced-motion:reduce){.orbit-spinner .o1,.orbit-spinner .o2,.orbit-spinner .o3{animation:none}}
+/* Yardım (?) modalı */
+.help-overlay{position:fixed;inset:0;z-index:50;background:#050912cc;backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:20px;animation:panelIn .2s ease}
+.help-overlay[hidden]{display:none}
+.help-card{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:0 30px 80px #000a;max-width:560px;width:100%;max-height:86vh;overflow:auto}
+.help-card .hc-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+.help-card .hc-head .ic{font-size:20px}.help-card .hc-head h2{margin:0;font-size:16px}.help-card .hc-head .brand{color:var(--acc)}
+.help-card .hc-close{margin-left:auto;width:30px;height:30px;padding:0;border-radius:8px;font-size:15px}
+.help-card .hc-body{padding:16px 18px;font-size:13px;line-height:1.65;color:var(--tx)}
+.help-card .hc-body p{margin:0 0 12px}
+.hc-row{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+.hc-row .hc-ic{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:15px;background:var(--panel2);border:1px solid var(--line)}
+.hc-row .hc-t{font-weight:750;font-size:12.5px}.hc-row .hc-d{color:var(--dim);font-size:12px;margin-top:2px}
+.hc-keys{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.hc-keys kbd{font:11px ui-monospace,Consolas,monospace;background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:6px;padding:2px 7px;color:var(--tx)}
+#helpBtn{width:32px;height:32px;padding:0;border-radius:50%;display:inline-grid;place-items:center;font-weight:800;font-size:15px;line-height:1;color:var(--dim)}
+#helpBtn:hover{color:var(--acc);border-color:var(--acc)}
+.hc-row{align-items:baseline}.hc-num{flex:none;width:20px;color:var(--acc);font-weight:800;font-size:12.5px}
+/* Detay paneli (tıklamada) */
+.agent-panel{position:absolute;z-index:5;top:14px;right:14px;width:min(340px,64%);max-height:calc(100% - 28px);display:flex;flex-direction:column;background:#0b1220ee;border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 60px #000a;backdrop-filter:blur(14px);overflow:hidden;animation:panelIn .22s cubic-bezier(.2,.8,.2,1)}
+@keyframes panelIn{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}
+.ap-head{display:flex;align-items:center;gap:11px;padding:13px 14px;border-bottom:1px solid var(--line)}
+.ap-av{width:42px;height:42px;flex:none;border-radius:50%;background:radial-gradient(circle at 36% 30%,#ffffff,#ffffffde 4%,#ffffff00 22%),radial-gradient(circle at 42% 36%,color-mix(in srgb,var(--cli,#8b98b0) 78%,#ffffff),var(--cli,#8b98b0) 40%,color-mix(in srgb,var(--cli,#8b98b0) 40%,#000) 100%);box-shadow:inset -5px -6px 12px #000000ad,inset 5px 6px 10px #ffffff45,0 0 0 1px #0006}
+.ap-id{min-width:0;flex:1}
+.ap-id .name{font-weight:800;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-id .sub{display:flex;gap:5px;margin-top:3px;flex-wrap:wrap}
+.ap-close{flex:none;width:28px;height:28px;padding:0;border-radius:8px;font-size:15px;line-height:1}
+.ap-body{padding:12px 14px;overflow:auto}
+.ap-status{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;padding:8px 11px;border-radius:10px;border:1px solid var(--line);background:#ffffff06;margin-bottom:11px}
+.ap-status .sdot{width:9px;height:9px;border-radius:50%;background:var(--dim);box-shadow:0 0 8px currentColor}
+.ap-status.working{color:var(--ok)}.ap-status.working .sdot{background:var(--ok)}
+.ap-status.done{color:var(--acc)}.ap-status.done .sdot{background:var(--acc)}
+.ap-status.failed{color:var(--err)}.ap-status.failed .sdot{background:var(--err)}
+.ap-sec{font-size:9.5px;letter-spacing:1px;text-transform:uppercase;color:var(--dim);font-weight:800;margin:12px 0 6px}
+.ap-task{font-size:12px;line-height:1.5;color:var(--tx);background:#ffffff06;border:1px solid var(--line);border-radius:10px;padding:9px 11px;white-space:pre-wrap;word-break:break-word}
+.ap-tail{margin:0;background:var(--term);color:#9fb0c6;font:11px/1.5 ui-monospace,Consolas,monospace;border:1px solid var(--line);border-radius:10px;padding:9px 11px;max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+.ap-tail:empty::after{content:'Henüz canlı çıktı yok.';color:var(--dim)}
+.ap-meta{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:11px;font:10px ui-monospace,Consolas,monospace;color:var(--dim)}
+.ap-empty{color:var(--dim);font-size:12px;padding:6px 0}
 /* Zaman çizelgesi */
 .timeline{display:flex;flex-direction:column;gap:9px;max-height:calc(100vh - 210px);overflow:auto;padding-right:2px}
 .tl{display:flex;gap:9px}
@@ -136,8 +152,7 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
 .tl .txt{font-size:11.5px;color:var(--tx);margin-top:3px;opacity:.9;white-space:pre-wrap;word-break:break-word;display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .tl time{color:var(--dim);font:10px ui-monospace;margin-left:auto}
 .tl-empty{color:var(--dim);font-size:12px;border:1px dashed var(--line);border-radius:11px;padding:18px 14px;text-align:center}
-@media(max-width:1180px){.wrap{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(3,1fr)}.roster,.timeline{max-height:none}}
-@media(max-width:680px){.jobs{grid-template-columns:1fr}.flow-legend{display:none}}
+@media(max-width:1180px){.wrap{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(3,1fr)}.roster,.timeline{max-height:none}.stage{height:70vh}}
 </style>
 </head>
 <body>
@@ -146,6 +161,7 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
   <span class="pill"><span id="dot" class="dot"></span><span id="engineState">durdu</span></span>
   <span id="modePill" class="pill">boşta</span>
   <div class="grow"></div>
+  <button id="helpBtn" title="Bu sistem nedir?">?</button>
   <button id="themeBtn" onclick="toggleTheme()" title="Açık / koyu tema">🌙</button>
   <a class="btn" href="index.html"><button>← Komuta Merkezi</button></a>
 </header>
@@ -177,20 +193,27 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
   </aside>
 
   <section class="stage" id="stage">
-    <svg id="links"></svg>
-    <div class="op-wrap">
-      <div class="core" id="operator">
-        <div class="ci">
-          <div class="clbl">OPERATÖR</div>
-          <div class="cname" id="opName">—</div>
-          <div class="cmd">roles/operator.md</div>
-        </div>
-      </div>
-      <div class="op-phase" id="opState">bir görev bekleniyor</div>
-      <div class="op-badge">ekibi kurar · delege eder · sonuçları değerlendirir</div>
+    <canvas id="scene"></canvas>
+    <div class="scene-loader" id="sceneLoader">
+      <div class="orbit-spinner"><span class="sun"></span><span class="ring o1"><span class="planet"></span></span><span class="ring o2"><span class="planet"></span></span><span class="ring o3"><span class="planet"></span></span></div>
+      <div class="lt">3B ekip evreni hazırlanıyor…</div>
     </div>
-    <div class="spine"></div>
-    <div class="team" id="team"></div>
+    <div class="hud hud-tl">
+      <div class="hud-op"><span class="hud-lbl">OPERATÖR</span><span id="opName">—</span></div>
+      <div class="op-phase" id="opState">bir görev bekleniyor</div>
+    </div>
+    <div class="hud hud-tr">
+      <button id="autoRotBtn" class="mini" title="Otomatik döndürme">⏸ Döndür</button>
+      <button id="camResetBtn" class="mini" title="Kamerayı sıfırla">⟲ Kamera</button>
+    </div>
+    <div class="scene-legend">
+      <span><i class="lg-dot" style="color:#2fd08a;background:#2fd08a"></i>Çalışıyor</span>
+      <span><i class="lg-dot" style="color:#5e8bff;background:#5e8bff"></i>Tamamlandı</span>
+      <span><i class="lg-dot" style="color:#f2565f;background:#f2565f"></i>Sorun</span>
+      <span><i class="lg-dot" style="color:#8494ab;background:#8494ab"></i>Beklemede</span>
+    </div>
+    <div class="scene-hint">Sürükle → döndür · tekerlek → yakınlaş · ajana tıkla → detay</div>
+    <div class="agent-panel" id="agentPanel" hidden></div>
   </section>
 
   <aside class="card">
@@ -199,8 +222,34 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
   </aside>
 </div>
 
-<script>
-const $=s=>document.querySelector(s), svgns='http://www.w3.org/2000/svg';
+<div class="help-overlay" id="helpModal" hidden>
+  <div class="help-card">
+    <div class="hc-head"><span class="ic">🛰️</span><h2><span class="brand">CrewCtl</span> Ekip Akışı nedir?</h2><button class="hc-close" id="helpClose" title="Kapat">✕</button></div>
+    <div class="hc-body">
+      <p>CrewCtl, kurulu CLI kodlama ajanlarınızı (Codex, Claude, Gemini, OpenCode) <b>tek bir operatör‑liderliğindeki takım</b> gibi çalıştırır. Bu sayfa o takımın canlı çalışmasını 3B bir sahnede gösterir.</p>
+      <div class="hc-row"><div><div class="hc-t">Operatör</div><div class="hc-d">Merkezdeki çekirdek. Hedefi analiz eder, işi alt görevlere böler, doğru uzmana delege eder ve sonuçları değerlendirir.</div></div></div>
+      <div class="hc-row"><div><div class="hc-t">Uzman ajanlar</div><div class="hc-d">Operatörün çevresindeki her düğüm bir CLI uzmanıdır; rengi hangi CLI olduğunu gösterir. Birine tıklayınca o an ne yaptığını, canlı çıktısını ve durumunu görürsünüz.</div></div></div>
+      <div class="hc-row"><div><div class="hc-t">Delegasyon akışı</div><div class="hc-d">Operatörden uzmana giden hüzme bir görev delegasyonu, geri dönen hüzme ise teslimattır.</div></div></div>
+      <div class="hc-row"><div><div class="hc-t">Durum renkleri</div><div class="hc-d"><b style="color:#2fd08a">Yeşil</b> çalışıyor · <b style="color:#5e8bff">Mavi</b> tamamlandı · <b style="color:#f2565f">Kırmızı</b> sorun · <b style="color:#8494ab">Gri</b> beklemede.</div></div></div>
+      <div class="hc-row"><div><div class="hc-t">Kontroller</div><div class="hc-d">Sahneyi döndürüp yakınlaşabilirsiniz. Soldaki filo ve sağdaki zaman çizelgesi 3B sahne ile bağlıdır — birine tıklamak ilgili gezegeni seçer.</div>
+        <div class="hc-keys"><kbd>Sürükle</kbd> döndür <kbd>Tekerlek</kbd> yakınlaş <kbd>Tıkla</kbd> detay</div></div></div>
+      <p style="margin:14px 0 0;color:var(--dim);font-size:12px">Bir görev başlatmak için <a href="index.html" style="color:var(--acc)">Komuta Merkezi</a>'ne dönüp <b>▶ Başlat</b>'a basın.</p>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"./three.module.min.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from './OrbitControls.js';
+import { EffectComposer } from './jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from './jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from './jsm/postprocessing/UnrealBloomPass.js';
+
+const reduceMotion=matchMedia('(prefers-reduced-motion:reduce)').matches;
+const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const time=at=>new Date(at||Date.now()).toLocaleTimeString();
 const isOpStage=s=>String(s||'').startsWith('operator');
@@ -208,85 +257,384 @@ const CLI_META={codex:{label:'Codex',c:'#10a37f'},claude:{label:'Claude',c:'#d97
 function adapterOf(a){const b=String(a?.adapter||a?.cmd||a||'').toLowerCase();return ['codex','claude','gemini','opencode'].find(x=>b.includes(x))||'custom'}
 const cliLabel=id=>(CLI_META[id]||CLI_META.custom).label;
 const cliColor=id=>(CLI_META[id]||CLI_META.custom).c;
-const initials=s=>String(s||'?').replace(/[^a-z0-9]/gi,'').slice(0,2).toUpperCase()||'AJ';
-// Gerçek 3B eğim: imleç konumunu karta rotateX/rotateY + ışık konumu olarak yansıtır.
-const reduceMotion=matchMedia('(prefers-reduced-motion:reduce)').matches;
-function bind3d(el){if(reduceMotion)return;el.addEventListener('pointermove',ev=>{const r=el.getBoundingClientRect();const px=(ev.clientX-r.left)/r.width,py=(ev.clientY-r.top)/r.height;el.style.setProperty('--ry',((px-.5)*15).toFixed(2)+'deg');el.style.setProperty('--rx',((.5-py)*12).toFixed(2)+'deg');el.style.setProperty('--mx',(px*100).toFixed(1)+'%');el.style.setProperty('--my',(py*100).toFixed(1)+'%')});el.addEventListener('pointerleave',()=>{el.style.setProperty('--rx','0deg');el.style.setProperty('--ry','0deg')})}
-function applyTheme(t){document.documentElement.setAttribute('data-theme',t);const b=$('#themeBtn');if(b)b.textContent=t==='light'?'☀️':'🌙';try{localStorage.setItem('cliTheme',t)}catch{}}
-function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
+function cssId(s){return String(s).replace(/[^a-z0-9_-]/gi,'_')}
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t);const b=$('#themeBtn');if(b)b.textContent=t==='light'?'☀️':'🌙';try{localStorage.setItem('cliTheme',t)}catch{};Scene.setTheme?.(t)}
+window.toggleTheme=function(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
+
+/* ============================================================
+   3B SAHNE — gerçek WebGL/Three.js ajan görselleştirmesi
+   Her ajan bağımsız bir 3B model. Operatör merkezde çekirdek.
+   Tıklanabilir (raycast), durum renkleriyle canlı güncellenir.
+   ============================================================ */
+const Scene=(()=>{
+  let renderer,composer,bloom,scene,camera,controls,raycaster,pointer,clock,rafId,ok=false;
+  let operator,opGlow,opRings=[],ground,particles,fog,orbitPlane;
+  const orbitRings=[];
+  const PLANET_SCALE=.66;   // gezegenler operatöre göre küçük dursun
+  let selectionRing,hovered=null,selected=null,onSelect=null;
+  const agents=new Map();          // name -> agent obj
+  const pickables=[];              // {mesh,name}
+  const beams=new Map();           // name -> beam obj
+  const pulses=[];                 // aktif akış darbeleri
+  const ripples=[];                // varış/çarpma dalgaları
+  const tmp=new THREE.Vector3();
+  const HOME={target:new THREE.Vector3(0,1.4,0),dist:20};
+  const focus={target:new THREE.Vector3(0,1.4,0),dist:20,active:false};
+  const STAT={
+    working:{col:0x2fd08a,emis:1.25,ring:2.4,bob:.16},
+    done:{col:0x5e8bff,emis:.8,ring:.5,bob:.06},
+    failed:{col:0xf2565f,emis:.95,ring:.2,bob:.03},
+    idle:{col:0x8494ab,emis:.5,ring:.7,bob:.09}
+  };
+  // paylaşılan geometriler (bir kez)
+  let G={},glowTex;
+
+  function radialTexture(){const c=document.createElement('canvas');c.width=c.height=128;const x=c.getContext('2d');const g=x.createRadialGradient(64,64,0,64,64,64);g.addColorStop(0,'#ffffff');g.addColorStop(.25,'#ffffffcc');g.addColorStop(1,'#ffffff00');x.fillStyle=g;x.fillRect(0,0,128,128);const t=new THREE.CanvasTexture(c);return t}
+  function labelSprite(text,hex){
+    const pad=26,fs=44,f=`800 ${fs}px Inter,Segoe UI,sans-serif`;
+    const m=document.createElement('canvas').getContext('2d');m.font=f;const w=Math.ceil(m.measureText(text).width)+pad*2,h=fs+pad;
+    const c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');
+    x.font=f;x.textBaseline='middle';x.textAlign='center';
+    const r=18;x.fillStyle='rgba(9,14,26,.82)';x.strokeStyle=hex;x.lineWidth=3;
+    x.beginPath();x.moveTo(r,3);x.arcTo(w-3,3,w-3,h-3,r);x.arcTo(w-3,h-3,3,h-3,r);x.arcTo(3,h-3,3,3,r);x.arcTo(3,3,w-3,3,r);x.closePath();x.fill();x.stroke();
+    x.fillStyle='#fff';x.fillText(text,w/2,h/2+1);
+    const t=new THREE.CanvasTexture(c);t.anisotropy=4;
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true,depthTest:false}));
+    sp.scale.set(w/h*.62,.62,1);sp.renderOrder=10;return sp;
+  }
+
+  // GEZEGEN — operatör (güneş) ailesinden ama farklı: simetrik küre gövde,
+  // kendi eğik halkası (Satürn gibi) ve telkafes kabuk; renk CLI'ye göre, durumla parlar.
+  function buildAgentModel(hex){
+    const col=new THREE.Color(hex),g=new THREE.Group();
+    // iç çekirdek (koyu, derinlik hissi)
+    const body=new THREE.Mesh(G.coreInner,new THREE.MeshStandardMaterial({color:0x16233b,metalness:.7,roughness:.4}));g.add(body);
+    // gezegen yüzeyi — durum rengiyle parlayan simetrik küre (ana gövde)
+    const visor=new THREE.Mesh(G.planet,new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:1.3,metalness:.35,roughness:.35,toneMapped:false}));g.add(visor);
+    // telkafes kabuk (dönen)
+    const shell=new THREE.LineSegments(G.shell,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:.6}));g.add(shell);
+    // Satürn benzeri eğik gezegen halkası — ana ayırt edici öğe
+    const tip=new THREE.Mesh(G.ring,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.85,side:THREE.DoubleSide,toneMapped:false,blending:THREE.AdditiveBlending,depthWrite:false}));
+    tip.rotation.set(Math.PI*.5,0,Math.PI*.16);g.add(tip);
+    // ikinci ince halka (çapraz eksende — jiroskop hissi)
+    const halo=new THREE.Mesh(G.halo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.5,side:THREE.DoubleSide,toneMapped:false}));
+    halo.rotation.set(Math.PI*.5,Math.PI*.5,0);g.add(halo);
+    // yumuşak dış parıltı (atmosfer/korona hissi)
+    const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:col,transparent:true,opacity:.34,blending:THREE.AdditiveBlending,depthWrite:false}));
+    glow.scale.set(2.7,2.7,1);g.add(glow);
+    // görünmez tıklama küresi
+    const pick=new THREE.Mesh(G.pick,new THREE.MeshBasicMaterial({visible:false}));g.add(pick);
+    return {g,body,shell,visor,halo,tip,glow,pick};
+  }
+
+  function buildOperator(){
+    const grp=new THREE.Group();grp.position.y=1.4;
+    const col=new THREE.Color(0xa98bff);
+    const core=new THREE.Mesh(new THREE.IcosahedronGeometry(.9,1),new THREE.MeshStandardMaterial({color:0x2a2060,emissive:col,emissiveIntensity:1.1,metalness:.6,roughness:.25,flatShading:true,toneMapped:false}));
+    grp.add(core);grp.userData.core=core;
+    const wire=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(1.24,1)),new THREE.LineBasicMaterial({color:col,transparent:true,opacity:.5}));
+    grp.add(wire);grp.userData.wire=wire;
+    for(let i=0;i<3;i++){const r=new THREE.Mesh(new THREE.TorusGeometry(1.5+i*.14,.02,10,90),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.55-i*.12,toneMapped:false}));r.rotation.x=Math.PI*(.2+i*.28);r.rotation.y=i*.6;opRings.push(r);grp.add(r)}
+    opGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:col,transparent:true,opacity:.55,blending:THREE.AdditiveBlending,depthWrite:false}));
+    opGlow.scale.set(6.2,6.2,1);grp.add(opGlow);
+    // korona — güneş hissi için geniş, soluk dış hale
+    const corona=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:0xc3b6e8,transparent:true,opacity:.11,blending:THREE.AdditiveBlending,depthWrite:false}));
+    corona.scale.set(12,12,1);grp.add(corona);
+    // güneşin ışığı gezegenleri aydınlatır — daha soluk ve daha az mor (nötr)
+    const light=new THREE.PointLight(0xc4cbe6,1.1,42,1.8);light.position.set(0,0,0);grp.add(light);grp.userData.light=light;
+    grp.add(labelSprite('OPERATÖR','#a98bff').translateY(2.2));
+    return grp;
+  }
+
+  function layout(){
+    const list=[...agents.values()],n=list.length;
+    // eski yörünge çizgilerini temizle
+    for(const r of orbitRings){orbitPlane.remove(r);r.geometry.dispose();r.material.dispose()}orbitRings.length=0;
+    if(!n)return;
+    list.forEach((a,i)=>{
+      a.orbitR=3.9+i*1.15;                                  // operatöre orta mesafe, yörüngeler daha sık
+      a.orbitAngle=(i/n)*Math.PI*2;                         // eşit dağılmış sabit konum
+      a.orbitSpeed=0;                                       // gezegen kendi başına dönmez
+      a.orbitY=1.4;a.phase=i*1.3;
+      a.g.position.set(Math.cos(a.orbitAngle)*a.orbitR,a.orbitY,Math.sin(a.orbitAngle)*a.orbitR);
+      // yörünge çizgisi (güneşin çevresinde ince halka)
+      const ring=new THREE.Mesh(new THREE.RingGeometry(a.orbitR-.012,a.orbitR+.012,180),new THREE.MeshBasicMaterial({color:a.color,transparent:true,opacity:.22,side:THREE.DoubleSide,toneMapped:false}));
+      ring.rotation.x=-Math.PI/2;ring.position.y=a.orbitY;orbitPlane.add(ring);orbitRings.push(ring);
+    });
+  }
+
+  function init(canvas){
+    renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    scene=new THREE.Scene();
+    scene.background=new THREE.Color(0x0b1224);            // bloom opak pipeline'da uzay zemini
+    fog=new THREE.FogExp2(0x14203a,.013);scene.fog=fog;
+    camera=new THREE.PerspectiveCamera(52,1,.1,200);camera.position.set(0,9.5,18);
+    controls=new OrbitControls(camera,canvas);
+    controls.enableDamping=true;controls.dampingFactor=.1;controls.rotateSpeed=.95;controls.zoomSpeed=1.1;controls.enablePan=false;
+    controls.minDistance=6;controls.maxDistance=44;controls.maxPolarAngle=1.5;
+    controls.target.copy(HOME.target);controls.autoRotate=!reduceMotion;controls.autoRotateSpeed=.5;
+    controls.update();controls.saveState();
+    // ışıklar — sahne belirgin biçimde aydınlık
+    scene.add(new THREE.AmbientLight(0x6c82a6,1.35));
+    scene.add(new THREE.HemisphereLight(0xcfe0ff,0x2a3550,1.15));
+    const key=new THREE.DirectionalLight(0xffffff,1.75);key.position.set(6,13,9);scene.add(key);
+    const rim=new THREE.DirectionalLight(0x8fb4ff,1.15);rim.position.set(-9,5,-7);scene.add(rim);
+    const fill=new THREE.DirectionalLight(0xbcd0ff,.85);fill.position.set(0,4,12);scene.add(fill);
+    glowTex=radialTexture();
+    // Güneş sistemi — zemin yok; gezegenler güneşin çevresinde yörüngede döner.
+    orbitPlane=new THREE.Group();scene.add(orbitPlane); // yörünge çizgileri layout()'ta eklenir
+    // seçim halkası — seçili gezegenin çevresinde belirir (animate konumlandırır)
+    selectionRing=new THREE.Mesh(new THREE.RingGeometry(.86,1.02,56),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.9,side:THREE.DoubleSide,toneMapped:false}));
+    selectionRing.rotation.x=-Math.PI/2;selectionRing.visible=false;scene.add(selectionRing);
+    // yıldız alanı — derin uzay
+    const pc=900,pos=new Float32Array(pc*3);
+    for(let i=0;i<pc;i++){const r=15+Math.random()*42,th=Math.random()*Math.PI*2,ph=(Math.random()-.5)*Math.PI*.75;pos[i*3]=Math.cos(th)*Math.cos(ph)*r;pos[i*3+1]=Math.sin(ph)*r*.6+2;pos[i*3+2]=Math.sin(th)*Math.cos(ph)*r}
+    const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    particles=new THREE.Points(pg,new THREE.PointsMaterial({color:0xbcd0ff,size:.09,transparent:true,opacity:.7,depthWrite:false}));scene.add(particles);
+    // paylaşılan geometriler
+    G={planet:new THREE.IcosahedronGeometry(.5,4),coreInner:new THREE.IcosahedronGeometry(.36,2),
+       shell:new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(.63,1)),
+       ring:new THREE.RingGeometry(.86,.95,72),halo:new THREE.RingGeometry(.58,.63,60),
+       pick:new THREE.SphereGeometry(1.2,12,12)};
+    operator=buildOperator();scene.add(operator);
+    // Bloom — emissive güneş/gezegenler gerçekten parlar
+    composer=new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene,camera));
+    bloom=new UnrealBloomPass(new THREE.Vector2(1,1),.42,.5,.5);   // güç düşük, eşik yüksek → göz yormaz
+    composer.addPass(bloom);
+    raycaster=new THREE.Raycaster();pointer=new THREE.Vector2();clock=new THREE.Clock();
+    canvas.addEventListener('pointermove',onPointerMove);
+    canvas.addEventListener('pointerdown',onPointerDown);
+    new ResizeObserver(resize).observe(canvas.parentElement);resize();
+    ok=true;animate();
+  }
+
+  function resize(){if(!renderer)return;const el=renderer.domElement.parentElement,w=el.clientWidth,h=el.clientHeight;if(!w||!h)return;renderer.setSize(w,h,false);composer.setSize(w,h);bloom.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix()}
+
+  // Not: G geometrileri ve glowTex paylaşımlıdır — yalnızca ajana özel materyalleri
+  // ve benzersiz etiket dokusunu serbest bırak (paylaşımlı kaynaklara dokunma).
+  function disposeAgent(a){scene.remove(a.g);a.g.traverse(o=>{if(o.material)(Array.isArray(o.material)?o.material:[o.material]).forEach(m=>m.dispose())});if(a.label&&a.label.material.map)a.label.material.map.dispose()}
+  function setAgents(list){
+    if(!scene)return;
+    for(const a of agents.values())disposeAgent(a);agents.clear();pickables.length=0;
+    for(const it of list){
+      const m=buildAgentModel(it.color);
+      m.g.userData.name=it.name;m.pick.userData.name=it.name;m.g.scale.setScalar(PLANET_SCALE);
+      const label=labelSprite(it.name,it.color);label.position.y=2.2;label.material.opacity=.0;m.g.add(label);
+      const a={name:it.name,color:new THREE.Color(it.color),...m,label,status:'idle',tgt:STAT.idle,flare:0};
+      scene.add(m.g);agents.set(it.name,a);pickables.push(m.pick);
+    }
+    layout();
+  }
+  function updateAgent(name,status){const a=agents.get(name);if(!a)return;a.status=status;a.tgt=STAT[status]||STAT.idle}
+  function setBeam(name,active){
+    if(!ok)return;
+    if(active){if(beams.has(name))return;const a=agents.get(name);if(!a)return;
+      const n=32,arr=new Float32Array(n*3);const geo=new THREE.BufferGeometry();geo.setAttribute('position',new THREE.BufferAttribute(arr,3));
+      const line=new THREE.Line(geo,new THREE.LineBasicMaterial({color:0x2fd08a,transparent:true,opacity:.7,blending:THREE.AdditiveBlending,toneMapped:false,depthWrite:false}));
+      scene.add(line);beams.set(name,{line,arr,n});updateBeam(name);
+    }else{const b=beams.get(name);if(b){scene.remove(b.line);b.line.geometry.dispose();beams.delete(name)}}
+  }
+  function updateBeam(name){const b=beams.get(name),a=agents.get(name);if(!b||!a)return;const curve=beamCurve(a);
+    for(let i=0;i<b.n;i++){const p=curve.getPoint(i/(b.n-1));b.arr[i*3]=p.x;b.arr[i*3+1]=p.y;b.arr[i*3+2]=p.z}
+    b.line.geometry.attributes.position.needsUpdate=true;b.line.geometry.computeBoundingSphere()}
+  function beamCurve(a){const start=operator.position.clone(),end=a.g.position.clone();const mid=start.clone().lerp(end,.5);mid.y+=1.4;return new THREE.QuadraticBezierCurve3(start,mid,end)}
+  function pulse(name,dir){if(!ok)return;const a=agents.get(name);if(!a)return;const curve=beamCurve(a);
+    const col=dir==='up'?0x2fd08a:0x5e8bff;
+    // izli enerji paketi: parlak çekirdek + hâle + arkada solan iz çizgisi
+    const m=new THREE.Mesh(new THREE.SphereGeometry(.15,14,14),new THREE.MeshBasicMaterial({color:col,toneMapped:false}));
+    const gl=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color:col,transparent:true,opacity:.9,blending:THREE.AdditiveBlending,depthWrite:false}));gl.scale.set(1.3,1.3,1);m.add(gl);
+    const tn=14,tarr=new Float32Array(tn*3);const tg=new THREE.BufferGeometry();tg.setAttribute('position',new THREE.BufferAttribute(tarr,3));
+    const s0=curve.getPoint(dir==='up'?1:0);for(let k=0;k<tn;k++){tarr[k*3]=s0.x;tarr[k*3+1]=s0.y;tarr[k*3+2]=s0.z}
+    const trail=new THREE.Line(tg,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:.55,blending:THREE.AdditiveBlending,toneMapped:false,depthWrite:false}));trail.frustumCulled=false;
+    scene.add(m);scene.add(trail);pulses.push({m,trail,tarr,tn,curve,dir,t:0,col,name});
+  }
+  function spawnRipple(pos,col){const geo=new THREE.RingGeometry(.2,.34,40);const mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.85,side:THREE.DoubleSide,toneMapped:false,blending:THREE.AdditiveBlending,depthWrite:false}));
+    mesh.position.copy(pos);mesh.rotation.x=-Math.PI/2;scene.add(mesh);ripples.push({mesh,t:0})}
+  function setOperator(label){/* operatör kimliği HUD'da gösterilir; 3B etiket sabittir */}
+  function setOperatorPhase(active){if(operator)operator.userData.active=!!active}
+  function reset(){for(const n of [...beams.keys()])setBeam(n,false);for(const p of pulses){scene.remove(p.m);scene.remove(p.trail)}pulses.length=0;for(const r of ripples)scene.remove(r.mesh);ripples.length=0;for(const a of agents.values())updateAgent(a.name,'idle')}
+  // Uzay her iki temada da koyu kalır (light temada beyaza yıkanıp görünmez olmasın).
+  // Işık temada bir tık daha açık lacivert kullanıyoruz ama gezegenler net görünür.
+  function setTheme(t){if(!scene)return;const dark=t!=='light';fog.color.set(dark?0x14203a:0x18233d);fog.density=dark?.012:.014;if(scene.background)scene.background.set(dark?0x0b1224:0x111b30);if(ground)ground.material.color.set(dark?0x1a2740:0x22304c)}
+
+  // Sinematik odak — seçilen gezegene yumuşak kayış (animate uygular)
+  function focusOnAgent(a){if(!controls)return;if(a){focus.target.copy(a.g.position);focus.dist=6.5;focus.active=true;controls.autoRotate=false}
+    else{focus.target.copy(HOME.target);focus.dist=HOME.dist;focus.active=false;controls.autoRotate=!reduceMotion}syncAutoBtn()}
+  function select(name){
+    if(selected){const p=agents.get(selected);if(p)p.label.material.opacity=0}
+    selected=name;const a=agents.get(name);
+    if(a){a.label.material.opacity=1;focusOnAgent(a)}
+    else{if(selectionRing)selectionRing.visible=false;focusOnAgent(null)}
+    onSelect&&onSelect(name);
+  }
+  function deselect(){if(selected){const p=agents.get(selected);if(p)p.label.material.opacity=0}selected=null;if(selectionRing)selectionRing.visible=false;focusOnAgent(null);onSelect&&onSelect(null)}
+
+  function onPointerMove(e){const r=renderer.domElement.getBoundingClientRect();pointer.x=((e.clientX-r.left)/r.width)*2-1;pointer.y=-((e.clientY-r.top)/r.height)*2+1;
+    raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(pickables,false)[0];
+    const name=hit?hit.object.userData.name:null;hovered=name;renderer.domElement.style.cursor=name?'pointer':'grab';
+  }
+  let downXY=null;
+  function onPointerDown(e){downXY=[e.clientX,e.clientY]}
+  renderer_click_guard();
+  function renderer_click_guard(){document.addEventListener('pointerup',e=>{if(!downXY||!renderer)return;const moved=Math.hypot(e.clientX-downXY[0],e.clientY-downXY[1]);downXY=null;if(moved>6)return;
+    const r=renderer.domElement.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)return;
+    pointer.x=((e.clientX-r.left)/r.width)*2-1;pointer.y=-((e.clientY-r.top)/r.height)*2+1;raycaster.setFromCamera(pointer,camera);
+    const hit=raycaster.intersectObjects(pickables,false)[0];if(hit)select(hit.object.userData.name);else deselect();
+  })}
+
+  function animate(){rafId=requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05),t=clock.elapsedTime;const anim=reduceMotion?0:1;
+    // operatör
+    if(operator){const act=operator.userData.active;operator.userData.core.rotation.y+=dt*.5*anim;operator.userData.core.rotation.x+=dt*.22*anim;
+      opRings.forEach((r,i)=>{r.rotation.z+=dt*(.3+i*.25)*(act?2:1)*anim;r.rotation.y+=dt*.15*anim});
+      const pu=(Math.sin(t*(act?4:1.6))*.5+.5)*anim;operator.userData.core.material.emissiveIntensity=(act?.8:.5)+pu*.25;
+      operator.userData.light.intensity=(act?1.1:.7)+pu*.25;opGlow.material.opacity=.17+pu*.1;}
+    // ajanlar
+    for(const a of agents.values()){
+      const tg=a.tgt;
+      // renk her zaman ajanın kendi rengi (sabit); durum + varış "flare"ı parlaklıkla belli olur
+      const breathe=(Math.sin(t*1.8+a.phase)*.5+.5)*anim;                // 0..1 yumuşak nefes
+      const workBoost=a.status==='working'?(Math.sin(t*3.5+a.phase)*.5+.5)*anim:0;
+      if(a.flare>0)a.flare=Math.max(0,a.flare-dt*1.6);                    // varış parlaması söner
+      a.visor.material.emissiveIntensity+=((tg.emis+breathe*.14+workBoost*.35+a.flare*1.3)-a.visor.material.emissiveIntensity)*.14;
+      a.glow.material.opacity=.1+breathe*.1+workBoost*.22+a.flare*.4;     // operatörden belirgin az
+      a.glow.scale.setScalar(2.1+breathe*.22+workBoost*.4+a.flare*1);
+      // konum sabit (yörünge hızı 0) + hafif süzülme; sistem bütün olarak kamerayla döner
+      a.g.position.set(Math.cos(a.orbitAngle)*a.orbitR, a.orbitY+Math.sin(t*1.2+a.phase)*.07*anim, Math.sin(a.orbitAngle)*a.orbitR);
+      const want=PLANET_SCALE*((hovered===a.name||selected===a.name)?1.16:1);a.g.scale.lerp(tmp.set(want,want,want),.15);
+    }
+    // seçim halkası ajanı takip eder
+    if(selected&&agents.has(selected)){const a=agents.get(selected);selectionRing.visible=true;selectionRing.position.set(a.g.position.x,a.orbitY,a.g.position.z);selectionRing.material.color.copy(a.color);selectionRing.rotation.z+=dt*.6*anim;selectionRing.material.opacity=.6+Math.sin(t*3)*.25*anim}
+    else selectionRing.visible=false;
+    // sinematik odak — yalnızca geçiş anında; hedefe varınca kontrolü kullanıcıya bırak
+    if(focus.active){controls.target.lerp(focus.target,.08);
+      const dir=tmp.copy(camera.position).sub(controls.target);const curD=dir.length()||.001;const wantD=curD+(focus.dist-curD)*.08;
+      dir.setLength(wantD);camera.position.copy(controls.target).add(dir);
+      if(controls.target.distanceTo(focus.target)<.06&&Math.abs(curD-focus.dist)<.12)focus.active=false;}
+    // akış darbeleri (izli enerji paketi + varışta çarpma dalgası)
+    for(let i=pulses.length-1;i>=0;i--){const p=pulses[i];p.t+=dt/.85;const tt=p.dir==='up'?1-Math.min(p.t,1):Math.min(p.t,1);
+      const pt=p.curve.getPoint(tt);p.m.position.copy(pt);
+      for(let k=p.tn-1;k>0;k--){p.tarr[k*3]=p.tarr[(k-1)*3];p.tarr[k*3+1]=p.tarr[(k-1)*3+1];p.tarr[k*3+2]=p.tarr[(k-1)*3+2]}
+      p.tarr[0]=pt.x;p.tarr[1]=pt.y;p.tarr[2]=pt.z;p.trail.geometry.attributes.position.needsUpdate=true;
+      if(p.t>=1){spawnRipple(pt,p.col);if(p.dir==='down'){const a=agents.get(p.name);if(a)a.flare=1}
+        scene.remove(p.m);scene.remove(p.trail);p.trail.geometry.dispose();pulses.splice(i,1)}}
+    // çarpma dalgaları — genişleyip söner
+    for(let i=ripples.length-1;i>=0;i--){const r=ripples[i];r.t+=dt/.7;const s=.2+r.t*2.4;r.mesh.scale.set(s,s,s);r.mesh.material.opacity=.85*(1-r.t);if(r.t>=1){scene.remove(r.mesh);r.mesh.geometry.dispose();ripples.splice(i,1)}}
+    // delegasyon bağları — gezegen hareketini takip eder
+    for(const [name,b] of beams){updateBeam(name);b.line.material.opacity=.45+Math.sin(t*5)*.2*anim}
+    // parçacıklar
+    if(particles)particles.rotation.y+=dt*.02*anim;
+    controls.update();composer.render();
+  }
+
+  function syncAutoBtn(){const b=$('#autoRotBtn');if(!b||!controls)return;b.textContent=controls.autoRotate?'⏸ Döndür':'▶ Döndür'}
+  function toggleAuto(){if(!controls)return;controls.autoRotate=!controls.autoRotate;syncAutoBtn()}
+  function camReset(){if(!controls)return;controls.reset();focus.target.copy(HOME.target);focus.dist=HOME.dist;focus.active=false;controls.autoRotate=!reduceMotion;syncAutoBtn()}
+
+  function setHover(name){if(ok)hovered=name}
+  return {init,setAgents,updateAgent,setBeam,pulse,setOperator,setOperatorPhase,reset,resize,setTheme,deselect,selectByName:select,setHover,
+    set onSelect(fn){onSelect=fn},get selected(){return selected},toggleAuto,camReset,syncAutoBtn};
+})();
+
+/* ============================================================
+   Uygulama durumu + SSE — 3B sahneyi besler
+   ============================================================ */
+let operatorName='',nodes=new Map(),roster=new Map(),agentMeta={},delegCount=0,roundNo=0,stepNo=0,missionActive=false,activeSet=new Set();
+let selectedAgent=null;
+
 (function(){let t='dark';try{t=localStorage.getItem('cliTheme')||'dark'}catch{}applyTheme(t)})();
-
-let operatorName='', nodes=new Map(), roster=new Map(), agentMeta={}, delegCount=0, roundNo=0, stepNo=0, missionActive=false, activeSet=new Set();
-const svg=$('#links');
-
-function boardMarkup(){return `<div class="workflow-board">
-  <div class="flow-summary"><div><div class="eyebrow">Uzman yürütmesi</div><div class="label">Delegasyonlar görev bazında izlenir</div></div><div class="flow-legend"><span><i class="legend-dot live"></i>Çalışıyor</span><span><i class="legend-dot past"></i>Tamamlandı</span><span><i class="legend-dot bad"></i>Sorun</span></div></div>
-  <section class="lane active-lane"><div class="lane-head"><span class="lane-title">Şu an çalışanlar</span><span class="lane-count" id="activeJobCount">0 aktif</span></div><div class="jobs" id="activeJobs" data-empty="Operatörün aktif delegasyonu yok."></div></section>
-  <section class="lane history-lane"><div class="lane-head"><span class="lane-title">Çalışma geçmişi</span><span class="lane-count" id="historyJobCount">0 tamamlanan</span></div><div class="jobs" id="historyJobs" data-empty="Tamamlanan delegasyonlar burada kronolojik olarak görünecek."></div></section>
-</div>`}
-function resetBoard(){nodes.clear();$('#team').innerHTML=boardMarkup();svg.innerHTML='';refreshBoardCounts()}
-function refreshBoardCounts(){const all=[...nodes.values()],active=all.filter(n=>n.status==='working'||n.status==='queued').length,past=all.length-active;
-  const a=$('#activeJobCount'),h=$('#historyJobCount');if(a)a.textContent=active+' aktif';if(h)h.textContent=past+' tamamlanan';requestAnimationFrame(drawLinks)}
 
 /* ---- Üst durum / KPI ---- */
 function setEngine(s){$('#dot').className='dot'+(s.running?' on':'');$('#engineState').textContent=s.running?'çalışıyor':'durdu';
   $('#modePill').textContent=s.current?`${s.current.stage} · ${cliLabel(adapterOf(s.current.agent))}`:(s.busy?'meşgul':'boşta');
   if(typeof s.callsToday==='number')$('#kCalls').textContent=s.callsToday;
   if(s.defaultOperator)setOperator(s.defaultOperator)}
-function setOperator(name){if(!name)return;operatorName=name;const lbl=cliLabel(adapterOf(name));$('#opName').textContent=lbl;$('#kOp').textContent=lbl}
-function opState(html,active){$('#opState').innerHTML=html;$('#operator').classList.toggle('active',!!active)}
+function setOperator(name){if(!name)return;operatorName=name;const lbl=cliLabel(adapterOf(name));$('#opName').textContent=lbl;$('#kOp').textContent=lbl;Scene.setOperator(lbl)}
+function opState(html,active){$('#opState').innerHTML=html;Scene.setOperatorPhase(active)}
 function bumpStep(){stepNo++;return stepNo}
 function refreshActive(){$('#kActive').textContent=activeSet.size}
 
-/* ---- Ajan filosu (roster) ---- */
+/* ---- Ajan filosu (yan liste + 3B modeller) ---- */
 function renderRoster(agents){roster.clear();agentMeta={};const box=$('#roster');const entries=Object.entries(agents||{}).filter(([,a])=>a.enabled!==false);
   $('#rosterCount').textContent=entries.length+' ajan';
-  if(!entries.length){box.innerHTML='<div class="tl-empty">Tanımlı uzman ajan yok.</div>';return}
-  box.innerHTML='';
+  if(!entries.length){box.innerHTML='<div class="tl-empty">Tanımlı uzman ajan yok.</div>';Scene.setAgents([]);return}
+  box.innerHTML='';const sceneList=[];
   for(const [name,a] of entries){const cli=adapterOf(a);const role=(a.roleFile||'').split('/').pop().replace('.md','')||'uzman';agentMeta[name]={cli,role};
     const el=document.createElement('div');el.className='agent-card';el.id='ros-'+cssId(name);el.style.setProperty('--cli',cliColor(cli));
-    el.innerHTML=`<div class="ac-sheen"></div><div class="avatar" style="--cli:${cliColor(cli)}"><span class="led"></span></div>
+    el.innerHTML=`<div class="avatar" style="--cli:${cliColor(cli)}"><span class="led"></span></div>
       <div class="ai"><div class="n">${esc(name)}</div><div class="m"><span class="chip cli" style="background:${cliColor(cli)}">${esc(cliLabel(cli))}</span><span class="chip">${esc(role)}</span>${a.costTier?`<span class="chip">${esc(a.costTier)}</span>`:''}</div><div class="stt"><span class="status-text">hazır · sırada</span><span class="run-count">0 çalışma</span></div></div>`;
-    box.appendChild(el);bind3d(el);roster.set(name,{el,stt:el.querySelector('.status-text'),count:el.querySelector('.run-count'),status:'idle'});}
+    el.addEventListener('click',()=>Scene.selectByName(name));
+    box.appendChild(el);roster.set(name,{el,stt:el.querySelector('.status-text'),count:el.querySelector('.run-count'),status:'idle'});
+    sceneList.push({name,cli,role,color:cliColor(cli)});
+  }
+  Scene.setAgents(sceneList);
 }
-function cssId(s){return String(s).replace(/[^a-z0-9_-]/gi,'_')}
 function syncRoster(name){const r=roster.get(name);if(!r)return;const jobs=[...nodes.values()].filter(n=>n.agent===name),active=jobs.filter(n=>n.status==='working'||n.status==='queued'),failed=jobs.filter(n=>n.status==='failed'||n.status==='blocked');
   let status='idle',text='hazır · sırada';if(active.length){status='working';text=`çalışıyor · #${active[active.length-1].step}`}else if(jobs.length){status=failed.length&&failed.length===jobs.length?'failed':'done';text=failed.length?`${jobs.length} iş · ${failed.length} sorun`:`${jobs.length} işi tamamladı`}
   r.el.classList.remove('working','done','failed','used');if(status!=='idle')r.el.classList.add(status,'used');r.stt.textContent=text;r.count.textContent=`${jobs.length} çalışma`;r.status=status;
-  if(active.length)activeSet.add(name);else activeSet.delete(name);refreshActive()}
-
-/* ---- Sahne düğümleri ---- */
-function ensureNode(id,name,instruction){
-  const key=String(id||`${name}-live`);if(nodes.has(key)){const found=nodes.get(key);if(instruction){found.instruction=instruction;found.task.textContent=instruction}return found}
-  if(!$('#activeJobs'))resetBoard();
-  const cli=(agentMeta[name]||{}).cli||adapterOf(name);const role=(agentMeta[name]||{}).role||'uzman',step=nodes.size+1;
-  const el=document.createElement('div');el.className='node';el.style.setProperty('--cli',cliColor(cli));
-  el.innerHTML=`<div class="node-head"><span class="node-step">#${step}</span><span class="node-av" style="--cli:${cliColor(cli)}"></span><span class="nname">${esc(name)}</span><span class="nrole">${esc(role)}</span></div><div class="nst"><span class="td"></span><span class="txt">sıraya alındı</span></div><div class="job-task">${esc(instruction||'Görev ayrıntısı bekleniyor…')}</div><div class="job-meta"><span>${esc(key)}</span><span class="duration">—</span></div><pre class="tail"></pre>`;
-  $('#activeJobs').appendChild(el);
-  const node={id:key,agent:name,step,el,stt:el.querySelector('.nst .txt'),task:el.querySelector('.job-task'),duration:el.querySelector('.duration'),tail:el.querySelector('.tail'),raw:'',instruction:instruction||'',status:'queued',startedAt:null};
-  nodes.set(key,node);syncRoster(name);refreshBoardCounts();
-  return node;
+  if(active.length)activeSet.add(name);else activeSet.delete(name);refreshActive();
+  Scene.updateAgent(name,status);Scene.setBeam(name,!!active.length);
+  if(selectedAgent===name)renderPanel(name);
 }
-function setNode(id,name,status,text,meta={}){const n=ensureNode(id,name,meta.instruction);n.el.classList.remove('working','done','failed','blocked');n.status=status||n.status;if(n.status)n.el.classList.add(n.status);if(text)n.stt.textContent=text;
-  if(meta.startedAt&&!n.startedAt)n.startedAt=new Date(meta.startedAt).getTime();if(meta.durationMs!=null)n.duration.textContent=`${(meta.durationMs/1000).toFixed(1)} sn`;
-  if(['done','failed','blocked'].includes(n.status)){n.el.classList.add('historic');$('#historyJobs').appendChild(n.el)}else $('#activeJobs').appendChild(n.el);
-  syncRoster(n.agent);refreshBoardCounts();return n}
-function appendTail(id,name,text){const n=ensureNode(id,name);n.raw=(n.raw+text).slice(-1200);n.tail.textContent=n.raw}
 
-/* ---- Bağlantılar + akış animasyonu ---- */
-function anchors(){const s=$('#stage').getBoundingClientRect(),o=$('#operator').getBoundingClientRect();return{s,ox:o.left+o.width/2-s.left,oy:o.bottom-s.top}}
-function drawLinks(){const{s,ox,oy}=anchors();svg.setAttribute('viewBox',`0 0 ${s.width} ${s.height}`);svg.innerHTML='';const all=[...nodes.values()],active=all.filter(n=>n.status==='working'||n.status==='queued'),past=all.filter(n=>!active.includes(n)).slice(-3);
-  for(const n of [...active,...past]){const r=n.el.getBoundingClientRect();const nx=r.left+r.width/2-s.left,ny=r.top-s.top;if(ny<oy)continue;const p=document.createElementNS(svgns,'path');const midY=(oy+ny)/2;p.setAttribute('d',`M ${ox} ${oy} C ${ox} ${midY}, ${nx} ${midY}, ${nx} ${ny}`);p.setAttribute('class',`link ${active.includes(n)?'live':'past'}`);n._path=p;svg.appendChild(p)}}
-function tween(dur,cb,done){const t0=performance.now();(function f(now){const p=Math.min(1,(now-t0)/dur);cb(p);if(p<1)requestAnimationFrame(f);else done&&done()})(t0)}
-function pulse(id,dir){const n=nodes.get(String(id));if(!n)return;drawLinks();const path=n._path;if(!path)return;const len=path.getTotalLength();path.classList.add('hot');if(dir==='down')n.el.classList.add('receiving');const c=document.createElementNS(svgns,'circle');c.setAttribute('r',5);c.setAttribute('class','pulse-dot'+(dir==='up'?' up':''));svg.appendChild(c);
-  tween(820,p=>{const d=dir==='down'?p:1-p;const pt=path.getPointAtLength(d*len);c.setAttribute('cx',pt.x);c.setAttribute('cy',pt.y)},()=>{c.remove();path.classList.remove('hot');n.el.classList.remove('receiving')})}
+/* ---- Sahne düğümleri (veri; DOM yok) ---- */
+function ensureNode(id,name,instruction){
+  const key=String(id||`${name}-live`);if(nodes.has(key)){const found=nodes.get(key);if(instruction){found.instruction=instruction}return found}
+  const step=nodes.size+1;
+  const node={id:key,agent:name,step,raw:'',instruction:instruction||'',status:'queued',startedAt:null,durationMs:null};
+  nodes.set(key,node);syncRoster(name);return node;
+}
+function setNode(id,name,status,text,meta={}){const n=ensureNode(id,name,meta.instruction);n.status=status||n.status;if(text)n.statusText=text;
+  if(meta.instruction)n.instruction=meta.instruction;
+  if(meta.startedAt&&!n.startedAt)n.startedAt=new Date(meta.startedAt).getTime();if(meta.durationMs!=null)n.durationMs=meta.durationMs;
+  syncRoster(n.agent);if(selectedAgent===n.agent)renderPanel(n.agent);return n}
+function appendTail(id,name,text){const n=ensureNode(id,name);n.raw=(n.raw+text).slice(-4000);if(selectedAgent===name)updatePanelTail(name)}
+
+/* ---- Akış darbeleri ---- */
+function pulse(id,dir){const n=nodes.get(String(id));if(!n)return;Scene.pulse(n.agent,dir)}
+
+/* ---- Detay paneli ---- */
+// Hem 3B tıklaması hem yan listedeki kart tıklaması Scene.selectByName üzerinden
+// buraya (onSelect callback) düşer; tek yol, tek panel.
+function onSceneSelect(name){selectedAgent=name;highlightRoster(name);if(!name){const p=$('#agentPanel');p.hidden=true;p.innerHTML='';return}renderPanel(name)}
+function highlightRoster(name){for(const [n,r] of roster)r.el.classList.toggle('selected',n===name)}
+
+function agentDetail(name){const meta=agentMeta[name]||{};const jobs=[...nodes.values()].filter(n=>n.agent===name);
+  const active=jobs.filter(j=>j.status==='working'||j.status==='queued');
+  const latest=active[active.length-1]||jobs[jobs.length-1]||null;
+  const r=roster.get(name);
+  return {name,cli:meta.cli||adapterOf(name),role:meta.role||'uzman',status:r?r.status:'idle',jobs:jobs.length,latest};
+}
+function statusLabel(s){return s==='working'?'Çalışıyor':s==='done'?'Tamamlandı':s==='failed'?'Sorun oluştu':'Beklemede'}
+function renderPanel(name){const d=agentDetail(name),p=$('#agentPanel');p.hidden=false;const cc=cliColor(d.cli);
+  const j=d.latest;
+  p.style.setProperty('--cli',cc);
+  p.innerHTML=`<div class="ap-head" style="--cli:${cc}">
+      <div class="ap-av" style="--cli:${cc}"></div>
+      <div class="ap-id"><div class="name">${esc(name)}</div><div class="sub"><span class="chip cli" style="background:${cc}">${esc(cliLabel(d.cli))}</span><span class="chip">${esc(d.role)}</span></div></div>
+      <button class="ap-close" title="Kapat">✕</button>
+    </div>
+    <div class="ap-body">
+      <div class="ap-status ${esc(d.status)}"><span class="sdot"></span>${statusLabel(d.status)} · ${d.jobs} çalışma</div>
+      ${j?`<div class="ap-sec">Şu an ne yapıyor</div><div class="ap-task">${esc(j.instruction||j.statusText||'Görev ayrıntısı bekleniyor…')}</div>
+      <div class="ap-sec">Canlı çıktı</div><pre class="ap-tail">${esc(j.raw||'')}</pre>
+      <div class="ap-meta"><span>iş: ${esc(j.id)}</span><span>adım: #${j.step}</span>${j.durationMs!=null?`<span>süre: ${(j.durationMs/1000).toFixed(1)} sn</span>`:''}</div>`
+      :`<div class="ap-empty">Bu ajan henüz bir görev almadı. Operatör delege ettiğinde çalışması burada canlı görünecek.</div>`}
+    </div>`;
+  p.querySelector('.ap-close').addEventListener('click',()=>{selectedAgent=null;Scene.deselect();p.hidden=true;highlightRoster(null)});
+}
+function updatePanelTail(name){const p=$('#agentPanel');if(p.hidden)return;const el=p.querySelector('.ap-tail');if(!el)return renderPanel(name);const d=agentDetail(name);if(d.latest){el.textContent=d.latest.raw||'';el.scrollTop=el.scrollHeight}}
 
 /* ---- Zaman çizelgesi ---- */
-function addTimeline(kind,route,txt,num,at){const tl=$('#timeline');if(tl.querySelector('.tl-empty'))tl.innerHTML='';const d=document.createElement('div');d.className='tl '+kind;d.innerHTML=`<div class="num">${num??'•'}</div><div class="body"><div class="route">${esc(route)}<time>${time(at)}</time></div>${txt?`<div class="txt">${esc(txt)}</div>`:''}</div>`;tl.appendChild(d);tl.scrollTop=tl.scrollHeight}
+function addTimeline(kind,route,txt,num,at,agent){const tl=$('#timeline');if(tl.querySelector('.tl-empty'))tl.innerHTML='';const d=document.createElement('div');d.className='tl '+kind;d.innerHTML=`<div class="num">${num??'•'}</div><div class="body"><div class="route">${esc(route)}<time>${time(at)}</time></div>${txt?`<div class="txt">${esc(txt)}</div>`:''}</div>`;
+  if(agent&&roster.has(agent)){d.style.cursor='pointer';d.addEventListener('mouseenter',()=>Scene.setHover(agent));d.addEventListener('mouseleave',()=>Scene.setHover(null));d.addEventListener('click',()=>Scene.selectByName(agent))}
+  tl.appendChild(d);tl.scrollTop=tl.scrollHeight}
 
 /* ---- Görev yaşam döngüsü ---- */
-function startMission(title,at){missionActive=true;delegCount=0;roundNo=0;stepNo=0;activeSet.clear();refreshActive();resetBoard();$('#timeline').innerHTML='';
-  for(const [,r] of roster){r.el.classList.remove('working','done','failed','used');r.stt.textContent='hazır · sırada';r.count.textContent='0 çalışma';r.status='idle'}
+function startMission(title,at){missionActive=true;delegCount=0;roundNo=0;stepNo=0;activeSet.clear();refreshActive();nodes.clear();Scene.reset();$('#timeline').innerHTML='';
+  for(const [name,r] of roster){r.el.classList.remove('working','done','failed','used');r.stt.textContent='hazır · sırada';r.count.textContent='0 çalışma';r.status='idle';Scene.updateAgent(name,'idle')}
+  if(selectedAgent)renderPanel(selectedAgent);
   $('#mKick').textContent='● Görev yürütülüyor';$('#mTitle').textContent=title||'Yeni takım görevi';$('#mSub').textContent='Operatör hedefi analiz ediyor ve uygun uzmanları seçiyor.';
   $('#kRound').textContent='0';$('#kDeleg').textContent='0';$('#kFiles').textContent='0';
   opState('hedefi <b>analiz ediyor</b>',true);addTimeline('system','Görev alındı',title,'▶',at)}
@@ -306,9 +654,9 @@ function onActivity(e){
 function onMessage(e){const from=e.from,to=e.to,type=e.messageType||'';
   const id=String(e.assignmentId||`${from}-${delegCount+1}`);
   if(type==='delegation'){delegCount++;$('#kDeleg').textContent=delegCount;setOperator(from);ensureNode(id,to,e.body);
-    addTimeline('delegation',`#${id} · ${cliLabel(adapterOf(from))} → ${to}`,e.body,bumpStep(),e.at);pulse(id,'down');setNode(id,to,'working','operatörden görev aldı',{instruction:e.body,startedAt:e.at});opState('uzmana <b>delege ediyor</b>',true)}
-  else if(type==='result'){addTimeline('result',`#${id} · ${from} → operatör`,e.body,bumpStep(),e.at);pulse(id,'up');const n=setNode(id,from,'done','teslimat operatöre ulaştı');if(!n.raw){n.raw=String(e.body||'').slice(0,1200);n.tail.textContent=n.raw}opState('teslimatı <b>topluyor</b>',true)}
-  else if(type==='failure'){addTimeline('failure',`#${id} · ${from} → operatör`,e.body,bumpStep(),e.at);pulse(id,'up');const n=setNode(id,from,'failed','agent çalışması başarısız');n.raw=String(e.body||'').slice(0,1200);n.tail.textContent=n.raw}
+    addTimeline('delegation',`#${id} · ${cliLabel(adapterOf(from))} → ${to}`,e.body,bumpStep(),e.at,to);setNode(id,to,'working','operatörden görev aldı',{instruction:e.body,startedAt:e.at});pulse(id,'down');opState('uzmana <b>delege ediyor</b>',true)}
+  else if(type==='result'){addTimeline('result',`#${id} · ${from} → operatör`,e.body,bumpStep(),e.at,from);const n=setNode(id,from,'done','teslimat operatöre ulaştı');if(!n.raw){n.raw=String(e.body||'').slice(0,4000);if(selectedAgent===from)updatePanelTail(from)}pulse(id,'up');opState('teslimatı <b>topluyor</b>',true)}
+  else if(type==='failure'){addTimeline('failure',`#${id} · ${from} → operatör`,e.body,bumpStep(),e.at,from);const n=setNode(id,from,'failed','agent çalışması başarısız');n.raw=String(e.body||'').slice(0,4000);if(selectedAgent===from)updatePanelTail(from);pulse(id,'up')}
   else if(type==='blocked'){addTimeline('blocked',`#${id} · bağımlılık engeli`,e.body,bumpStep(),e.at);const known=nodes.get(id);setNode(id,known?.agent||'engellenen-görev','blocked','bağımlılık nedeniyle çalışmadı',{instruction:e.body})}
 }
 function onLog(e){
@@ -328,19 +676,44 @@ function onResult(e){
   addTimeline('system','Operatör görevi tamamladı',e.summary||(e.delivery?.verification||''),'✓',e.at);missionActive=false;
 }
 
+/* ---- 3B sahne kancaları ---- */
+const loaderStart=performance.now();
+function hideSceneLoader(){const l=$('#sceneLoader');if(!l)return;const wait=Math.max(0,900-(performance.now()-loaderStart));
+  setTimeout(()=>{l.classList.add('gone');setTimeout(()=>l.remove(),500)},wait)}
+const canvas=$('#scene');
+try{Scene.init(canvas);requestAnimationFrame(()=>requestAnimationFrame(hideSceneLoader))}
+catch(err){console.warn('WebGL 3B sahne başlatılamadı:',err);showSceneFallback();hideSceneLoader()}
+Scene.onSelect=(name)=>onSceneSelect(name);
+Scene.setTheme(document.documentElement.getAttribute('data-theme'));
+$('#autoRotBtn').addEventListener('click',()=>Scene.toggleAuto());
+$('#camResetBtn').addEventListener('click',()=>Scene.camReset());
+Scene.syncAutoBtn();
+function showSceneFallback(){const st=$('#stage'),c=$('#scene'),tr=document.querySelector('.hud-tr');
+  if(c)c.style.display='none';if(tr)tr.style.display='none';
+  const d=document.createElement('div');d.className='scene-fallback';
+  d.innerHTML='<div class="sf-ic">🛰️</div><h3>3B görünüm başlatılamadı</h3><p>Tarayıcınız WebGL desteklemiyor olabilir. Ekip verileri soldaki filo ve sağdaki zaman çizelgesinde canlı çalışmaya devam ediyor; bir ajanı seçmek için filodan tıklayın.</p>';
+  st.appendChild(d);}
+/* ---- Yardım (?) modalı ---- */
+(function(){const m=$('#helpModal');const open=()=>{m.hidden=false};const close=()=>{m.hidden=true};
+  $('#helpBtn').addEventListener('click',open);$('#helpClose').addEventListener('click',close);
+  m.addEventListener('click',e=>{if(e.target===m)close()});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!m.hidden)close()});})();
+
 const es=new EventSource('/api/events');
 es.addEventListener('status',e=>setEngine(JSON.parse(e.data)));
 es.addEventListener('activity',e=>onActivity(JSON.parse(e.data)));
 es.addEventListener('message',e=>onMessage(JSON.parse(e.data)));
 es.addEventListener('log',e=>onLog(JSON.parse(e.data)));
 es.addEventListener('result',e=>onResult(JSON.parse(e.data)));
-window.addEventListener('resize',()=>requestAnimationFrame(drawLinks));
+// Sayfadan ayrılırken (Komuta Merkezi'ne dönüş / bfcache) açık SSE bağlantısını kapat ki
+// donmuş bağlantılar birikip diğer sayfadaki fetch'leri kilitlemesin; geri dönüşte tazele.
+window.addEventListener('pagehide',()=>{try{es.close()}catch{}});
+window.addEventListener('pageshow',e=>{if(e.persisted)location.reload()});
 
 /* ---- İlk yükleme ---- */
 (async()=>{try{
   const s=await(await fetch('/api/state')).json();
   renderRoster(s.config&&s.config.agents);
-  resetBoard();
   setEngine(s.status);
   const cur=s.status.current;
   const recent=cur||(s.queue?.done||[])[0]||(s.queue?.failed||[])[0];
@@ -348,7 +721,6 @@ window.addEventListener('resize',()=>requestAnimationFrame(drawLinks));
     const ev=await(await fetch(`/api/tasks/${recent.id}/events?limit=1500`)).json();
     missionActive=!!cur;
     for(const e of ev){if(e.type==='log')onLog(e);else if(e.type==='activity')onActivity(e);else if(e.type==='message')onMessage(e);else if(e.type==='result')onResult(e)}
-    requestAnimationFrame(drawLinks);
   }
 }catch(err){console.warn(err)}})();
 </script>
