@@ -7,9 +7,12 @@ const flowHtml = fs.readFileSync(path.join(__dirname, "..", "web", "flow.html"),
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
 assert.ok(scripts.length, "inline UI script bulunamadi");
 for (const script of scripts) new Function(script);
-const flowScripts = [...flowHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
-assert.ok(flowScripts.length, "flow UI script bulunamadi");
-for (const script of flowScripts) new Function(script);
+// Ekip Akisi artik gercek 3B WebGL (Three.js) sahnesi: kod bir ES modulunde.
+// Import satirlarini ayiklayip sozdizimi gecerliligini dogrula (new Function bir
+// modul import ifadesini parse edemez, ama geri kalan mantik duz fonksiyon govdesidir).
+const flowModule = (flowHtml.match(/<script type="module">([\s\S]*?)<\/script>/) || [])[1];
+assert.ok(flowModule, "flow 3B modul script bulunamadi");
+new Function(flowModule.replace(/^\s*import[^\n]*$/gm, ""));
 
 const requiredIds = [
   "prompt", "taskOperator", "executionMode", "targetDir", "pending", "approval", "done", "failed",
@@ -26,7 +29,9 @@ assert.match(html, /class="node-orb"/, "ekip dugumleri profesyonel node gorunumu
 assert.match(html, /class="agent-avatar"/, "agent panelleri rol kimligi gostermeli");
 assert.match(html, /class="agent-state-text"/, "agent durum metni canli guncellenebilir olmali");
 assert.match(flowHtml, /\.agent-card:before/, "agent filosu premium durum vurgusunu kullanmali");
-assert.match(flowHtml, /\.node:before/, "akis dugumleri durum rayini kullanmali");
+assert.match(flowHtml, /id="scene"/, "ekip akisi gercek 3B WebGL sahnesi (canvas) kullanmali");
+assert.match(flowHtml, /class="agent-panel"/, "3B ajana tiklayinca detay paneli acilmali");
+assert.match(flowHtml, /import \* as THREE from 'three'/, "3B sahne Three.js modulunu kullanmali");
 assert.match(html, /function removeDraftAgent\(/, "silinen otomatik agent tercihi izlenmeli");
 assert.match(html, /draftIgnoredAdapters/, "otomatik kesif engel listesi UI durumunda tutulmali");
 assert.match(html, /yerel taslaklar korundu/, "CLI taramasi kaydedilmemis taslaklari korumali");
