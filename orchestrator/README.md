@@ -63,6 +63,8 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 - 🤝 **Çok‑agent takım** — Codex / Claude / Gemini / OpenCode uzmanlarını rollere göre kullan.
 - 🖥️ **Canlı web komuta merkezi** — takım haritası, canlı CLI terminalleri, birleşik olay akışı.
 - 🛰️ **Ekip Akışı sayfası** — operatör çekirdeği + animasyonlu delegasyon akışı + ajan filosu.
+- 🧬 **Canlı Kod sayfası** — agent'ların yaptığı dosya değişikliklerini Git‑benzeri **satır‑satır diff** ile canlı izle.
+- 🛟 **Otomatik sürüm + tek‑tık geri dönüş** — her görev öncesi checkpoint; beğenmezsen **Bu sürüme dön** ile önceki koda dön (redo güvenli).
 - 🎚️ **Çalışma modları** — Otomatik / Hızlı / Dengeli / Derin ile hız‑kalite dengesi.
 - 🔎 **Otomatik CLI keşfi** — kurulu araçlar tespit edilip güvenli non‑interactive varsayılanlarla eklenir.
 - 🩺 **Hazır olma kontrolü** — OpenCode yalnızca kurulu olduğu için değil, kullanılabilir modeli keşfedildiğinde göreve alınır.
@@ -242,6 +244,14 @@ kimlik doğrulama/kota/timeout/CLI‑bulunamadı hataları için sade hata kartl
 sayfası; parlayan operatör çekirdeği, ajan filosu ve animasyonlu delegasyon akışıyla "arkada bir
 ekibin çalıştığı" hissini verir.
 
+Ayrı **🧬 Canlı Kod** sayfası, agent'lar çalışırken çalışma klasöründe oluşan/değişen/silinen dosyaları
+Git ekranına benzer biçimde **satır satır** gösterir: dosya bazında +/− sayaçları, hunk başlıkları,
+eklenen/silinen/bağlam satırları ayrı renklerle. "Şu an ne oluyor" satırı aktif agent'ı, üst kutucuklar
+toplam değişikliği özetler. Sayfa açıldığında aktif (veya son tamamlanan) görevin geçmiş diff'i otomatik
+yüklenir; hassas (`.env` vb.), ikili veya çok büyük dosyaların içeriği güvenlik için gizlenir. Diff, görev
+başındaki tabana göre **kümülatif**tir. Görev kartındaki **Kodu gör** düğmesi de o görevin farkını bu
+sayfada açar.
+
 Olaylar `state/events/<task-id>.jsonl` altında kalıcıdır; görev kartındaki **Akışı incele** düğmesi
 bu geçmişi yeniden oynatır. Bir uzman CLI kullanılamazsa görev hemen başarısız sayılmaz — motor
 hatayı yapılandırılmış sonuç olarak operatöre iletir ve alternatif uzman seçmesine izin verir.
@@ -322,6 +332,16 @@ Orkestratörün görev-planı güvenlik kapısı ayrıca çalışır: `ask` modu
 onaya alınır; onay planın **SHA‑256** özetiyle ilişkilidir ve aynı delegasyonlardan devam eder.
 `auto` modu bu plan onayını bekletmez.
 
+**Otomatik sürümleme (checkpoint) ve geri dönüş.** `versioning` açıkken (varsayılan) CrewCtl, her görev
+_çalışmadan önce_ çalışma klasörünün bir sürümünü alır. Klasör bir Git deposuysa yedeklenecek dosyalar
+`git ls-files` ile (yani `.gitignore`'a uyularak) belirlenir, değilse güvenli bir tarama kullanılır — her
+iki durumda da depolama birebir dosya kopyasıdır. Tamamlanan/başarısız görev kartındaki **Bu sürüme dön**
+(veya Canlı Kod sayfasındaki **Önceki sürüme dön**) eylemi, görev sonrası oluşan dosyaları siler ve
+değiştirilen/silinen dosyaları eski haline getirir. Geri yükleme öncesinde mevcut durum için bir **redo**
+checkpoint'i oluşturulur; böylece geri alma da geri alınabilir. Sürümler `state/checkpoints/` altında
+tutulur (`versioningRetention`, varsayılan 20 sürüm/klasör) ve yalnızca motor **boşta** iken geri yüklenir.
+Bu, Git yerine geçmez; kritik iş için normal sürüm kontrolünüzü sürdürün.
+
 > ⚠️ Otonom çalışma onayı bir sandbox değildir. Agent'lar çalışma klasöründeki dosyaları değiştirebilir,
 > komut çalıştırabilir ve CLI'ın verdiği yetki ölçüsünde daha geniş sisteme erişebilir. İzole çalışma
 > klasörü/repo kullanın, önemli dosyaları sürüm kontrolünde tutun ve **web panelini güvenilmeyen bir
@@ -338,6 +358,7 @@ queue/approval    insan onayı bekleyen planlar
 queue/done        tamamlanan görevler ve takım durumu
 queue/failed      başarısız görevler
 state/events      stdout, stderr, process ve mesaj olayları (JSONL)
+state/checkpoints görev‑öncesi otomatik sürümler (tek‑tık geri dönüş için)
 memory/log.md     görevler arası kısa proje hafızası
 roles             operatör ve uzman Markdown rolleri
 config.json       makineye özel yapılandırma (gitignore)

@@ -26,11 +26,20 @@ button, a.btn > button {
   letter-spacing: -0.005em;
   transition: background .16s ease, border-color .16s ease, color .16s ease,
               box-shadow .18s ease, transform .08s ease;
-  will-change: transform;
+  /* Not: will-change kullanmiyoruz — cok sayida butonda kalici compositor katmani
+     GPU baskisi/jank yaratir; translateY(1px) icin gereksiz. */
 }
 button:hover { border-color: color-mix(in srgb, var(--acc) 55%, var(--line)); }
 button:active { transform: translateY(1px); }
 button:disabled { opacity: .5; }
+/* Buton ici metin ASLA sarmasin (aksi halde dar kolonda satirlar ust uste biner). */
+button { white-space: nowrap; }
+
+/* ---- Yerlesim: aksiyon satirlari ve header tasmadan alt satira sarsin ---- */
+.task .row { flex-wrap: wrap; row-gap: 6px; }
+header { flex-wrap: wrap; row-gap: 8px; }
+/* Kucuk butonlarda ikon oraninI dengele. */
+button.sm > svg, .sm > svg { width: 13px; height: 13px; }
 /* Ikon + metin hizasi ve keskin SVG ikonlar. */
 button svg, a.btn svg { vertical-align: -0.18em; }
 .i, button > svg { width: 15px; height: 15px; flex: none; }
@@ -62,14 +71,15 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 }
 *::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--dim) 55%, transparent); background-clip: padding-box; }
 
-/* ---- Sayfa gecisi: yumusak-hizli fade-in (JS yoksa da gorunur kalir) ---- */
-@keyframes appPageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-body { animation: appPageIn .34s cubic-bezier(.22,.61,.36,1) both; }
+/* ---- Sayfa gecisi: opacity-only fade (translateY tum sayfayi katmanladigi icin agir
+   sayfalarda —or. flow.html WebGL— jank yaratir; sadece opacity ucuz ve puruzsuz). ---- */
+@keyframes appPageIn { from { opacity: 0; } to { opacity: 1; } }
+body { animation: appPageIn .26s ease both; }
 /* navTo() cikis animasyonu (app.js ekler). */
-body.app-leaving { opacity: 0; transform: translateY(-4px); transition: opacity .2s ease, transform .2s ease; animation: none; }
+body.app-leaving { opacity: 0; transition: opacity .17s ease; animation: none; }
 
-/* ---- Kart/etkilesim mikro-cilasi (sakin) ---- */
-.card, .task, .diff-file, .tile, .chip { transition: border-color .18s ease, box-shadow .2s ease, transform .12s ease; }
+/* ---- Kart/etkilesim mikro-cilasi (sakin; transform animasyonu YOK — jank azalt) ---- */
+.card, .task, .diff-file, .tile, .chip { transition: border-color .18s ease, box-shadow .2s ease; }
 
 /* ---- Ikonlar: keskin inline SVG (emoji yerine, currentColor ile temaya uyumlu) ---- */
 .i-sun { display: none; }
@@ -86,3 +96,21 @@ button > svg, .btn svg { stroke-linecap: round; stroke-linejoin: round; }
   body.app-leaving { transition: none; }
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* ---- Paylasilan onay modali (native confirm yerine) ---- */
+.app-modal{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;padding:22px;background:color-mix(in srgb,#05070d 62%,transparent);opacity:0;transition:opacity .18s ease}
+.app-modal.show{opacity:1}
+.app-dialog{width:min(444px,100%);background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 70px #0007,0 2px 10px #0004;overflow:hidden;transform:translateY(10px) scale(.985);opacity:.6;transition:transform .2s cubic-bezier(.22,.61,.36,1),opacity .2s ease}
+.app-modal.show .app-dialog{transform:none;opacity:1}
+.app-dialog-head{display:flex;gap:13px;align-items:flex-start;padding:18px 18px 2px}
+.app-dialog-ico{flex:none;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:color-mix(in srgb,var(--acc) 15%,transparent);color:var(--acc)}
+.app-dialog.danger .app-dialog-ico{background:color-mix(in srgb,var(--err) 15%,transparent);color:var(--err)}
+.app-dialog-ico svg{width:20px;height:20px}
+.app-dialog-title{font-weight:750;font-size:15.5px;letter-spacing:-.01em;margin-top:6px;color:var(--tx)}
+.app-dialog-body{padding:9px 20px 4px 69px;color:var(--dim);font-size:13px;line-height:1.6;white-space:pre-line}
+.app-dialog-foot{display:flex;justify-content:flex-end;gap:9px;padding:16px 18px 18px}
+.app-dialog-foot button{padding:8px 15px;font-weight:600}
+.app-btn-confirm{background:var(--acc);border-color:var(--acc);color:#08122a}
+.app-dialog.danger .app-btn-confirm{background:var(--err);border-color:var(--err);color:#fff}
+.app-btn-confirm:hover{filter:brightness(1.07);border-color:var(--acc)}
+.app-dialog.danger .app-btn-confirm:hover{border-color:var(--err)}
