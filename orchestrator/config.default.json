@@ -10,6 +10,10 @@
   "cliSilenceTimeoutSeconds": 300,
   "autonomousConsentAcceptedAt": null,
   "discoveryIgnoredAdapters": [],
+  "liveDiff": true,
+  "liveDiffIntervalMs": 2500,
+  "versioning": true,
+  "versioningRetention": 20,
   "operator": {
     "roleFile": "roles/operator.md",
     "maxRounds": 6,

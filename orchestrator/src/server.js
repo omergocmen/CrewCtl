@@ -12,6 +12,7 @@ const store = require("./store");
 const engine = require("./engine");
 const cliRegistry = require("./cli-registry");
 const skillRegistry = require("./skill-registry");
+const checkpoints = require("./checkpoints");
 
 // Guvenlik agi: tek bir stray hata (or. kopuk ag surucusu, bir istek isleyicisindeki
 // beklenmeyen throw) TUM sunucuyu oldurmesin. Logla, ayakta kal.
@@ -69,6 +70,7 @@ engine.on("status", (d) => broadcast("status", d));
 engine.on("result", (d) => broadcast("result", d));
 engine.on("activity", (d) => broadcast("activity", d));
 engine.on("message", (d) => broadcast("message", d));
+engine.on("filechange", (d) => broadcast("filechange", d));
 engine.on("queue", () => broadcast("queue", snapshot()));
 
 function snapshot() {
@@ -371,6 +373,22 @@ const server = http.createServer(async (req, res) => {
         }
         broadcast("queue", snapshot());
         return send(res, 200, { ok: true });
+      }
+      if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/restore$/)) && req.method === "POST") {
+        const found = store.findTask(m[1]);
+        if (!found) return send(res, 404, { error: "gorev yok" });
+        if (engine.status().current) return send(res, 409, { error: "Motor bir gorev calistirirken surum geri yuklenemez; once durdurun." });
+        if (!found.task.checkpointId) return send(res, 400, { error: "Bu gorev icin kayitli bir surum yok." });
+        const cfg = store.loadConfig();
+        const result = checkpoints.restoreCheckpoint(found.task.checkpointId, { retention: cfg.versioningRetention });
+        if (!result.ok) return send(res, 409, { error: result.error || "Surum geri yuklenemedi." });
+        broadcast("log", { at: new Date().toISOString(), type: "log", taskId: found.task.id, level: "warn", msg: `Surum geri yuklendi (${found.task.id} oncesi): ${result.restored} dosya geri yazildi, ${result.deleted} sonradan olusan dosya silindi. Geri almayi geri almak icin redo surumu: ${result.redoId || "yok"}.` });
+        broadcast("queue", snapshot());
+        return send(res, 200, result);
+      }
+      if (pathname === "/api/checkpoints" && req.method === "GET") {
+        const dir = url.parse(req.url, true).query.dir;
+        return send(res, 200, checkpoints.listCheckpoints(dir ? path.resolve(store.ROOT, dir) : undefined));
       }
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         cliStatus = cliRegistry.discoverInstalled();

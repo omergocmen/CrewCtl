@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canlı Kodlama · CrewCtl</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#090c12;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;--acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;--purple:#a98bff;
+--headerbg:#0a0f1acc;--input:#0b111c;--nodebg:#0b1220;--shadow:0 14px 40px #0008;
+--appbg:radial-gradient(1200px 620px at 50% -14%,#5e8bff16,transparent),radial-gradient(1000px 520px at 90% -6%,#a98bff12,transparent),var(--bg)}
+[data-theme=light]{--bg:#edf1f8;--panel:#ffffff;--panel2:#f3f6fc;--line:#dce4ef;--tx:#131a27;--dim:#5a6779;--acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;--purple:#7350f0;
+--headerbg:#ffffffe6;--input:#f4f7fd;--nodebg:#f7f9fd;--shadow:0 14px 36px #7a90b820;
+--appbg:radial-gradient(1200px 620px at 50% -14%,#3a63f012,transparent),radial-gradient(1000px 520px at 90% -6%,#7350f00e,transparent),var(--bg)}
+body{margin:0;background:var(--appbg);background-attachment:fixed;color:var(--tx);font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif;transition:background .3s,color .3s}
+button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;transition:border-color .18s,transform .1s,box-shadow .18s}
+button:hover{border-color:var(--acc);box-shadow:0 4px 14px color-mix(in srgb,var(--acc) 16%,transparent)}button:active{transform:translateY(1px)}
+a.btn{text-decoration:none;display:inline-block}
+code,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+/* Header */
+header{height:58px;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--headerbg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weight:800}.sep{color:var(--dim)}.grow{flex:1}
+.pill{border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:5px 11px;color:var(--dim);font-size:12px;display:inline-flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--ok);box-shadow:0 0 10px var(--ok);animation:beat 1.6s ease-in-out infinite}
+@keyframes beat{50%{box-shadow:0 0 3px var(--ok)}}
+/* Banner + tiles */
+.topbar{padding:14px 14px 0}
+.banner{background:linear-gradient(120deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:16px;padding:15px 18px;box-shadow:var(--shadow);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.banner .kick{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--acc);font-weight:800}
+.banner .t{font-weight:800;font-size:17px;line-height:1.28;margin-top:2px;max-width:70ch}
+.now{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:12.5px;margin-top:6px}
+.now .ndot{width:9px;height:9px;border-radius:50%;background:var(--dim);flex:none}
+.now.live .ndot{background:var(--acc);box-shadow:0 0 10px var(--acc);animation:beat 1.3s ease-in-out infinite}
+.now.done .ndot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.now.fail .ndot{background:var(--err);box-shadow:0 0 8px var(--err)}
+.now b{color:var(--tx);font-weight:700}
+.tiles{display:grid;grid-template-columns:repeat(4,minmax(96px,1fr));gap:10px;margin-left:auto}
+.tile{background:color-mix(in srgb,var(--panel2) 60%,transparent);border:1px solid var(--line);border-radius:12px;padding:9px 12px;min-width:96px}
+.tile .k{font-size:9.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim)}
+.tile .v{font-size:22px;font-weight:800;margin-top:1px;font-variant-numeric:tabular-nums;line-height:1.1}
+.tile.add .v{color:var(--ok)}.tile.del .v{color:var(--err)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 14px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:11.5px;color:var(--dim)}
+.chip b{font-variant-numeric:tabular-nums}
+.chip .c-created{color:var(--ok)}.chip .c-modified{color:var(--warn)}.chip .c-deleted{color:var(--err)}
+/* Diff list */
+main{padding:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:14px}
+.panel-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}.panel-head h2{margin:0;font-size:13px;letter-spacing:.2px}
+.muted{color:var(--dim);font-size:12px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;color:var(--dim);font-size:11px;margin-left:auto}
+.legend i{font-style:normal;font-weight:700}.legend .lg-add{color:var(--ok)}.legend .lg-mod{color:var(--warn)}.legend .lg-del{color:var(--err)}
+.empty{padding:34px 14px;text-align:center;color:var(--dim);border:1px dashed var(--line);border-radius:12px;background:color-mix(in srgb,var(--panel2) 40%,transparent)}
+.files{display:flex;flex-direction:column;gap:8px}
+.diff-file{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel);animation:pop .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.diff-file>summary{display:flex;align-items:center;gap:9px;padding:9px 11px;background:var(--panel2);list-style:none;font:11.5px ui-monospace;cursor:pointer}
+.diff-file>summary::-webkit-details-marker{display:none}
+.diff-file>summary:before{content:'›';font-size:17px;color:var(--dim);transition:.16s}.diff-file[open]>summary:before{transform:rotate(90deg)}
+.diff-action{font-weight:800;text-transform:uppercase;font-size:9px;letter-spacing:.04em;padding:2px 6px;border-radius:5px;border:1px solid transparent}
+.diff-action.created{color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,transparent);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.diff-action.modified{color:var(--warn);background:color-mix(in srgb,var(--warn) 14%,transparent);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.diff-action.deleted{color:var(--err);background:color-mix(in srgb,var(--err) 14%,transparent);border-color:color-mix(in srgb,var(--err) 35%,transparent)}
+.diff-path{color:var(--tx);font-weight:700;word-break:break-all}
+.diff-stats{margin-left:auto;display:flex;gap:8px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.diff-add{color:var(--ok)}.diff-del{color:var(--err)}
+.diff-code{overflow:auto;font:11px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--input)}
+.diff-hunk{padding:4px 10px;color:var(--acc);background:color-mix(in srgb,var(--acc) 12%,transparent);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.diff-line{display:grid;grid-template-columns:44px 44px 18px minmax(max-content,1fr);min-width:max-content;white-space:pre}
+.diff-line .ln{padding:0 7px;text-align:right;color:var(--dim);user-select:none;border-right:1px solid var(--line);opacity:.75}
+.diff-line .mark{padding-left:6px;user-select:none}.diff-line .code{padding:0 12px 0 5px;color:var(--tx)}
+.diff-line.add{background:color-mix(in srgb,var(--ok) 13%,transparent)}.diff-line.add .mark{color:var(--ok)}
+.diff-line.delete{background:color-mix(in srgb,var(--err) 13%,transparent)}.diff-line.delete .mark{color:var(--err)}
+.diff-note{padding:9px 11px;color:var(--dim);font-size:11px}.diff-note.warn{color:var(--warn)}
+.revert{border-color:color-mix(in srgb,var(--err) 45%,var(--line));color:var(--err);font-weight:700}
+.revert:hover{border-color:var(--err);box-shadow:0 4px 14px color-mix(in srgb,var(--err) 20%,transparent)}
+.revert:disabled{opacity:.45;cursor:default;box-shadow:none}
+#toasts{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:50}
+.toast{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 14px;box-shadow:var(--shadow);font-size:13px;max-width:360px;transition:opacity .3s}
+.toast.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}.toast.err{border-color:color-mix(in srgb,var(--err) 45%,var(--line))}
+</style>
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1><span class="brand">CrewCtl</span> <span class="sep">·</span> Canlı Kodlama</h1>
+  <span class="pill"><span id="dot" class="dot"></span><span id="engineState">durdu</span></span>
+  <span id="modePill" class="pill">boşta</span>
+  <div class="grow"></div>
+  <button id="revertBtn" class="revert" hidden onclick="revertVersion()" title="Bu görev öncesindeki koda dön">◀ Önceki sürüme dön</button>
+  <a class="btn" href="flow.html"><button>Ekip Akışı</button></a>
+  <button id="themeBtn" onclick="toggleTheme()" title="Açık / koyu tema"><svg class="i i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="i i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+  <a class="btn" href="index.html"><button>← Komuta Merkezi</button></a>
+</header>
+
+<div class="topbar">
+  <div class="banner">
+    <div style="min-width:0">
+      <div class="kick">Canlı Kodlama</div>
+      <div class="t" id="missionTitle">Görev bekleniyor</div>
+      <div class="now" id="nowLine"><span class="ndot"></span><span id="nowText">Bir görev başladığında burada ne yapıldığı canlı görünür.</span></div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="k">Değişen dosya</div><div class="v" id="tFiles">0</div></div>
+      <div class="tile add"><div class="k">Eklenen satır</div><div class="v" id="tAdd">+0</div></div>
+      <div class="tile del"><div class="k">Silinen satır</div><div class="v" id="tDel">−0</div></div>
+      <div class="tile"><div class="k">Tur · Çağrı</div><div class="v" id="tRounds" style="font-size:15px">0 · 0</div></div>
+    </div>
+  </div>
+  <div class="chips">
+    <span class="chip"><span class="c-created">●</span> <b id="cCreated">0</b> oluşturuldu</span>
+    <span class="chip"><span class="c-modified">●</span> <b id="cModified">0</b> değişti</span>
+    <span class="chip"><span class="c-deleted">●</span> <b id="cDeleted">0</b> silindi</span>
+  </div>
+</div>
+
+<main>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Değişen dosyalar</h2>
+      <span class="muted" id="filesSub">görev başından bu yana toplam</span>
+      <span class="legend"><span class="lg-add"><i>+</i> eklenen</span><span class="lg-del"><i>−</i> silinen</span> <span><i class="lg-add">eklendi</i> · <i class="lg-mod">değişti</i> · <i class="lg-del">silindi</i></span></span>
+    </div>
+    <div id="files" class="files"><div class="empty">Henüz dosya değişikliği yok. Bir görev çalışırken oluşturulan/değişen dosyalar burada, satır satır farkıyla belirir.</div></div>
+  </div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+/* ---- Tema ---- */
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('cliTheme',t)}catch{}}
+function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
+(function(){let t='dark';try{t=localStorage.getItem('cliTheme')||'dark'}catch{}applyTheme(t)})();
+
+/* ---- Durum: "şu an ne oluyor" ---- */
+function setNow(kind,text){const line=$('#nowLine');line.className='now'+(kind?(' '+kind):'');$('#nowText').innerHTML=text}
+function roleOf(stage,agent){const s=String(stage||'');if(s.startsWith('operator'))return 'Operatör';return esc(agent||'Uzman')}
+function phaseOf(stage){const s=String(stage||'');if(s==='operator-plan')return 'planı hazırlıyor';if(s==='operator-review')return 'sonucu değerlendiriyor';if(s==='operator-chat')return 'soruyu yanıtlıyor';if(s.startsWith('operator'))return 'ekibi yönetiyor';if(s==='delegate')return 'delege edilen işi uyguluyor';return 'çalışıyor'}
+function applyStatus(s){$('#dot').className='dot'+(s.running?' on':'');$('#engineState').textContent=s.running?'çalışıyor':'durdu';$('#modePill').textContent=s.current?`${roleOf(s.current.stage,s.current.agent)} · ${s.current.stage||''}`:(s.busy?'meşgul':'boşta');engineActive=!!s.current;if(s.current&&s.current.id)currentTaskId=s.current.id;updateRevert()}
+/* ---- Geri dönüş: bu görev öncesindeki sürüme dön ---- */
+let currentTaskId='',engineActive=false;
+function setCurrentTask(id){if(id&&id!==currentTaskId)currentTaskId=id;updateRevert()}
+function updateRevert(){const b=$('#revertBtn');if(!b)return;if(!currentTaskId){b.hidden=true;return}b.hidden=false;b.disabled=!!engineActive;b.title=engineActive?'Görev çalışırken geri alınamaz; bitmesini bekleyin':'Bu görev öncesindeki koda dön'}
+function toast(kind,msg){let box=document.getElementById('toasts');if(!box){box=document.createElement('div');box.id='toasts';document.body.appendChild(box)}const t=document.createElement('div');t.className='toast '+(kind||'');t.textContent=msg;box.appendChild(t);setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300)},4600)}
+async function revertVersion(){
+  if(!currentTaskId){toast('err','Geri dönülecek görev yok.');return}
+  if(engineActive){toast('err','Görev çalışırken geri alınamaz; bitmesini bekleyin.');return}
+  if(!confirm('Bu görev ÇALIŞMADAN önceki kod sürümüne dönülecek:\n• Görev sonrası oluşan dosyalar silinir\n• Değişen/silinen dosyalar eski haline döner\n\nGeri alma işleminin kendisi de bir sürüm oluşturur (geri alınabilir). Devam edilsin mi?'))return;
+  const b=$('#revertBtn');if(b)b.disabled=true;
+  try{
+    const r=await fetch(`/api/tasks/${currentTaskId}/restore`,{method:'POST'}).then(async res=>{const j=await res.json().catch(()=>({}));if(!res.ok)throw new Error(j.error||('HTTP '+res.status));return j});
+    toast('ok',`↩ Önceki sürüme dönüldü · ${r.restored} dosya geri yazıldı · ${r.deleted} silindi`);
+    setNow('done',`↩ <b>Önceki sürüme dönüldü</b> · ${r.restored} dosya geri yazıldı · ${r.deleted} sonradan oluşan dosya silindi`);
+  }catch(e){toast('err','Geri alınamadı: '+e.message)}
+  finally{if(b)b.disabled=false;updateRevert()}
+}
+
+/* ---- Toplamlar (tiles + chips) ---- */
+function applyTotals(e){const c=e.counts||{created:0,modified:0,deleted:0},lc=e.lineCounts||{additions:0,deletions:0};const total=(c.created||0)+(c.modified||0)+(c.deleted||0);$('#tFiles').textContent=total;$('#tAdd').textContent='+'+(lc.additions||0);$('#tDel').textContent='−'+(lc.deletions||0);$('#cCreated').textContent=c.created||0;$('#cModified').textContent=c.modified||0;$('#cDeleted').textContent=c.deleted||0}
+function resetTotals(){applyTotals({counts:{created:0,modified:0,deleted:0},lineCounts:{additions:0,deletions:0}})}
+function setRounds(rounds,calls){$('#tRounds').textContent=`${rounds??0} · ${calls??0}`}
+
+/* ---- Diff render ---- */
+function diffPreviewMessage(status){return {redacted:'Hassas dosya içeriği güvenlik için gizlendi.',binary:'İkili dosya; satır önizlemesi gösterilemiyor.','too-large':'Dosya canlı satır önizleme sınırından büyük.','too-many-lines':'Dosya canlı önizleme için çok fazla satır içeriyor.','baseline-limit':'Görev başlangıcı içeriği önizleme bütçesine alınmadı.','event-limit':'Bu olayın satır önizleme sınırına ulaşıldı.',unavailable:'Dosya içeriği okunamadı.'}[status]||'Satır önizlemesi kullanılamıyor.'}
+function renderDiffLine(line){const mark=line.type==='add'?'+':line.type==='delete'?'−':' ';return `<div class="diff-line ${esc(line.type)}"><span class="ln">${line.oldNumber??''}</span><span class="ln">${line.newNumber??''}</span><span class="mark">${mark}</span><span class="code">${esc(line.text)}</span></div>`}
+function renderDiffFile(f,expanded){const labels={created:'eklendi',modified:'değişti',deleted:'silindi'},stats=f.additions==null?'<span class="muted">önizleme yok</span>':`<span class="diff-add">+${f.additions||0}</span><span class="diff-del">−${f.deletions||0}</span>`;let body='';if(f.previewStatus)body=`<div class="diff-note warn">${esc(diffPreviewMessage(f.previewStatus))}</div>`;else if(!(f.hunks||[]).length)body='<div class="diff-note">Satır farkı yok; yalnızca dosya metadatası değişmiş olabilir.</div>';else body=(f.hunks||[]).map(h=>`<div class="diff-hunk">@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@</div>${(h.lines||[]).map(renderDiffLine).join('')}`).join('')+(f.approximate?'<div class="diff-note warn">Büyük dosya: değişen bölüm yaklaşık olarak gösteriliyor.</div>':'')+(f.truncated?'<div class="diff-note warn">Diff önizlemesi kısaltıldı; dosyada daha fazla değişiklik var.</div>':'');return `<details class="diff-file"${expanded?' open':''}><summary><span class="diff-action ${esc(f.action)}">${esc(labels[f.action]||f.action)}</span><span class="diff-path">${esc(f.path)}</span><span class="diff-stats">${stats}</span></summary><div class="diff-code">${body}</div></details>`}
+function renderFiles(e){const box=$('#files'),files=e.files||[];applyTotals(e);if(!files.length){box.innerHTML='<div class="empty">Henüz dosya değişikliği yok. Bir görev çalışırken oluşturulan/değişen dosyalar burada, satır satır farkıyla belirir.</div>';return}const expanded=files.length<=5;box.innerHTML=files.map(f=>renderDiffFile(f,expanded)).join('')}
+function resetView(title){$('#missionTitle').textContent=title||'Görev bekleniyor';resetTotals();setRounds(0,0);$('#files').innerHTML='<div class="empty">Görev başladı; ilk dosya değişiklikleri birazdan görünecek…</div>'}
+
+/* ---- Canlı olaylar ---- */
+let liveCalls=0,bootstrapping=true,bufferedEvents=[];
+function onLog(e){if(e.level==='task'){liveCalls=0;const title=String(e.msg||'').replace(/^GOREV\s+[^:]+:\s*/,'').slice(0,240)||'Yeni görev';resetView(title);setNow('live','<b>Operatör</b> hedefi analiz ediyor ve uygun uzmanları seçiyor…')}}
+function onActivity(e){if(e.kind==='process.started'){if(String(e.stage||'').includes('operator')||e.stage==='delegate')liveCalls++;setRounds(currentRounds,liveCalls);setNow('live',`<b>${roleOf(e.stage,e.agent)}</b> ${phaseOf(e.stage)}…`)}else if(e.kind==='stdout'){setNow('live',`<b>${roleOf(e.stage,e.agent)}</b> ${phaseOf(e.stage)}…`)}else if(e.kind==='process.finished'){const sec=((e.durationMs||0)/1000).toFixed(1),failed=Number(e.exitCode)!==0;setNow(failed?'fail':'live',`<b>${roleOf(e.stage,e.agent)}</b> ${failed?'tamamlayamadı':'adımı tamamladı'} · ${sec}s`)}}
+let currentRounds=0;
+function onResult(r){if(r.kind==='operator-chat')return;currentRounds=r.rounds||currentRounds;setRounds(currentRounds,liveCalls);const files=(r.delivery?.files||[]).length;setNow('done',`✓ <b>Görev tamamlandı</b> · ${r.operator||'Operatör'} · ${r.rounds||0} tur · ${files} dosya${r.delivery?.verification?` · ✓ ${esc(r.delivery.verification)}`:''}`)}
+
+/* ---- SSE ---- */
+const es=new EventSource('/api/events');
+function dispatchLiveEvent(type,data){if(data&&data.taskId)setCurrentTask(data.taskId);if(type==='status')applyStatus(data);else if(type==='filechange')renderFiles(data);else if(type==='activity')onActivity(data);else if(type==='log')onLog(data);else if(type==='result')onResult(data)}
+function receiveLiveEvent(type,event){const data=JSON.parse(event.data);if(bootstrapping)bufferedEvents.push({type,data});else dispatchLiveEvent(type,data)}
+for(const type of ['status','filechange','activity','log','result'])es.addEventListener(type,event=>receiveLiveEvent(type,event));
+window.addEventListener('pagehide',()=>{try{es.close()}catch{}});
+window.addEventListener('pageshow',x=>{if(x.persisted)location.reload()});
+
+/* ---- Açılış: ?task önceliklidir; yoksa aktif görevin geçmişini otomatik yükle ---- */
+function resolveBootTaskId(state,search=location.search){const q=state&&state.queue;const done=(q&&q.done)||[],failed=(q&&q.failed)||[];const recent=done.concat(failed).filter(t=>t&&t.kind!=='operator-chat').sort((a,b)=>a.id<b.id?1:-1)[0];return new URLSearchParams(search).get('task')||state?.status?.current?.id||(recent&&recent.id)||''}
+async function boot(){
+  let replayed=[];
+  try{
+    const st=await fetch('/api/state').then(r=>r.ok?r.json():null);if(st&&st.status)applyStatus(st.status);
+    const id=resolveBootTaskId(st);if(!id)return;
+    setCurrentTask(id);
+    const found=await fetch(`/api/tasks/${id}`).then(r=>r.ok?r.json():null);
+    const task=found&&found.task;
+    if(task){$('#missionTitle').textContent=String(task.prompt||'').slice(0,240)||id;$('#filesSub').textContent=`${id} · toplam değişiklik`;const d=task.delivery||{};if(task.status==='done')setNow('done',`✓ <b>Tamamlandı</b> · ${task.operatorCli||'Operatör'} · ${d.rounds||0} tur${d.verification?` · ✓ ${esc(d.verification)}`:''}`);else if(task.status==='failed')setNow('fail',`✕ <b>Başarısız</b> · ${esc(String(task.error||'').slice(0,140))}`);setRounds(d.rounds||0,0)}
+    replayed=await fetch(`/api/tasks/${id}/events?limit=1500`).then(r=>r.ok?r.json():[]);
+    for(const event of replayed){if(event.type==='log'||event.type==='activity'||event.type==='result')dispatchLiveEvent(event.type,event)}
+    const last=[...replayed].reverse().find(event=>event.type==='filechange');
+    if(last)renderFiles(last);
+  }catch{}finally{bootstrapping=false;const seen=new Set(replayed.map(event=>JSON.stringify(event))),pending=bufferedEvents;bufferedEvents=[];for(const event of pending){if(seen.has(JSON.stringify(event.data)))continue;dispatchLiveEvent(event.type,event.data)}}
+}
+boot();
+</script>
+</body>
+</html>

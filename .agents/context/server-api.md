@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/server.js`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-17
 
 ## Purpose
 
@@ -12,7 +12,7 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 
 ## Current API
 
-- `GET /api/events`: `status` ve `queue` snapshot'ıyla başlayan SSE bağlantısı.
+- `GET /api/events`: `status` ve `queue` snapshot'ıyla başlayan; engine `activity`, `message`, `log`, `result` ve `filechange` olaylarını canlı yayınlayan SSE bağlantısı.
 - `GET /api/state`: engine, kuyruk, config, roller, CLI durumları, platform ve mutlak çalışma dizini.
 - `POST /api/security/autonomous-consent`: açık otonom çalışma kabulünü kaydeder.
 - `GET /api/fs`: güvenli klasör gezinme verisi.
@@ -42,6 +42,15 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 - Endpoint değişikliklerinde dashboard/flow tüketicilerini ve hata kodlarını birlikte kontrol et.
 
 ## Major Changes
+
+### 2026-07-17 — Filechange SSE sözleşmesi
+
+- **Change:** Engine `filechange` olayları SSE istemcilerine aktarılıyor; kalıcı task event endpoint'i aynı olayları replay için döndürüyor.
+- **Reason:** Dashboard'da canlı ve geçmiş görevler için aynı satır diff görünümünü sağlamak.
+- **Impact:** Yeni event payload'ı `files`, dosya `counts`, `lineCounts` ve dosya bazlı hunk/önizleme alanları taşır.
+- **Compatibility:** Mevcut SSE olayları ve endpoint yolları değişmedi; yeni olay additive'dir.
+- **Verification:** `node test/live-diff.test.js`, `node test/ui-smoke.test.js`, `npm test`.
+- **Files:** `orchestrator/src/server.js`, `orchestrator/src/engine.js`, `orchestrator/web/index.html`
 
 ### 2026-07-14 — Eski hatalı health cache otomatik geçersizleşiyor
 

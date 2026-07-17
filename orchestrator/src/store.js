@@ -91,6 +91,8 @@ const FALLBACK_CONFIG = {
   pollSeconds: 15, memoryCharBudget: 8000, teamContextCharBudget: 30000, agentTimeoutSeconds: 900,
   cliSilenceTimeoutSeconds: 300,
   discoveryIgnoredAdapters: [],
+  liveDiff: true, liveDiffIntervalMs: 2500,
+  versioning: true, versioningRetention: 20,
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
   cliSettings: {
     codex: { model: "", reasoningEffort: "medium", serviceTier: "fast" },

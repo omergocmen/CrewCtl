@@ -4,9 +4,36 @@ const path = require("path");
 
 const html = fs.readFileSync(path.join(__dirname, "..", "web", "index.html"), "utf8");
 const flowHtml = fs.readFileSync(path.join(__dirname, "..", "web", "flow.html"), "utf8");
+const codeHtml = fs.readFileSync(path.join(__dirname, "..", "web", "code.html"), "utf8");
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
 assert.ok(scripts.length, "inline UI script bulunamadi");
 for (const script of scripts) new Function(script);
+// Canli kodlama ayri sayfaya tasindi; inline scriptinin sozdizimi gecerli olmali.
+const codeScripts = [...codeHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+assert.ok(codeScripts.length, "code.html inline script bulunamadi");
+for (const script of codeScripts) new Function(script);
+// Ayri canli kodlama sayfasi filechange olayini dinlemeli ve satir-diff'i gostermeli.
+assert.match(codeHtml, /\['status','filechange','activity','log','result'\]/, "code.html filechange olayini dinlemeli");
+assert.match(codeHtml, /function renderDiffFile\(/, "code.html satir-diff render etmeli");
+assert.match(codeHtml, /id="files"/, "code.html dosya diff listesi icermeli");
+assert.match(codeHtml, /id="nowText"/, "code.html 'su an ne oluyor' satiri icermeli");
+assert.match(codeHtml, /id="revertBtn"/, "canli kod sayfasi 'onceki surume don' butonu icermeli");
+assert.match(codeHtml, /function revertVersion\(/, "canli kod geri-don islevini icermeli");
+assert.match(codeHtml, /\/restore/, "canli kod geri-don restore ucunu cagirmali");
+assert.match(codeHtml, /function resolveBootTaskId\(/, "code.html acilista gosterilecek gorevi ortak resolver ile secmeli");
+assert.match(codeHtml, /get\('task'\)\|\|state\?\.status\?\.current\?\.id/, "task query yoksa aktif gorevin id'si kullanilmali");
+const resolverSource = codeScripts[0].match(/function resolveBootTaskId\(state,search=location\.search\)\{[^}]+\}/)?.[0];
+assert.ok(resolverSource, "canli kod gorev resolver'i test icin bulunmali");
+const resolveBootTaskId = new Function(`${resolverSource}; return resolveBootTaskId`)();
+assert.equal(resolveBootTaskId({ status: { current: { id: "active-task" } } }, ""), "active-task", "query yoksa aktif gorev secilmeli");
+assert.equal(resolveBootTaskId({ status: { current: { id: "active-task" } } }, "?task=chosen-task"), "chosen-task", "acik task query aktif gorevden oncelikli olmali");
+assert.equal(resolveBootTaskId({ queue: { done: [{ id: "t-01" }, { id: "t-02" }] } }, ""), "t-02", "aktif gorev yoksa en son tamamlanan gorev otomatik secilmeli");
+assert.match(html, /code\.html\?task=/, "tamamlanan gorev kartinda 'Kodu gor' baglantisi olmali");
+assert.match(codeHtml, /bufferedEvents\.push\(\{type,data\}\)/, "canli kod replay sirasindaki SSE olaylarini tamponlamali");
+assert.match(codeHtml, /const seen=new Set\(replayed\.map/, "canli kod gecmis ve tampon olaylarini tekillestirmeli");
+// Ana ekranda canli kodlama sayfasina gecis butonu olmali; kart ana ekrandan cikarilmis olmali.
+assert.match(html, /code\.html/, "ana ekranda Canli Kod sayfasina gecis olmali");
+assert.doesNotMatch(html, /id="liveFiles"/, "canli kodlama karti ana ekrandan cikarilmali");
 // Ekip Akisi artik gercek 3B WebGL (Three.js) sahnesi: kod bir ES modulunde.
 // Import satirlarini ayiklayip sozdizimi gecerliligini dogrula (new Function bir
 // modul import ifadesini parse edemez, ama geri kalan mantik duz fonksiyon govdesidir).
@@ -32,6 +59,10 @@ assert.match(flowHtml, /\.agent-card:before/, "agent filosu premium durum vurgus
 assert.match(flowHtml, /id="scene"/, "ekip akisi gercek 3B WebGL sahnesi (canvas) kullanmali");
 assert.match(flowHtml, /class="agent-panel"/, "3B ajana tiklayinca detay paneli acilmali");
 assert.match(flowHtml, /import \* as THREE from 'three'/, "3B sahne Three.js modulunu kullanmali");
+assert.match(flowHtml, /LineBasicMaterial\(\{color:a\.color/, "operator-agent baglantisi hedef agent rengini kullanmali");
+assert.match(flowHtml, /ConeGeometry\(/, "3B baglanti agent yonunu gosteren ok ucu icermeli");
+assert.match(flowHtml, /b\.packets\.length/, "aktif baglantida operator-agent yonlu veri paketleri animasyonu olmali");
+assert.match(flowHtml, /dir==='down'\?a\.color:0xa98bff/, "delegasyon darbesi agent, geri donus darbesi operator rengini kullanmali");
 assert.match(html, /function removeDraftAgent\(/, "silinen otomatik agent tercihi izlenmeli");
 assert.match(html, /draftIgnoredAdapters/, "otomatik kesif engel listesi UI durumunda tutulmali");
 assert.match(html, /yerel taslaklar korundu/, "CLI taramasi kaydedilmemis taslaklari korumali");
@@ -43,6 +74,13 @@ assert.match(html, /@keyframes teamRail/, "dashboard takim baglantilari animasyo
 assert.match(html, /@keyframes nodeOrbit/, "dashboard agent dugumu katmanli hareket kimligi kullanmali");
 assert.match(html, /process\.progress/, "sessiz CLI icin canli bekleme durumu gosterilmeli");
 assert.match(html, /process\.silence-timeout/, "sessiz CLI otomatik durdurma durumu gosterilmeli");
+assert.match(html, /function latestDashboardRun\(/, "dashboard aktif veya en son gorevi bulmali");
+assert.match(html, /async function restoreDashboardRun\(/, "dashboard donuste gorev olaylarini otomatik geri yuklemeli");
+assert.match(html, /async function bootstrapDashboard\(\)[\s\S]*await restoreDashboardRun\(\)[\s\S]*bootstrapping=false/, "gecmis olaylar canli SSE tamponu bosaltilmadan once replay edilmeli");
+assert.match(html, /bufferedEvents\.push\(\{type,data\}\)/, "bootstrap sirasindaki canli olaylar kaybolmamali");
+assert.match(codeHtml, /class=\"diff-hunk\"/, "canli kodlama Git-benzeri hunk basligi gostermeli");
+assert.match(codeHtml, /f\.hunks/, "canli kodlama satir diff payload'ini render etmeli");
+assert.match(codeHtml, /Hassas dosya içeriği güvenlik için gizlendi/, "hassas dosya diff icerigi UI'da gizlenmeli");
 assert.match(html, /uzun süre yeni çıktı vermediği için otomatik durduruldu/, "sessizlik mesaji onceki ilerlemeyi yok saymamalı");
 assert.match(html, /OpenCode modeli/, "OpenCode agenti icin kesfedilen model secimi sunulmali");
 assert.match(html, /data-tab="clis"/, "CLI ve model ayarlari ayri sekmede olmali");

@@ -44,6 +44,27 @@ process.stdin.on("end", () => {
       }));
       return;
     }
+    if (operatorTask.includes("Operator dogrudan uygula")) {
+      // Operator, JSON plani yerine isi kendisi yapip duz metin doner (OpenCode operator taklidi).
+      // Motor JSON parse edemez ama calisma klasoru degistigi icin salvage kismi teslimat yapmali.
+      fs.writeFileSync("team-output.txt", "operator dogrudan yazdi\n");
+      process.stdout.write("Bitti! team-output.txt olusturuldu. Bu bir JSON plani degil, duz metin ozet.");
+      return;
+    }
+    if (operatorTask.includes("Kestirme kotuye kullanim")) {
+      // Ilk planda delegasyon acmadan "zaten yapildi" der (hafiza kirlenmesi taklidi). Motor
+      // bunu reddedip yeniden planlama isteyince (correction: "GERCEK bir yapim") is delege edilir.
+      if (prompt.includes("GERCEK bir yapim")) {
+        process.stdout.write(JSON.stringify({
+          summary: "Yeniden planlandi: is bu oturumda uygulanir.",
+          completionCriteria: ["team-output.txt olusmali"],
+          assignments: [{ id: "shortcut-build", agent: "worker", kind: "implement", instruction: "team-output.txt olustur.", dependsOn: [] }],
+        }));
+      } else {
+        process.stdout.write(JSON.stringify({ status: "complete", final: "Hafizaya gore is zaten yapildi; yeni is gerekmiyor." }));
+      }
+      return;
+    }
     process.stdout.write(JSON.stringify({
       summary: "Bir uzman uygular, operator sonucu denetler.",
       completionCriteria: ["team-output.txt olusmali"],

@@ -1,0 +1,88 @@
+/* app.css — paylasilan CILA katmani (uc sayfada inline <style>'dan SONRA yuklenir, esit
+   ozgullukte kazanir). Yaklasim: "sakin & keskin" (Linear/Vercel tarzi). Sistem fontu,
+   net tipografi, tutarli buton/odak sistemi, ince scrollbar, yumusak-hizli sayfa gecisleri.
+   Tamamen kozmetik ve additive; yerlesim/mantik degistirmez, tema token'larini (var(--*)) kullanir. */
+
+/* ---- Tipografi: cilali sistem font yigini + smoothing ---- */
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Inter", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+  letter-spacing: -0.006em;
+}
+h1, .brand { letter-spacing: -0.02em; }
+h1 { font-weight: 700; }
+/* Sayisal degerler daima hizali (tablo rakamlari) — sayaclar/istatistikler icin. */
+.pill, .badge, .tile .v, .diff-stats, #budget, .mission-status, .banner .t, .chip b { font-variant-numeric: tabular-nums; }
+code, pre, .terminal, .diff-code, textarea { font-feature-settings: "kern" 0; }
+
+/* ---- Buton sistemi: keskin, tutarli, hafif hareket ---- */
+button, a.btn > button {
+  border-radius: 9px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  transition: background .16s ease, border-color .16s ease, color .16s ease,
+              box-shadow .18s ease, transform .08s ease;
+  will-change: transform;
+}
+button:hover { border-color: color-mix(in srgb, var(--acc) 55%, var(--line)); }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .5; }
+/* Ikon + metin hizasi ve keskin SVG ikonlar. */
+button svg, a.btn svg { vertical-align: -0.18em; }
+.i, button > svg { width: 15px; height: 15px; flex: none; }
+button { display: inline-flex; align-items: center; gap: 7px; }
+/* Tek-ikon (kare) butonlar icin dengeli oran. */
+#themeBtn, #helpBtn { justify-content: center; }
+
+/* ---- Erisilebilir, tutarli odak halkasi (yalnizca klavye) ---- */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--acc) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+button:focus-visible, a:focus-visible { outline-offset: 3px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+
+/* ---- Metin secimi ---- */
+::selection { background: color-mix(in srgb, var(--acc) 32%, transparent); color: var(--tx); }
+
+/* ---- Ince, sessiz scrollbar (tum panellerde tutarli) ---- */
+* { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--line) 85%, transparent) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--dim) 34%, transparent);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--dim) 55%, transparent); background-clip: padding-box; }
+
+/* ---- Sayfa gecisi: yumusak-hizli fade-in (JS yoksa da gorunur kalir) ---- */
+@keyframes appPageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+body { animation: appPageIn .34s cubic-bezier(.22,.61,.36,1) both; }
+/* navTo() cikis animasyonu (app.js ekler). */
+body.app-leaving { opacity: 0; transform: translateY(-4px); transition: opacity .2s ease, transform .2s ease; animation: none; }
+
+/* ---- Kart/etkilesim mikro-cilasi (sakin) ---- */
+.card, .task, .diff-file, .tile, .chip { transition: border-color .18s ease, box-shadow .2s ease, transform .12s ease; }
+
+/* ---- Ikonlar: keskin inline SVG (emoji yerine, currentColor ile temaya uyumlu) ---- */
+.i-sun { display: none; }
+[data-theme=light] .i-sun { display: inline-flex; }
+[data-theme=light] .i-moon { display: none; }
+#themeBtn svg, #helpBtn svg { width: 16px; height: 16px; }
+.ic { display: inline-flex; align-items: center; justify-content: center; }
+.ic svg { width: 13px; height: 13px; display: block; }
+button > svg, .btn svg { stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- Hareketi azalt tercihi: tum sure/animasyonlari kis ---- */
+@media (prefers-reduced-motion: reduce) {
+  body { animation: none; }
+  body.app-leaving { transition: none; }
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}

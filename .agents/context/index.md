@@ -1,6 +1,6 @@
 # Project Context Index
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-17
 
 Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. Bir alanı değiştirmeden önce ilgili context'i oku; değişiklikten sonra `.agents/skills/context-maintainer/SKILL.md` ile güncelle.
 
@@ -22,6 +22,7 @@ Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. B
 | `orchestrator/web/index.html` folder browser modal, `/api/fs` | `filesystem-picker.md` |
 | `orchestrator/web/index.html` completed-task chat | `operator-chat.md` |
 | `orchestrator/web/flow.html` | `team-flow.md` |
+| `orchestrator/web/code.html` | `live-code.md` |
 | `orchestrator/roles/*.md` and role CRUD | `roles.md` |
 | `orchestrator/test/**`, `orchestrator/package.json` test script | `tests.md` |
 

@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/test/**`, `orchestrator/package.json`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-17
 
 ## Purpose
 
@@ -10,14 +10,15 @@ Gerçek model/provider çağrısı yapmadan CLI, UI syntax/smoke ve uçtan uca e
 
 ## Current suites
 
-- `test/ui-smoke.test.js`: iki HTML dosyasındaki inline script'leri derler; zorunlu DOM ID'lerini ve kritik UI sözleşmelerini arar.
+- `test/ui-smoke.test.js`: dashboard, ekip akışı ve canlı kod HTML'lerindeki inline script'leri derler; zorunlu DOM ID'lerini, dashboard replay'ini, Canlı Kod aktif görev fallback/öncelik davranışını ve 3B bağlantı sözleşmelerini doğrular.
 - `test/cli.test.js`: config göçü/saflığı, adapter/cmd uzlaştırması, prompt-file health hazırlığı/temizliği, katalog destekli model argümanları, OpenCode miras/override ayrımı, parser/readiness, discovery/ignore davranışı ve `crewctl` help/version/status/task/approval CLI akışlarını test eder.
 - `test/team-flow.test.js`: fake CLI'larla fast/balanced görev, approval devamı, operator chat, recovery/routing, rol bazlı `allowedKinds`, PASS hızlı yolu, inceleme valisi, kısmi teslimat, ID dedupe, OpenCode JSON ve consent davranışlarını test eder.
+- `test/live-diff.test.js`: canlı filechange tekilleştirmesini, aynı dosyanın yeniden yayınını, created/modified/deleted satır hunk'larını, line counts, hassas içerik redaksiyonunu, kalıcı replay olaylarını ve timer bayraklarını test eder.
 - `test/fake-cli.js` ve diğer fake komutlar: operatör/uzman stdout, stderr, auth failure ve silence senaryolarını taklit eder.
 
 ## Contracts and invariants
 
-- `npm test` sırayla UI smoke, CLI ve team-flow testlerini çalıştırır; ilk hata zinciri durdurur.
+- `npm test` sırayla UI smoke, CLI, skills, team-flow ve live-diff testlerini çalıştırır; ilk hata zinciri durdurur.
 - Testler Node'un yerleşik `assert`, `child_process`, `fs` ve geçici dizinlerini kullanır; harici test framework'ü yoktur.
 - Testler gerçek Codex/Claude/Gemini/OpenCode veya ağ erişimi gerektirmemelidir.
 - Oluşturulan task/runtime verileri ve temp workspace'ler test sonunda temizlenmelidir.
@@ -32,6 +33,24 @@ Test sahipliği kaynak modül context'leriyle ortaktır. Engine/registry/role de
 - `cd orchestrator && npm test`
 
 ## Major Changes
+
+### 2026-07-17 — Dashboard otomatik replay regresyonu
+
+- **Change:** UI smoke suite dashboard'un aktif/en son görevi bulmasını, olay geçmişini bootstrap sırasında otomatik replay etmesini ve bu sıradaki SSE olaylarını tamponlamasını zorunlu kılıyor.
+- **Reason:** Alt sayfalardan dashboard'a dönüldüğünde agent kartları ve akışın kaybolması regresyonunu önlemek.
+- **Impact:** Replay sıralaması ve canlı olay kaybı statik UI sözleşmesi olarak korunur.
+- **Compatibility:** Harici test framework'ü veya gerçek CLI çağrısı eklenmedi.
+- **Verification:** `npm test`: `ui smoke ok`, `cli flow ok`, `skills ok`, `team flow ok`, `live diff ok`.
+- **Files:** `orchestrator/test/ui-smoke.test.js`, `orchestrator/web/index.html`
+
+### 2026-07-17 — Canlı satır diff regresyon kapsamı
+
+- **Change:** Bağımsız `live-diff` suite'i ve dashboard hunk/redaksiyon smoke kontrolleri test zincirine eklendi.
+- **Reason:** Dosya adları doğru görünürken içerik diff'inin bayat kalması, hassas metin sızdırması veya satır koordinatlarının bozulması regresyonlarını yakalamak.
+- **Impact:** Engine ve dashboard canlı diff sözleşmesi harici framework veya gerçek CLI çağrısı olmadan doğrulanır.
+- **Compatibility:** Testler geçici `CLI_TEAM_ROOT` kullanır; gerçek runtime verisine dokunmaz.
+- **Verification:** `npm test`: `ui smoke ok`, `cli flow ok`, `skills ok`, `team flow ok`, `live diff ok`.
+- **Files:** `orchestrator/test/live-diff.test.js`, `orchestrator/test/ui-smoke.test.js`, `orchestrator/package.json`
 
 ### 2026-07-14 — Balanced planner zinciri regresyonu
 

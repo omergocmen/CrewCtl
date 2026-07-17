@@ -32,6 +32,8 @@ async function main() {
   const reviewLoopWorkspace = path.join(__dirname, ".tmp-review-loop-workspace");
   const reviewGovernorWorkspace = path.join(__dirname, ".tmp-review-governor-workspace");
   const partialWorkspace = path.join(__dirname, ".tmp-partial-workspace");
+  const shortcutWorkspace = path.join(__dirname, ".tmp-shortcut-workspace");
+  const operatorDirectWorkspace = path.join(__dirname, ".tmp-operator-direct-workspace");
   const openCodeWorkspace = path.join(__dirname, ".tmp-opencode-workspace");
   const fakeCli = path.join(__dirname, "fake-cli.js");
   const originalPath = process.env.PATH;
@@ -42,7 +44,7 @@ async function main() {
   // sayarak snapshot diff'ini bozar ve YANLIS bir basarisizlik uretir. Best-effort ve
   // asla firlatmayan bu yardimci hem baslangicta hem teardown'da kullanilir.
   const removeWorkspace = (dir) => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } catch {} };
-  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, openCodeWorkspace];
+  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, shortcutWorkspace, operatorDirectWorkspace, openCodeWorkspace];
   for (const dir of workspaces) { removeWorkspace(dir); fs.mkdirSync(dir, { recursive: true }); }
   const tasks = [];
   try {
@@ -82,6 +84,7 @@ async function main() {
     assert.equal(found.state, "done");
     assert.equal(found.task.operatorCli, "operator");
     assert.equal(found.task.executionMode, "fast");
+    assert.ok(found.task.checkpointId, "gorev oncesi otomatik surum (checkpoint) alinmali");
     assert.equal(found.task.teamState.round, 1);
     assert.ok(found.task.teamState.results["build-output"]);
     assert.equal(found.task.teamState.messages.length, 2);
@@ -228,8 +231,46 @@ async function main() {
     assert.ok(fs.existsSync(path.join(partialWorkspace, "team-output.txt")));
     assert.ok(store.listRunEvents(partialTask.id).some((event) => event.type === "log" && event.msg.includes("kismi teslimat")));
 
+    // Kestirme valisi: gercek bir yapim gorevi, operator delegasyonsuz "complete" dese bile
+    // reddedilmeli, yeniden planlama istenmeli ve is fiilen delege edilip teslim edilmelidir.
+    base.workingDir = shortcutWorkspace;
+    store.saveConfig(base);
+    const shortcutTask = store.addTask("Kestirme kotuye kullanim: team-output.txt olustur.", shortcutWorkspace, "operator");
+    tasks.push(shortcutTask);
+    engine.running = true;
+    await engine.runTask(shortcutTask);
+    engine.running = false;
+    const shortcutFound = store.findTask(shortcutTask.id);
+    assert.equal(shortcutFound.state, "done");
+    assert.ok(shortcutFound.task.teamState.results["shortcut-build"], "yapim gorevi fiilen delege edilmeli");
+    assert.equal(shortcutFound.task.teamState.results["shortcut-build"].status, "completed");
+    assert.ok(fs.existsSync(path.join(shortcutWorkspace, "team-output.txt")));
+    assert.ok(store.listRunEvents(shortcutTask.id).some((event) => event.type === "log" && event.msg.includes("delegasyonsuz kapatmaya")));
+
+    // Operator dogrudan uygulama: operator JSON plani yerine isi kendisi yapip duz metin
+    // donerse (or. OpenCode operator rolunde) motor JSON parse edemez; ancak calisma klasoru
+    // degistigi icin salvage bunu sahte basari yerine uyarili kismi teslimatla korumalidir.
+    base.workingDir = operatorDirectWorkspace;
+    store.saveConfig(base);
+    const directTask = store.addTask("Operator dogrudan uygula: bir cikti dosyasi yaz.", operatorDirectWorkspace, "operator");
+    tasks.push(directTask);
+    engine.running = true;
+    let directError = null;
+    try { await engine.runTask(directTask); } catch (error) { directError = error; }
+    engine.stopLiveDiff();
+    engine.running = false;
+    assert.ok(directError && /JSON/i.test(directError.message), "operator duz metin donunce runTask JSON hatasi firlatmali");
+    assert.equal(engine.salvage(directTask, directError), true, "operatorun dogrudan degisikligi kurtarilmali");
+    const directFound = store.findTask(directTask.id);
+    assert.equal(directFound.state, "done");
+    assert.ok(directFound.task.final.startsWith("KISMI TESLIMAT"));
+    assert.ok(directFound.task.delivery.warnings.some((warning) => warning.includes("dogrudan yapti")));
+    assert.ok(fs.existsSync(path.join(operatorDirectWorkspace, "team-output.txt")));
+
     // Saf kurallar: kimlik cakismasi yeniden adlandirilmali, verdict metnin sonundan okunmali.
-    const { normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle } = engine._internals;
+    const { normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, taskRequiresDelegation } = engine._internals;
+    assert.equal(taskRequiresDelegation("3D lunapark sahnesi olustur"), true);
+    assert.equal(taskRequiresDelegation("kac beceri var"), false);
     const dedupeUsed = new Set(["fix-1"]);
     const dedupeCfg = { operator: { maxDelegationsPerRound: 5 }, agents: { worker: { capabilities: ["implementation"] } } };
     const deduped = normalizeAssignments([

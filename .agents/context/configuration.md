@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/config.default.json`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/web/index.html`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-17
 
 ## Purpose
 
@@ -15,6 +15,7 @@ Paylaşılabilir varsayılan yapılandırmayı, kişiye özel `config.json` yaş
 - Eski `operator.codexSettings` ve `operator.model` alanları `cliSettings` altına taşınır ve operatör nesnesinden silinir.
 - `operator` tur/delegasyon/protokol/kurtarma politikalarını; `agents` uzman profillerini; `riskyPatterns` insan onayı gerektirebilecek metinleri tanımlar.
 - Genel ayarlar UI'ı çalışma dizini, onay modu, günlük bütçe, timeout ve context/hafıza bütçelerini düzenler.
+- `liveDiff` canlı dosya olaylarını açıp kapatır; `liveDiffIntervalMs` çalışma klasörü tarama aralığını belirler ve engine en az 500 ms uygular.
 
 ## Contracts and invariants
 
@@ -34,6 +35,15 @@ Paylaşılabilir varsayılan yapılandırmayı, kişiye özel `config.json` yaş
 - Settings kaydetme için `/api/config` doğrulamasını ve eski şema normalizasyonunu kontrol et.
 
 ## Major Changes
+
+### 2026-07-17 — Canlı diff çalışma ayarları
+
+- **Change:** Paylaşılabilir ve fallback config'e varsayılan açık `liveDiff` ile 2500 ms `liveDiffIntervalMs` eklendi.
+- **Reason:** Canlı kodlama taramasını kurulumlar arasında tutarlı ve gerektiğinde devre dışı bırakılabilir yapmak.
+- **Impact:** Engine görev sırasında periyodik salt-okunur workspace taraması başlatır.
+- **Compatibility:** Alanlar bulunmazsa aynı varsayılanlar uygulanır; mevcut config dosyaları migration gerektirmez.
+- **Verification:** `node test/live-diff.test.js`, `npm test`.
+- **Files:** `orchestrator/config.default.json`, `orchestrator/src/store.js`, `orchestrator/src/engine.js`
 
 ### 2026-07-14 — Bozuk agent profilleri taşınabilir biçimde onarılıyor
 

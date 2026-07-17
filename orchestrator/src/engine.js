@@ -5,6 +5,7 @@ const { EventEmitter } = require("events");
 const store = require("./store");
 const cliRegistry = require("./cli-registry");
 const skillRegistry = require("./skill-registry");
+const checkpoints = require("./checkpoints");
 
 const isWin = process.platform === "win32";
 
@@ -47,6 +48,174 @@ function diffSnapshots(before, after) {
   }
   for (const file of before.keys()) if (!after.has(file)) deleted.push(file);
   return { created: created.sort(), modified: modified.sort(), deleted: deleted.sort() };
+}
+
+const DIFF_MAX_FILE_BYTES = 256 * 1024;
+const DIFF_MAX_BASELINE_BYTES = 24 * 1024 * 1024;
+const DIFF_MAX_BASELINE_FILES = 2000;
+const DIFF_MAX_MATRIX_CELLS = 250000;
+const DIFF_CONTEXT_LINES = 3;
+const DIFF_MAX_RENDERED_LINES = 240;
+const DIFF_MAX_EVENT_LINES = 1000;
+const DIFF_MAX_SOURCE_LINES = 5000;
+
+function isSensitiveDiffPath(file) {
+  const normalized = String(file || "").replace(/\\/g, "/").toLowerCase();
+  const base = path.posix.basename(normalized);
+  return /^\.env(?:\.|$)/.test(base) || [".npmrc", ".pypirc", ".netrc"].includes(base) ||
+    /(^|[._-])(secret|secrets|credential|credentials)([._-]|$)/.test(base) ||
+    /\.(pem|key|p12|pfx)$/.test(base) || /^id_(rsa|dsa|ecdsa|ed25519)(\.pub)?$/.test(base);
+}
+
+function readDiffText(file, maxBytes = DIFF_MAX_FILE_BYTES) {
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) return { ok: false, status: "unavailable" };
+    if (stat.size > maxBytes) return { ok: false, status: "too-large", size: stat.size };
+    const buffer = fs.readFileSync(file);
+    if (buffer.includes(0)) return { ok: false, status: "binary", size: stat.size };
+    let controls = 0;
+    for (const byte of buffer) {
+      if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) controls++;
+    }
+    if (buffer.length && controls / buffer.length > 0.02) return { ok: false, status: "binary", size: stat.size };
+    return { ok: true, text: buffer.toString("utf8"), size: stat.size };
+  } catch {
+    return { ok: false, status: "unavailable" };
+  }
+}
+
+// Gorev basindaki metin iceriklerini sinirli bir butceyle saklar. Bu taban, Git deposu
+// olmayan klasorlerde de modified/deleted dosyalar icin satir diff'i uretebilmemizi saglar.
+function captureTextSnapshot(dir, snapshot, options = {}) {
+  const maxBytes = Math.max(1024, Number(options.maxBytes) || DIFF_MAX_BASELINE_BYTES);
+  const maxFiles = Math.max(1, Number(options.maxFiles) || DIFF_MAX_BASELINE_FILES);
+  const maxFileBytes = Math.max(1024, Number(options.maxFileBytes) || DIFF_MAX_FILE_BYTES);
+  const result = new Map();
+  let bytes = 0, files = 0;
+  for (const file of [...(snapshot?.keys?.() || [])].sort()) {
+    if (isSensitiveDiffPath(file)) {
+      result.set(file, { ok: false, status: "redacted" });
+      continue;
+    }
+    if (files >= maxFiles || bytes >= maxBytes) {
+      result.set(file, { ok: false, status: "baseline-limit" });
+      continue;
+    }
+    const value = readDiffText(path.join(dir, file), maxFileBytes);
+    if (value.ok && bytes + value.size > maxBytes) {
+      result.set(file, { ok: false, status: "baseline-limit" });
+      continue;
+    }
+    result.set(file, value);
+    if (value.ok) { bytes += value.size; files++; }
+  }
+  return result;
+}
+
+function splitDiffLines(text) {
+  const value = String(text || "").replace(/\r\n/g, "\n");
+  if (!value) return [];
+  const lines = value.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+function lineOperations(beforeText, afterText) {
+  const before = splitDiffLines(beforeText), after = splitDiffLines(afterText);
+  const cells = before.length * after.length;
+  let approximate = false;
+  const operations = [];
+  if (cells <= DIFF_MAX_MATRIX_CELLS) {
+    const width = after.length + 1;
+    const table = new Uint32Array((before.length + 1) * width);
+    for (let i = before.length - 1; i >= 0; i--) {
+      for (let j = after.length - 1; j >= 0; j--) {
+        table[i * width + j] = before[i] === after[j]
+          ? table[(i + 1) * width + j + 1] + 1
+          : Math.max(table[(i + 1) * width + j], table[i * width + j + 1]);
+      }
+    }
+    let i = 0, j = 0;
+    while (i < before.length || j < after.length) {
+      if (i < before.length && j < after.length && before[i] === after[j]) {
+        operations.push({ type: "context", text: before[i++] }); j++;
+      } else if (i < before.length && (j >= after.length || table[(i + 1) * width + j] >= table[i * width + j + 1])) {
+        operations.push({ type: "delete", text: before[i++] });
+      } else {
+        operations.push({ type: "add", text: after[j++] });
+      }
+    }
+  } else {
+    // Cok buyuk dosyalarda karesel matris kurma. Ortak bas/sonu koruyup degisen orta
+    // bolumu tek hunk olarak goster; UI bu sonucu yaklasik olarak etiketler.
+    approximate = true;
+    let prefix = 0;
+    while (prefix < before.length && prefix < after.length && before[prefix] === after[prefix]) prefix++;
+    let suffix = 0;
+    while (suffix < before.length - prefix && suffix < after.length - prefix &&
+      before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+    for (let i = 0; i < prefix; i++) operations.push({ type: "context", text: before[i] });
+    for (let i = prefix; i < before.length - suffix; i++) operations.push({ type: "delete", text: before[i] });
+    for (let i = prefix; i < after.length - suffix; i++) operations.push({ type: "add", text: after[i] });
+    for (let i = suffix; i > 0; i--) operations.push({ type: "context", text: before[before.length - i] });
+  }
+  return { operations, approximate };
+}
+
+function buildLineDiff(beforeText, afterText, options = {}) {
+  const context = Math.max(0, Number(options.context) || DIFF_CONTEXT_LINES);
+  const maxLines = Math.max(20, Number(options.maxLines) || DIFF_MAX_RENDERED_LINES);
+  const { operations, approximate } = lineOperations(beforeText, afterText);
+  let oldNo = 1, newNo = 1;
+  const annotated = operations.map((operation) => {
+    const line = { ...operation, oldNumber: null, newNumber: null };
+    if (operation.type !== "add") line.oldNumber = oldNo++;
+    if (operation.type !== "delete") line.newNumber = newNo++;
+    return line;
+  });
+  const additions = annotated.filter((line) => line.type === "add").length;
+  const deletions = annotated.filter((line) => line.type === "delete").length;
+  const ranges = [];
+  for (let i = 0; i < annotated.length; i++) {
+    if (annotated[i].type === "context") continue;
+    const start = Math.max(0, i - context), end = Math.min(annotated.length, i + context + 1);
+    const last = ranges[ranges.length - 1];
+    if (last && start <= last.end) last.end = Math.max(last.end, end);
+    else ranges.push({ start, end });
+  }
+  const hunks = [];
+  let rendered = 0, truncated = false;
+  for (const range of ranges) {
+    if (rendered >= maxLines) { truncated = true; break; }
+    const oldStart = 1 + annotated.slice(0, range.start).filter((line) => line.type !== "add").length;
+    const newStart = 1 + annotated.slice(0, range.start).filter((line) => line.type !== "delete").length;
+    const available = Math.max(0, maxLines - rendered);
+    const selected = annotated.slice(range.start, Math.min(range.end, range.start + available));
+    if (selected.length < range.end - range.start) truncated = true;
+    hunks.push({
+      oldStart,
+      oldLines: selected.filter((line) => line.type !== "add").length,
+      newStart,
+      newLines: selected.filter((line) => line.type !== "delete").length,
+      lines: selected.map((line) => ({ ...line, text: String(line.text).slice(0, 1000) })),
+    });
+    rendered += selected.length;
+  }
+  return { additions, deletions, hunks, truncated, approximate };
+}
+
+function describeFileDiff(root, file, action, baseline, options = {}) {
+  const base = action === "created" ? { ok: true, text: "" } : baseline?.get(file);
+  const current = action === "deleted" ? { ok: true, text: "" } :
+    (isSensitiveDiffPath(file) ? { ok: false, status: "redacted" } : readDiffText(path.join(root, file)));
+  const unavailable = !base?.ok ? base : (!current?.ok ? current : null);
+  if (unavailable) return { path: file, action, additions: null, deletions: null, previewStatus: unavailable.status || "unavailable", hunks: [] };
+  const lineCount = (text) => text ? (String(text).match(/\n/g) || []).length + 1 : 0;
+  if (lineCount(base.text) > DIFF_MAX_SOURCE_LINES || lineCount(current.text) > DIFF_MAX_SOURCE_LINES) {
+    return { path: file, action, additions: null, deletions: null, previewStatus: "too-many-lines", hunks: [] };
+  }
+  return { path: file, action, ...buildLineDiff(base.text, current.text, options) };
 }
 
 function clip(value, limit = 12000) {
@@ -181,6 +350,15 @@ function inferAssignmentKind(raw, instruction) {
   if (/\b(arastir|araştır|research|web)\b/i.test(instruction)) return "research";
   if (/\b(planla|plan|tasarla|design)\b/i.test(instruction)) return "plan";
   return "implement";
+}
+
+// Gorev metni gercek bir yapim/degisiklik isi mi? Operator, plan evresinde "bilgi sorusu
+// kestirmesi" ile (delegasyon acmadan complete) yaniti dogrudan verebilir. Ama prompt acikca
+// bir uygulama/olusturma istiyorsa bu kestirme kullaniciya HIC is uretmeden sahte basari doner
+// (or. proje hafizasindaki gecmis teslimati "zaten yapildi" sanmak). Bu durumda kestirmeyi
+// engelleyip yeniden planlama isteriz. inferAssignmentKind'in implement fiil kumesiyle uyumlu.
+function taskRequiresDelegation(prompt) {
+  return /\b(olustur|oluştur|yaz|uygula|kur|gelistir|geliştir|duzelt|düzelt|refactor|implement|build|create|edit|fix|generate|ekle|degistir|değiştir)\b/i.test(String(prompt || ""));
 }
 
 function roleAllowedKinds(agent) {
@@ -348,6 +526,11 @@ class Engine extends EventEmitter {
     // Kalici config'i degistirmeyiz; kullanici kimlik bilgisini duzeltip motoru yeniden
     // baslattiginda agent tekrar denenebilir.
     this.unhealthyAgents = new Map();
+    // Canli kodlama akisi: gorev calisirken calisma klasorunu periyodik tarayan zamanlayici
+    // ve son yayinlanan degisiklik imzasi (ayni durum tekrar tekrar yayinlanmasin diye).
+    this._liveTimer = null;
+    this._lastFileChangeKey = "";
+    this._textBefore = null;
   }
 
   cfg() { return store.loadConfig(); }
@@ -370,6 +553,71 @@ class Engine extends EventEmitter {
     if (taskId) store.appendRunEvent(taskId, event);
     this.emit(type, event);
     return event;
+  }
+
+  // CANLI KODLAMA: gorev calisirken calisma klasorunu _snapBefore'a gore tarar ve olusan/
+  // degisen/silinen dosyalari "filechange" olayiyla yayinlar; complete()'teki nihai diff'in
+  // canli on-izlemesidir. Yalnizca durum degistiginde olay basar (ayni diff tekrarlanmaz).
+  // Tamamen additive ve salt-okunurdur; hata verirse gorevi etkilemeden sessizce atlar.
+  publishFileChanges(taskId = this.current?.id) {
+    if (!taskId || !this._cwd || !this._snapBefore) return null;
+    let changes, currentSnapshot;
+    try {
+      currentSnapshot = snapshotDir(this._cwd);
+      changes = diffSnapshots(this._snapBefore, currentSnapshot);
+    }
+    catch { return null; }
+    // Yalnizca dosya adlarini degil guncel stamp'i da imzaya kat. Ayni dosya gorev
+    // sirasinda ikinci kez degistiginde yeni satir diff'i mutlaka yayinlanmalidir.
+    const stampKey = [...changes.created, ...changes.modified]
+      .map((file) => `${file}:${currentSnapshot.get(file) || ""}`).join("|");
+    const key = `${stampKey}#${changes.deleted.join("|")}`;
+    if (key === this._lastFileChangeKey) return null;
+    const previouslyHadChanges = this._lastFileChangeKey !== "" && this._lastFileChangeKey !== "#";
+    const changedFiles = [
+      ...changes.created.map((file) => ({ file, action: "created" })),
+      ...changes.modified.map((file) => ({ file, action: "modified" })),
+      ...changes.deleted.map((file) => ({ file, action: "deleted" })),
+    ];
+    let remainingLines = DIFF_MAX_EVENT_LINES;
+    const files = changedFiles.map(({ file, action }) => {
+      if (remainingLines <= 0) return { path: file, action, additions: null, deletions: null, previewStatus: "event-limit", hunks: [] };
+      const described = describeFileDiff(this._cwd, file, action, this._textBefore, { maxLines: Math.min(DIFF_MAX_RENDERED_LINES, remainingLines) });
+      remainingLines -= (described.hunks || []).reduce((sum, hunk) => sum + (hunk.lines || []).length, 0);
+      return described;
+    });
+    // Bos degisim setini (or. baslangictaki taban veya tum degisikliklerin geri alinmasi)
+    // imzasini hatirla. Gorev basinda gurultu uretme; ancak daha once gorunen tum degisiklikler
+    // geri alindiysa bos olayi yayinla ki dashboard bayat diff'i temizlesin.
+    this._lastFileChangeKey = key;
+    if (!files.length && !previouslyHadChanges) return null;
+    return this.publish("filechange", {
+      files,
+      counts: { created: changes.created.length, modified: changes.modified.length, deleted: changes.deleted.length },
+      lineCounts: {
+        additions: files.reduce((sum, file) => sum + (Number(file.additions) || 0), 0),
+        deletions: files.reduce((sum, file) => sum + (Number(file.deletions) || 0), 0),
+        unavailable: files.filter((file) => file.additions == null || file.deletions == null).length,
+      },
+    }, taskId);
+  }
+
+  startLiveDiff(task) {
+    this.stopLiveDiff();
+    this._lastFileChangeKey = "";
+    // liveDiff kesin olarak false yapilmadikca aciktir (mevcut davranisi degistirmeyen additive
+    // ozellik). Tarama araligi config'ten ayarlanabilir; en dusuk 500ms ile sinirli.
+    const cfg = this.cfg();
+    if (cfg.liveDiff === false) { this._textBefore = null; return; }
+    this._textBefore = captureTextSnapshot(this._cwd, this._snapBefore);
+    const intervalMs = Math.max(500, Number(cfg.liveDiffIntervalMs) || 2500);
+    this._liveTimer = setInterval(() => this.publishFileChanges(task.id), intervalMs);
+    // unref: bekleyen bir tarama zamanlayicisi surecin kapanmasini asla engellemesin.
+    if (this._liveTimer && typeof this._liveTimer.unref === "function") this._liveTimer.unref();
+  }
+
+  stopLiveDiff() {
+    if (this._liveTimer) { clearInterval(this._liveTimer); this._liveTimer = null; }
   }
 
   setMode(mode) {
@@ -395,6 +643,7 @@ class Engine extends EventEmitter {
   stop() {
     this.running = false;
     this.wake();
+    this.stopLiveDiff();
     if (this.activeChild) {
       try { this.activeChild.kill(); } catch {}
     }
@@ -442,6 +691,8 @@ class Engine extends EventEmitter {
           this.emit("queue");
         }
       } finally {
+        this.stopLiveDiff();
+        this._textBefore = null;
         this.busy = false;
         this.current = null;
         this.activeChild = null;
@@ -701,7 +952,7 @@ class Engine extends EventEmitter {
       skillSection +
       `## Kullanici gorevi\n${task.prompt}\n` +
       `## Calisma klasoru\n${this._cwd}\n` +
-      `## Proje hafizasi\n${clip(memory, cfg.memoryCharBudget || 8000)}\n` +
+      `## Proje hafizasi (gecmis baglam — gecmis teslimatlar mevcut gorevi TAMAMLANMIS SAYDIRMAZ; kanit olarak degil ipucu olarak kullan)\n${clip(memory, cfg.memoryCharBudget || 8000)}\n` +
       (phase === "review"
         ? `## Son bagimsiz denetim\n${(() => { const review = this.latestReview(state); return review ? `${review.id} (${review.agent}) → VERDICT: ${review.verdict}` : "Henuz tamamlanmis denetim yok."; })()}\n` +
           `## Takim calisma kaydi\n${this.teamDigest(state, cfg)}\n`
@@ -812,7 +1063,21 @@ class Engine extends EventEmitter {
     this.current = { id: task.id, stage: "operator", agent: operatorCli };
     this._cwd = path.resolve(store.ROOT, task.targetDir || cfg.workingDir || ".");
     this._snapBefore = snapshotDir(this._cwd);
+    this.startLiveDiff(task);
     this.publish("log", { level: "task", msg: `GOREV ${task.id}: ${task.prompt}` }, task.id);
+    // Otomatik surumleme: gorev CALISMADAN ONCE calisma klasorunun bir surumunu al ki ajan
+    // mevcut kodu bozarsa bu gorev oncesine tek tikla donulebilsin. Yalnizca ilk girus'te
+    // (approval sonrasi devam da ayni checkpoint'i korur). Basarisizsa gorevi asla oldurmez.
+    if (baseCfg.versioning !== false && !task.checkpointId) {
+      const cp = checkpoints.createCheckpoint(this._cwd, { taskId: task.id, label: task.prompt, kind: "pre-task", retention: baseCfg.versioningRetention });
+      if (cp.ok) {
+        task.checkpointId = cp.id;
+        store.saveTask("pending", task);
+        this.publish("log", { level: "info", msg: `Surum alindi (${cp.fileCount} dosya · ${cp.backend}); bu gorev oncesine geri donulebilir.` }, task.id);
+      } else if (cp.skipped) {
+        this.publish("log", { level: "warn", msg: `Surum alinamadi: ${cp.reason}` }, task.id);
+      }
+    }
     this.publish("log", { level: "info", msg: `Calisma modu: ${task.executionMode.toUpperCase()} · en fazla ${cfg.operator.maxRounds} tur / ${cfg.operator.maxDelegationsPerRound} delegasyon` }, task.id);
     this.emit("status", this.status());
     this.emit("queue");
@@ -828,16 +1093,31 @@ class Engine extends EventEmitter {
       assignments = ensureBalancedRoleChain(assignments, cfg, operatorCli, task, usedIds);
       this.publish("log", { level: "info", msg: "Onaylanmis operator plani zorunlu rol zinciri korunarak devam ettiriliyor." }, task.id);
     } else {
-      const plan = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "plan"), cfg, "operator-plan", "Operator plani");
       // Bilgi sorusu kestirmesi: operator, delege edilecek bir is olmadan yaniti dogrudan
       // verdiginde (or. "kac beceri var") tek turda tamamla. Boylece motorun otoriter verisi
       // bir alt agente aktarilirken kaybolmaz/carpitilmaz ve zorunlu assignment semasi bu
-      // tur sorularda gorevi bosuna oldurmez.
-      if (plan && String(plan.status).toLowerCase() === "complete" && !Array.isArray(plan.assignments)) {
-        if (!String(plan.final || "").trim()) throw new Error("Operator complete dedi fakat final sonucu bos birakti.");
-        this.publish("log", { level: "info", msg: "Operator gorevi delegasyona gerek gormeden dogrudan yanitladi." }, task.id);
-        task.teamState = state;
-        return this.complete(task, state, "done", String(plan.final), plan);
+      // tur sorularda gorevi bosuna oldurmez. ANCAK gorev acikca bir yapim/degisiklik isiyse
+      // kestirmeye izin verilmez: operator (cogunlukla proje hafizasindaki gecmis teslimati
+      // "zaten yapildi" sanip) is uretmeden kapatmaya calisir. Once yeniden planlama isteriz;
+      // israr ederse gorevi sahte basari yerine net bir hatayla dururuz.
+      const requiresWork = taskRequiresDelegation(task.prompt);
+      const shortcutRetries = requiresWork ? Math.max(1, cfg.operator?.protocolRetries ?? 1) : 0;
+      let plan, shortcutAttempt = 0, planCorrection = "";
+      while (true) {
+        plan = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "plan") + planCorrection, cfg, "operator-plan", "Operator plani");
+        const isShortcut = plan && String(plan.status).toLowerCase() === "complete" && !Array.isArray(plan.assignments);
+        if (!isShortcut) break;
+        if (!requiresWork) {
+          if (!String(plan.final || "").trim()) throw new Error("Operator complete dedi fakat final sonucu bos birakti.");
+          this.publish("log", { level: "info", msg: "Operator gorevi delegasyona gerek gormeden dogrudan yanitladi." }, task.id);
+          task.teamState = state;
+          return this.complete(task, state, "done", String(plan.final), plan);
+        }
+        if (shortcutAttempt++ >= shortcutRetries) {
+          throw new Error("Operator bu yapim gorevini delege etmeden kapatmaya calisti. Proje hafizasindaki gecmis teslimatlar gorevi tamamlanmis saymaz; en az bir uygulama delegasyonu gerekir.");
+        }
+        this.publish("log", { level: "warn", msg: "Operator yapim gorevini delegasyonsuz kapatmaya calisti; hafiza gecmisi kanit sayilmaz, yeniden planlama isteniyor." }, task.id);
+        planCorrection = "\n\nUYARI: Bu GERCEK bir yapim/degisiklik gorevidir. Proje hafizasindaki gecmis teslimatlar (or. onceki turlarda uretilmis dosyalar) bu gorevi TAMAMLANMIS SAYDIRMAZ; kullanici isin bu oturumda yeniden uretilip dogrulanmasini istiyor. status=complete DONME; en az bir 'implement' delegasyonu iceren bir plan uret.";
       }
       assignments = normalizeAssignments(plan.assignments, cfg, operatorCli, usedIds, task.prompt);
       assignments = ensureBalancedRoleChain(assignments, cfg, operatorCli, task, usedIds);
@@ -856,6 +1136,8 @@ class Engine extends EventEmitter {
         this.current = null;
         this.emit("queue");
         this.emit("status", this.status());
+        this.stopLiveDiff();
+        this._textBefore = null;
         return;
       }
     }
@@ -954,20 +1236,32 @@ class Engine extends EventEmitter {
   salvage(task, error) {
     try {
       if (task.kind === "operator-chat") return false;
+      if (!this._cwd || !this._snapBefore) return false;
       const state = task.teamState;
       const completedWork = Object.values(state?.results || {}).filter((result) => result.status === "completed");
-      if (!completedWork.length || !this._cwd || !this._snapBefore) return false;
       const changes = diffSnapshots(this._snapBefore, snapshotDir(this._cwd));
+      const hasFileChanges = Boolean(changes.created.length || changes.modified.length || changes.deleted.length);
       const hasImplementation = completedWork.some((result) => result.kind === "implement");
-      if (!hasImplementation && !changes.created.length && !changes.modified.length && !changes.deleted.length) return false;
+      // Kurtarma kosulu: YA tamamlanmis bir uygulama delegasyonu var (ekip uretti) YA DA calisma
+      // klasoru fiilen degisti. Ikincisi, operatorun kendisi standart JSON protokolune uymadan
+      // isi dogrudan yaptigi durumu da kapsar (or. OpenCode operator rolunde JSON plan yerine
+      // dosyalari kendisi degistirip duz metin doner). Hicbir is yoksa normal hata akisina birak.
+      if (!hasFileChanges && !hasImplementation) return false;
       const failure = classifyCliError(error);
-      this.publish("log", { level: "warn", msg: `Gorev hatayla kesildi (${failure.summary}); tamamlanan is kismi teslimat olarak korunuyor.` }, task.id);
-      const lastReview = this.latestReview(state);
-      const final = `KISMI TESLIMAT: Gorev bir altyapi/protokol hatasiyla kesildi fakat tamamlanan is korundu.\n` +
-        completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n");
-      this.complete(task, state, "done", final, {
+      const rescueState = state || { round: 0, plan: null, criteria: [], results: {}, messages: [], operatorDecisions: [], usedIds: [] };
+      const operatorDirect = !completedWork.length && hasFileChanges;
+      this.publish("log", { level: "warn", msg: `Gorev hatayla kesildi (${failure.summary}); ${operatorDirect ? "operatorun dogrudan yaptigi degisiklikler" : "tamamlanan is"} kismi teslimat olarak korunuyor.` }, task.id);
+      const lastReview = this.latestReview(rescueState);
+      const changedFiles = [...changes.created, ...changes.modified, ...changes.deleted];
+      const final = operatorDirect
+        ? `KISMI TESLIMAT: Operator (${task.operatorCli || "?"}) standart delegasyon protokolune uymadan isi dogrudan uyguladi; degisiklikler korundu.\n` +
+          changedFiles.slice(0, 40).map((file) => `- ${file}`).join("\n")
+        : `KISMI TESLIMAT: Gorev bir altyapi/protokol hatasiyla kesildi fakat tamamlanan is korundu.\n` +
+          completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n");
+      this.complete(task, rescueState, "done", final, {
         warnings: [
           `Gorev su hatayla kesildi: ${failure.summary}`,
+          ...(operatorDirect ? [`Operator CLI (${task.operatorCli || "?"}) plan JSON'i yerine isi dogrudan yapti. Daha guvenilir orkestrasyon icin operator olarak JSON planlamaya uygun bir CLI (or. Codex veya Claude) secmeyi dusunun.`] : []),
           ...(lastReview ? [`Son bagimsiz denetim: ${lastReview.id} → VERDICT: ${lastReview.verdict}.`] : []),
         ],
         verification: lastReview ? `${lastReview.agent} → VERDICT: ${lastReview.verdict}` : "",
@@ -1018,6 +1312,10 @@ class Engine extends EventEmitter {
 
   complete(task, state, status, finalText, decision = {}) {
     const changes = diffSnapshots(this._snapBefore || new Map(), snapshotDir(this._cwd));
+    // Son periyodik taramadan sonra yapilan degisiklikleri de replay kaydina ve dashboard'a
+    // aktar; ardindan run --once yolunda da timer'in acik kalmamasini garanti et.
+    this.publishFileChanges(task.id);
+    this.stopLiveDiff();
     task.status = status;
     task.finishedAt = new Date().toISOString();
     const files = [
@@ -1054,9 +1352,13 @@ class Engine extends EventEmitter {
     this.publish("result", { id: task.id, prompt: task.prompt, status, dir: this._cwd, changes, summary: task.summary, delivery: task.delivery, operator: task.operatorCli, rounds: state.round }, task.id);
     this.publish("log", { level: "ok", msg: `GOREV tamamlandi: ${task.id}` }, task.id);
     this.emit("queue");
+    this._textBefore = null;
   }
 }
 
 module.exports = new Engine();
 // Testlerin dis davranisla birlikte kritik saf kurallari da dogrudan dogrulayabilmesi icin.
-module.exports._internals = { normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle };
+module.exports._internals = {
+  normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, snapshotDir, diffSnapshots,
+  captureTextSnapshot, buildLineDiff, describeFileDiff, isSensitiveDiffPath, taskRequiresDelegation,
+};

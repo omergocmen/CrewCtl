@@ -2,7 +2,7 @@
 
 **Sources:** `README.md`, `orchestrator/package.json`, `orchestrator/src/*.js`, `orchestrator/web/*.html`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-17
 
 ## Purpose
 
@@ -15,8 +15,11 @@ CrewCtl, kurulu Codex, Claude Code, Gemini ve OpenCode CLI'larını tek bir oper
 - `orchestrator/src/engine.js`: görev yaşam döngüsü, CLI prosesleri, delegasyon, inceleme ve kurtarma.
 - `orchestrator/src/store.js`: dosya tabanlı kuyruk, config, olaylar, hafıza ve çağrı bütçesi.
 - `orchestrator/src/cli-registry.js`: CLI keşfi, model/argüman normalizasyonu ve sağlık kontrolleri.
+- `orchestrator/src/skill-registry.js`: yerel skill keşfi, eşleştirme, bağlam bütçesi ve çağrı takibi.
+- `orchestrator/src/checkpoints.js`: görev öncesi çalışma klasörü checkpoint'i, listeleme, saklama limiti ve güvenli geri yükleme.
 - `orchestrator/web/index.html`: ana dashboard ve tüm yönetim modalları.
-- `orchestrator/web/flow.html`: ayrı canlı ekip akışı sayfası.
+- `orchestrator/web/flow.html`: Three.js/WebGL tabanlı canlı ekip akışı, agent filosu ve görev zaman çizelgesi.
+- `orchestrator/web/code.html`: dosya/hunk bazlı Git benzeri canlı kod diff'i ve görev geçmişi replay'i.
 - `orchestrator/roles/`: operatör ve uzman prompt sözleşmeleri.
 - `orchestrator/test/`: bağımlılıksız Node testleri ve sahte CLI prosesleri.
 
@@ -31,7 +34,7 @@ CrewCtl, kurulu Codex, Claude Code, Gemini ve OpenCode CLI'larını tek bir oper
 
 ## Interactions
 
-Dashboard ve flow sayfası `server.js` API/SSE sözleşmesine; server ise `store`, `engine` ve `cli-registry` modüllerine bağlıdır. CLI, server olmadan aynı store ve engine'i kullanabilir.
+Dashboard, Ekip Akışı ve Canlı Kod sayfaları `server.js` API/SSE sözleşmesine bağlıdır. Sayfalar açılışta aktif ya da son görevin kalıcı olaylarını replay eder, replay sırasında gelen canlı olayları tamponlayıp tekilleştirir. Server; `store`, `engine`, `cli-registry` ve `checkpoints` modüllerini birleştirir. CLI, server olmadan aynı store ve engine'i kullanabilir.
 
 ## Verification
 
@@ -39,6 +42,15 @@ Dashboard ve flow sayfası `server.js` API/SSE sözleşmesine; server ise `store
 - `cd orchestrator && npm test`
 
 ## Major Changes
+
+### 2026-07-17 — Canlı görünürlük ve görev öncesi sürümleme genişletildi
+
+- **Change:** Three.js tabanlı Ekip Akışı, Git benzeri Canlı Kod diff'i, sayfalar arası otomatik görev replay'i ve görev öncesi checkpoint/geri yükleme akışı eklendi; kök README bu yüzeyleri yeni Ekip Akışı görseliyle belgeleyecek şekilde yenilendi.
+- **Reason:** Operatör–agent veri akışını, gerçek dosya değişikliklerini ve önceki görevin durumunu kullanıcıya kesintisiz göstermek; agent değişikliklerinden güvenli dönüş sağlamak.
+- **Impact:** Kullanıcılar delegasyonları CLI renkleri ve veri paketleriyle izleyebilir, eklenen/silinen satırları dosya bazında görebilir ve motor boşta iken tamamlanan ya da başarısız bir görevin öncesindeki sürüme dönebilir.
+- **Compatibility:** `liveDiff` ve `versioning` varsayılan olarak açıktır; geçmişi olmayan görevler ve içerik güvenle gösterilemeyen dosyalar mevcut fallback/redaksiyon davranışını kullanır.
+- **Verification:** `npm test`; `team-flow.test.js`, `live-diff.test.js`, `checkpoints.test.js` ve dashboard UI smoke senaryoları.
+- **Files:** `README.md`, `image-1.png`, `orchestrator/web/index.html`, `orchestrator/web/flow.html`, `orchestrator/web/code.html`, `orchestrator/src/engine.js`, `orchestrator/src/server.js`, `orchestrator/src/checkpoints.js`, `orchestrator/test/`
 
 ### 2026-07-14 — Proje ve dağıtılabilir CLI adı CrewCtl oldu
 
