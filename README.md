@@ -64,6 +64,25 @@ Canlı Kod sayfası, agent'ların çalışma klasöründe yaptığı değişikli
 
 Komuta Merkezi veya Canlı Kod sayfasından başka bir ekrana gidip geri döndüğünüzde görünüm sıfırdan başlamaz. CrewCtl aktif görevi; aktif görev yoksa son tamamlanan ya da başarısız görevi otomatik seçer, kaydedilmiş olayları geri oynatır ve bu sırada gelen canlı SSE olaylarını yinelenmeden ekrana işler.
 
+### 🗂️ Kanban Pano
+
+**Pano** sayfası, kuyruğu dikey liste yerine görev yaşam döngüsü sütunlarıyla gösterir:
+**Bekleyen · Çalışıyor · Tamamlanan · Başarısız**. Çalışan görev kendi sütununda canlı izlenir;
+kartlardan silme ve tamamlanan görevlerde “Kodu gör” işlemleri yapılabilir. Salt-görsel bir
+katmandır; motorun otomatik durum geçişlerini değiştirmez. Her agent, CLI marka rengiyle
+(Codex yeşil · Claude turuncu · Gemini mavi · OpenCode gök mavisi) tutarlı biçimde gösterilir.
+
+### ⏰ Zamanlanmış görevler
+
+**Yeni görev** kutusundaki **⏱ Zamanla** bölümünden tekrar eden görevleri dostça ön ayarlarla
+tanımlarsınız: **her N dakika**, **her gün SS:DD** veya **haftanın seçili günleri SS:DD** (saat
+açılır menüyle seçilir). Zamanı gelen görev otomatik olarak kuyruğa eklenir; tanımlı zamanlamalar
+kenar çubuğundaki **Zamanlanmış görevler** kartında sonraki çalışma zamanıyla listelenir ve Pano
+üstündeki şeritte de görünür.
+
+> Zamanlanmış görevlerin çalışması için motorun açık olması gerekir — görev, motor durmuşsa siz
+> **Başlat**'a basana kadar bekler (gözetimsiz otomatik başlatma yoktur).
+
 ## Görev güvenliği
 
 - **Otomatik sürüm:** Varsayılan yapılandırmada CrewCtl, agent'lar çalışmaya başlamadan önce çalışma klasörünün bir checkpoint'ini alır.
@@ -80,6 +99,8 @@ Komuta Merkezi veya Canlı Kod sayfasından başka bir ekrana gidip geri döndü
 | --- | --- |
 | Operatör liderliğinde orkestrasyon | Planlama, delegasyon, değerlendirme, yeniden deneme ve teslimat döngüsü |
 | Çoklu CLI desteği | Codex, Claude Code, Gemini ve OpenCode profillerini aynı takımda kullanma |
+| Kanban Pano | Görev yaşam döngüsünü sütunlarda (Bekleyen · Çalışıyor · Tamamlanan · Başarısız) tek bakışta gösteren salt-görsel pano |
+| Zamanlanmış görevler | Dostça ön ayarlarla (her N dakika · günlük HH:MM · haftalık günler) tekrar eden görevleri otomatik kuyruğa alma |
 | Çalışma modları | Görevin kapsamına göre Auto, Fast, Balanced ve Deep yürütme seçenekleri |
 | Otomatik CLI keşfi | Kurulu araçları, modelleri ve çalışmaya hazır olma durumunu algılama |
 | Rol ve skill yönlendirme | Planner, executor, reviewer gibi roller ile yerel skill eşleştirme |

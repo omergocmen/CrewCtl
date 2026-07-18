@@ -13,6 +13,7 @@ const engine = require("./engine");
 const cliRegistry = require("./cli-registry");
 const skillRegistry = require("./skill-registry");
 const checkpoints = require("./checkpoints");
+const schedule = require("./schedule");
 
 // Guvenlik agi: tek bir stray hata (or. kopuk ag surucusu, bir istek isleyicisindeki
 // beklenmeyen throw) TUM sunucuyu oldurmesin. Logla, ayakta kal.
@@ -73,6 +74,10 @@ engine.on("message", (d) => broadcast("message", d));
 engine.on("filechange", (d) => broadcast("filechange", d));
 engine.on("queue", () => broadcast("queue", snapshot()));
 
+function broadcastSchedules() {
+  broadcast("schedules", store.loadConfig().schedules || []);
+}
+
 function snapshot() {
   return {
     pending: store.listTasks("pending"),
@@ -80,6 +85,16 @@ function snapshot() {
     done: store.listTasks("done").filter((task) => task.kind !== "operator-chat").slice(-30).reverse(),
     failed: store.listTasks("failed").slice(-30).reverse(),
   };
+}
+
+function newScheduleId() {
+  return "sch-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
+}
+// Zamanlamanin operatorCli'si (verilmisse) kurulu bilinen bir CLI olmali; verilmezse gorev
+// calisma aninda config operatorune duser (gorev olusturmayla ayni davranis).
+function scheduleOperatorValid(name) {
+  if (!name) return true;
+  return Boolean(cliRegistry.DEFINITIONS[name]) && cliStatus.some((c) => c.id === name && c.installed);
 }
 
 function applyHealthToConfig(results) {
@@ -303,6 +318,7 @@ const server = http.createServer(async (req, res) => {
           roles: store.listRoles(),
           skills: skillRegistry.allSkills().map((s) => ({ name: s.name, file: s.file, description: s.description, category: s.category, appliesTo: s.appliesTo, match: s.match })),
           cliStatus,
+          schedules: cfg.schedules || [],
           platform: process.platform,
           workingDirAbs: path.resolve(store.ROOT, cfg.workingDir || "."),
         });
@@ -410,6 +426,56 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/codex/models" && req.method === "GET") {
         try { return send(res, 200, { models: await getCodexModels(false) }); }
         catch (error) { return send(res, 502, { error: `Codex modelleri alınamadı: ${error.message}` }); }
+      }
+      if (pathname === "/api/schedules" && req.method === "GET") {
+        return send(res, 200, { schedules: store.loadConfig().schedules || [] });
+      }
+      if (pathname === "/api/schedules" && req.method === "POST") {
+        const body = await readBody(req);
+        let normalized;
+        try { normalized = schedule.normalizeSchedule(body); }
+        catch (error) { return send(res, 400, { error: error.message }); }
+        if (!scheduleOperatorValid(normalized.operatorCli)) return send(res, 400, { error: "gecersiz veya kurulu olmayan operator CLI" });
+        normalized.id = newScheduleId();
+        normalized.createdAt = new Date().toISOString();
+        const next = schedule.computeNextRun(normalized);
+        if (next) normalized.nextRunAt = next.toISOString();
+        const cfg = store.loadConfig();
+        cfg.schedules = [...(cfg.schedules || []), normalized];
+        store.saveConfig(cfg);
+        broadcastSchedules();
+        return send(res, 200, normalized);
+      }
+      if ((m = pathname.match(/^\/api\/schedules\/([^/]+)$/)) && (req.method === "PUT" || req.method === "DELETE")) {
+        const cfg = store.loadConfig();
+        const list = cfg.schedules || [];
+        const index = list.findIndex((s) => s.id === m[1]);
+        if (index < 0) return send(res, 404, { error: "zamanlama yok" });
+        if (req.method === "DELETE") {
+          cfg.schedules = list.filter((s) => s.id !== m[1]);
+          store.saveConfig(cfg);
+          broadcastSchedules();
+          return send(res, 200, { ok: true });
+        }
+        const body = await readBody(req);
+        const current = list[index];
+        // Yalnizca enabled toggle'i mi, yoksa tam guncelleme mi? Alanlari mevcutla harmanla.
+        const merged = { ...current, ...body, id: current.id, createdAt: current.createdAt };
+        let normalized;
+        try { normalized = schedule.normalizeSchedule(merged); }
+        catch (error) { return send(res, 400, { error: error.message }); }
+        if (!scheduleOperatorValid(normalized.operatorCli)) return send(res, 400, { error: "gecersiz veya kurulu olmayan operator CLI" });
+        normalized.id = current.id;
+        normalized.createdAt = current.createdAt;
+        if (current.lastRunAt) normalized.lastRunAt = current.lastRunAt;
+        if (current.lastTaskId) normalized.lastTaskId = current.lastTaskId;
+        const next = normalized.enabled === false ? null : schedule.computeNextRun(normalized);
+        if (next) normalized.nextRunAt = next.toISOString();
+        else delete normalized.nextRunAt;
+        cfg.schedules = list.map((s, i) => (i === index ? normalized : s));
+        store.saveConfig(cfg);
+        broadcastSchedules();
+        return send(res, 200, normalized);
       }
       if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/events$/)) && req.method === "GET") {
         const limit = Number(url.parse(req.url, true).query.limit) || 1000;
@@ -580,8 +646,54 @@ function startupBanner() {
   openBrowser(url);
 }
 
+// ---- Zamanlanmis gorev tik'i ----
+// Zamani gelen zamanlamalari kuyruga alir. Salt hesap schedule.js'te; burada yalnizca yan
+// etkiler var. Motor duruyorsa gorev yalnizca 'pending'e girer (manuel ekleme davranisi);
+// otomatik baslatma yoktur. engine.wake() yalnizca calisan dongyu erkenden uyandirir.
+const SCHEDULER_TICK_MS = 30000;
+let schedulerRunning = false;
+function schedulerTick() {
+  if (schedulerRunning) return;
+  schedulerRunning = true;
+  try {
+    const cfg = store.loadConfig();
+    const now = new Date();
+    const due = schedule.dueSchedules(cfg.schedules || [], now);
+    if (!due.length) return;
+    let firedAny = false;
+    for (const item of cfg.schedules || []) {
+      if (!due.some((d) => d.id === item.id)) continue;
+      try {
+        const task = store.addScheduledTask(item);
+        item.lastRunAt = now.toISOString();
+        item.lastTaskId = task.id;
+        const next = item.enabled === false ? null : schedule.computeNextRun(item, now);
+        if (next) item.nextRunAt = next.toISOString();
+        else delete item.nextRunAt;
+        firedAny = true;
+        broadcast("log", { at: now.toISOString(), type: "log", taskId: task.id, level: "info", msg: `Zamanlanmis gorev kuyruga eklendi (${item.id}): ${String(item.prompt).slice(0, 80)}` });
+      } catch (error) {
+        console.error("Zamanlanmis gorev olusturulamadi:", error.message);
+      }
+    }
+    if (firedAny) {
+      store.saveConfig(cfg);
+      broadcast("queue", snapshot());
+      broadcastSchedules();
+      engine.wake();
+    }
+  } catch (error) {
+    console.error("Zamanlayici tik hatasi:", error.message);
+  } finally {
+    schedulerRunning = false;
+  }
+}
+const schedulerTimer = setInterval(schedulerTick, SCHEDULER_TICK_MS);
+if (schedulerTimer && typeof schedulerTimer.unref === "function") schedulerTimer.unref();
+
 server.listen(PORT, HOST, startupBanner);
 setImmediate(() => refreshCliHealth(false).catch((err) => console.error("CLI sağlık testi başlatılamadı:", err.message)));
+setTimeout(schedulerTick, 5000).unref?.();
 setImmediate(() => {
   if (codexModelRefreshDue) getCodexModels(true).catch((err) => console.error("Codex model kataloğu yenilenemedi:", err.message));
 });

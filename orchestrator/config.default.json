@@ -36,6 +36,7 @@
     "referenceCharBudget": 1200
   },
   "agents": {},
+  "schedules": [],
   "riskyPatterns": [
     "rm -rf",
     "rm ",

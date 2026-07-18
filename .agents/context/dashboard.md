@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/web/index.html`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-07-18
 
 ## Purpose
 
@@ -15,7 +15,7 @@ Motor durumunu, yeni görev oluşturmayı, kuyrukları, aktif ekip haritasını,
 - İlk otonom engine başlatmada kalıcı consent modalı gösterilir.
 - Görev alanı ve kuyruk sol sütunda; misyon, ekip haritası, feed ve teknik terminaller sağ sütundadır.
 - Dashboard açılışta aktif görevin olay geçmişini otomatik replay eder; aktif görev yoksa en son tamamlanan veya başarısız görev geri yüklenir. Bootstrap sırasında gelen SSE olayları replay bitene kadar tamponlanır ve yinelenmeden uygulanır.
-- `/api/events` SSE olayları dashboard içinde `status`, `queue`, `activity`, `message`, `log` ve `result` handler'larına dağıtılır.
+- `/api/events` SSE olayları dashboard içinde `status`, `queue`, `activity`, `message`, `log`, `result` ve `schedules` handler'larına dağıtılır.
 - CLI prosesleri için başlama, ilerleme, stdout/stderr, timeout, sessizlik timeout ve bitiş durumları görselleştirilir.
 - Canlı kodlama görünümü ayrı `code.html` sayfasındadır; dashboard header'ından açılır.
 - Tema tercihi `localStorage` içinde saklanır.
@@ -26,6 +26,11 @@ Motor durumunu, yeni görev oluşturmayı, kuyrukları, aktif ekip haritasını,
 - Dinamik kullanıcı/CLI metinleri `esc()` ile HTML'e aktarılır.
 - SSE olay adları ve payload alanları `server.js`/`engine.js` ile ortak sözleşmedir.
 - Ham terminal çıktısı ikincil, katlanabilir alanda kalır; kullanıcı dostu durum özeti birincil gösterimdir.
+- Renk standardı proje geneliyle tektir: her katılımcı CLI marka rengiyle gösterilir (`CLI_COLOR`:
+  codex `#10a37f`, claude `#d97757`, gemini `#4285f4`, opencode `#0ea5e9`, custom gri — `flow.html`
+  `CLI_META` ile birebir). Feed mesajları gönderenin, terminal kartları ve ekip haritası düğümleri
+  ilgili agent'ın CLI rengini alır (`--agent-accent` / `--nacc` inline). Çalışıyor/hata durumları
+  renk değil ayrı ipuçlarıyla (nabız, ilerleme çubuğu, kırmızı halka, `failure`/`blocked` kırmızı) belirtilir.
 
 ## Interactions
 
@@ -37,6 +42,20 @@ Görevler için `tasks.md`, ayarlar için `settings.md`, klasör seçici için `
 - Görsel veya etkileşimli değişiklikte yerel sunucuda dashboard'u ve responsive davranışı canlı kontrol et.
 
 ## Major Changes
+
+### 2026-07-18 — CLI marka renk standardı ve terminal taşma düzeltmesi
+
+- **Change:** Feed mesajları, canlı terminal kartları ve ekip haritası düğümleri artık duruma göre
+  (operatör=mor, başarı=yeşil) değil, agent'ın CLI marka rengine göre renklendirilir (`CLI_COLOR`,
+  `flow.html` `CLI_META` ile aynı). `.agent`'a `min-width:0` ve `.terminal`'a satır sarma eklenerek
+  uzun CLI çıktısının kartların üzerine taşması giderildi.
+- **Reason:** Aynı agent'ın farklı yüzeylerde farklı renklerde görünmesi (ör. codex logda mor,
+  akışta yeşil) kafa karıştırıyordu; terminal metni yatayda taşıyordu.
+- **Impact:** Kimlik rengi tüm yüzeylerde tutarlı; çalışıyor/hata durumları nabız/ilerleme/kırmızı
+  halka gibi ayrı ipuçlarıyla gösterilmeye devam eder. `failure`/`blocked` mesajları kırmızı kalır.
+- **Compatibility:** Yalnızca görsel/CSS ve inline stil; SSE sözleşmesi ve DOM kimlikleri değişmedi.
+- **Verification:** `npm test`; ui-smoke inline script sözdizimi. Görsel doğrulama kullanıcıya bırakıldı.
+- **Files:** `orchestrator/web/index.html`
 
 ### 2026-07-17 — Dashboard dönüşünde otomatik akış replay
 

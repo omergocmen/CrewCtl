@@ -5,6 +5,7 @@ const path = require("path");
 const html = fs.readFileSync(path.join(__dirname, "..", "web", "index.html"), "utf8");
 const flowHtml = fs.readFileSync(path.join(__dirname, "..", "web", "flow.html"), "utf8");
 const codeHtml = fs.readFileSync(path.join(__dirname, "..", "web", "code.html"), "utf8");
+const boardHtml = fs.readFileSync(path.join(__dirname, "..", "web", "board.html"), "utf8");
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
 assert.ok(scripts.length, "inline UI script bulunamadi");
 for (const script of scripts) new Function(script);
@@ -12,6 +13,35 @@ for (const script of scripts) new Function(script);
 const codeScripts = [...codeHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
 assert.ok(codeScripts.length, "code.html inline script bulunamadi");
 for (const script of codeScripts) new Function(script);
+// Kanban Pano ayri sayfa: inline scriptinin sozdizimi gecerli olmali.
+const boardScripts = [...boardHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+assert.ok(boardScripts.length, "board.html inline script bulunamadi");
+for (const script of boardScripts) new Function(script);
+// Pano yasam-dongusu sutunlarini icermeli ve queue+status+schedules olaylarini dinlemeli.
+// Onay sutunu kaldirildi (yalnizca auto mod kullaniliyor).
+for (const id of ["col-pending", "col-running", "col-done", "col-failed"]) {
+  assert.match(boardHtml, new RegExp(`id="${id}"`), `board.html ${id} sutununu icermeli`);
+}
+assert.doesNotMatch(boardHtml, /id="col-approval"/, "board.html Onay sutununu icermemeli");
+assert.match(boardHtml, /\['status','queue','schedules'\]/, "board.html status/queue/schedules olaylarini dinlemeli");
+assert.match(boardHtml, /function renderBoard\(/, "board.html pano render fonksiyonu icermeli");
+assert.match(boardHtml, /schedStrip/, "board.html yaklasan zamanlanmis gorev seridini icermeli");
+// Dashboard'dan Pano'ya gecis butonu ve zamanlama sekmesi bulunmali.
+assert.match(html, /board\.html/, "ana ekranda Pano sayfasina gecis olmali");
+// Zamanlama gorev kismindadir (composer), ayarlar sekmesinde degil.
+assert.doesNotMatch(html, /data-tab="schedules"/, "zamanlama artik ayri ayarlar sekmesinde olmamali");
+assert.match(html, /id="schedFields"/, "gorev composer'inda zamanlama alani olmali");
+assert.match(html, /id="scheduleList"/, "gorev kisminda zamanlanmis gorev listesi olmali");
+assert.match(html, /function renderScheduleList\(/, "zamanlanmis gorev listesi renderer icermeli");
+assert.match(html, /function addScheduleFromComposer\(/, "composer'dan zamanlama olusturma islevi olmali");
+// Hemen/Zamanla mod anahtari: dolu zamanlama alani yanlislikla hemen calistirilmamali.
+assert.match(html, /function setComposerMode\(/, "composer Hemen/Zamanla mod anahtari olmali");
+assert.match(html, /function composerSubmit\(/, "ana buton moda gore ekle/zamanla ayirmali");
+assert.match(html, /function csTypeChanged\(/, "tetikleyici turune gore secim alanlari degismeli");
+assert.match(html, /'\/api\/schedules'/, "zamanlama CRUD /api/schedules ucunu cagirmali");
+// Saat manuel yazi yerine secim (dropdown) ile alinmali.
+assert.match(html, /function hourOptions\(/, "saat secimi dropdown ile sunulmali");
+assert.match(html, /function minuteOptions\(/, "dakika secimi dropdown ile sunulmali");
 // Ayri canli kodlama sayfasi filechange olayini dinlemeli ve satir-diff'i gostermeli.
 assert.match(codeHtml, /\['status','filechange','activity','log','result'\]/, "code.html filechange olayini dinlemeli");
 assert.match(codeHtml, /function renderDiffFile\(/, "code.html satir-diff render etmeli");

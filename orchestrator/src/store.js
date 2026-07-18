@@ -99,7 +99,7 @@ const FALLBACK_CONFIG = {
     opencode: { model: "" },
   },
   skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200 },
-  agents: {}, riskyPatterns: [],
+  agents: {}, riskyPatterns: [], schedules: [],
 };
 // Eski sema, model ayarlarini operator altina gomuyordu (operator.codexSettings ve
 // operator.model). Yeni sema CLI bazlidir: cliSettings[adapter] o CLI'nin operator ve
@@ -112,6 +112,7 @@ function normalizeConfig(cfg) {
   const normalized = {
     ...cfg,
     skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200, ...(cfg.skills || {}) },
+    schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
     cliSettings: {
       codex: { model: "", reasoningEffort: "medium", serviceTier: "fast", ...legacyCodex, ...(current.codex || {}) },
       opencode: { model: legacyOpenCodeModel, ...(current.opencode || {}) },
@@ -195,6 +196,14 @@ function addChatTask(parentTask, question) {
   const task = addTask(question, parentTask.targetDir, parentTask.operatorCli, "chat");
   task.kind = "operator-chat";
   task.parentTaskId = parentTask.id;
+  saveTask("pending", task);
+  return task;
+}
+// Zamanlanmis bir gorevi kuyruga ekler. Normal gorevle ayni yolu kullanir; yalnizca kaynagini
+// isaretlemek icin scheduleId iliştirir (Pano bu görevi "zamanlanmis" rozetiyle gosterebilsin).
+function addScheduledTask(schedule) {
+  const task = addTask(schedule.prompt, schedule.targetDir, schedule.operatorCli, schedule.executionMode || "auto");
+  task.scheduleId = schedule.id;
   saveTask("pending", task);
   return task;
 }
@@ -304,6 +313,7 @@ module.exports = {
   nextPending,
   addTask,
   addChatTask,
+  addScheduledTask,
   saveTask,
   findTask,
   moveTask,
