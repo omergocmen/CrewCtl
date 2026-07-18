@@ -22,6 +22,10 @@ orchestrator/queue/
 orchestrator/state/
 orchestrator/memory/log.md
 
+# Generated test artifacts (test sources under orchestrator/test stay versioned)
+orchestrator/test/.tmp-*/
+orchestrator/test/*-output.txt
+
 # Local agent/editor metadata
 .claude/
 .codex/

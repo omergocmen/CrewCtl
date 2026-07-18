@@ -17,11 +17,11 @@
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/omergocmen/cli.git"
+    "url": "git+https://github.com/omergocmen/CrewCtl.git"
   },
-  "homepage": "https://github.com/omergocmen/cli#readme",
+  "homepage": "https://github.com/omergocmen/CrewCtl#readme",
   "bugs": {
-    "url": "https://github.com/omergocmen/cli/issues"
+    "url": "https://github.com/omergocmen/CrewCtl/issues"
   },
   "files": [
     "orchestrator/src/",
