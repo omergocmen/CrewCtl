@@ -8,7 +8,7 @@ Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. B
 
 | Source | Owning context |
 | --- | --- |
-| `README.md`, `orchestrator/package.json`, cross-module structure | `architecture.md` |
+| `README.md`, `package.json`, `.gitignore`, `.npmignore`, cross-module structure | `architecture.md` |
 | `orchestrator/config.default.json`, config schema/migrations | `configuration.md` |
 | `orchestrator/src/engine.js` | `engine.md` |
 | `orchestrator/src/server.js` | `server-api.md` |
@@ -26,6 +26,6 @@ Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. B
 | `orchestrator/web/board.html` | `board.md` |
 | `orchestrator/src/schedule.js`, `orchestrator/web/index.html` zamanlama sekmesi, `/api/schedules` | `scheduling.md` |
 | `orchestrator/roles/*.md` and role CRUD | `roles.md` |
-| `orchestrator/test/**`, `orchestrator/package.json` test script | `tests.md` |
+| `orchestrator/test/**`, `package.json` test script | `tests.md` |
 
 Bir dosya birden fazla kullanıcı akışı barındırabilir; bu durumda tüm ilgili context'leri güncelle. Yeni bir modül veya bağımsız sayfa/akış eklendiğinde yeni bir context dosyası oluştur ve bu tabloya ekle.

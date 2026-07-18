@@ -83,13 +83,17 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 **Tek komut — kurulum gerektirmez:**
 
 ```bash
-npx crewctl            # paneli anında başlatır (komutsuz = start)
+npx @omerrgocmen/crewctl  # paneli anında başlatır (komutsuz = start)
 ```
+
+> **Kaynak depo notu:** `npx` komutunu CrewCtl kaynak deposunun kendi kökünde değil, yönetmek
+> istediğiniz proje klasöründe çalıştırın. Klonlanmış geliştirme kopyasında `npm start`
+> kullanılır; aksi halde npm aynı isimli yerel manifesti seçip bin shim'ini bulamayabilir.
 
 Ya da global kurun:
 
 ```bash
-npm install -g crewctl
+npm install -g @omerrgocmen/crewctl
 crewctl                # panel
 crewctl status
 crewctl task "Testleri düzelt" --dir . --mode balanced
@@ -105,7 +109,7 @@ crewctl doctor         # salt-okunur ortam kontrolü
 
 ```bash
 git clone https://github.com/omergocmen/cli.git
-cd cli/orchestrator
+cd cli
 npm run cli -- doctor  # salt-okunur ortam kontrolü
 npm start              # sunucuyu başlatır ve tarayıcıyı açar
 ```

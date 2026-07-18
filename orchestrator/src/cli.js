@@ -2,7 +2,7 @@
 const path = require("path");
 const store = require("./store");
 
-const VERSION = require("../package.json").version;
+const VERSION = require("../../package.json").version;
 const VALID_MODES = new Set(["auto", "fast", "balanced", "deep"]);
 
 function help() {
@@ -11,8 +11,8 @@ function help() {
 Kurulu kodlama CLI'larini tek kuyrukta yonetin.
 
 Hizli baslangic:
-  npx crewctl                           Paneli aninda baslat (kurulum gerektirmez)
-  npm i -g crewctl                      Global kur, ardindan: crewctl
+  npx @omerrgocmen/crewctl              Paneli aninda baslat (kurulum gerektirmez)
+  npm i -g @omerrgocmen/crewctl         Global kur, ardindan: crewctl
 
 Kullanim:
   crewctl [start]                       Web panelini baslat (komutsuz = start)
@@ -114,7 +114,7 @@ async function run(args) {
 
 async function main(argv = process.argv.slice(2)) {
   store.ensureDirs();
-  // Komutsuz cagri (or. `npx crewctl`) dogrudan web panelini baslatir.
+  // Komutsuz cagri (or. `npx @omerrgocmen/crewctl`) dogrudan web panelini baslatir.
   const [command = "start", ...args] = argv;
   if (["help", "--help", "-h"].includes(command)) return help();
   if (["--version", "-v", "version"].includes(command)) return console.log(VERSION);

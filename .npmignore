@@ -1,0 +1,35 @@
+# The package.json files allowlist is authoritative. These rules also make the
+# intended publish boundary explicit for tooling that reads .npmignore.
+.agents/
+.claude/
+.codex/
+.github/
+.vscode/
+.idea/
+
+orchestrator/.agents/
+orchestrator/.claude/
+orchestrator/.codex/
+orchestrator/test/
+orchestrator/queue/
+orchestrator/state/
+orchestrator/memory/
+orchestrator/config.json
+orchestrator/config.local.json
+orchestrator/config.*.local.json
+orchestrator/add-task.ps1
+orchestrator/approve.ps1
+orchestrator/orchestrator.ps1
+orchestrator/memory-log-backup-*.txt
+
+CONTRIBUTING.md
+image.png
+image-1.png
+coverage/
+node_modules/
+*.log
+*.tmp
+*.tgz
+.env
+.env.*
+.npmrc

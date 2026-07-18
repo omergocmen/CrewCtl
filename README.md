@@ -115,13 +115,17 @@ kenar çubuğundaki **Zamanlanmış görevler** kartında sonraki çalışma zam
 En hızlı yol — **tek komut, kurulum gerektirmez:**
 
 ~~~bash
-npx crewctl
+npx @omerrgocmen/crewctl
 ~~~
+
+> **Kaynak depo notu:** Bu komutu CrewCtl kaynak deposunun kendi kökünde değil, yönetmek
+> istediğiniz proje klasöründe çalıştırın. Klonlanmış CrewCtl deposunda npm aynı isimli
+> yerel manifesti önceliklendirebilir; geliştirme kopyasını başlatmak için `npm start` kullanın.
 
 Ya da global kurun:
 
 ~~~bash
-npm install -g crewctl
+npm install -g @omerrgocmen/crewctl
 crewctl
 ~~~
 
@@ -134,7 +138,7 @@ Arayüz varsayılan olarak [http://localhost:4317](http://localhost:4317) adresi
 
 ~~~bash
 git clone https://github.com/omergocmen/cli.git
-cd cli/orchestrator
+cd cli
 npm run doctor
 npm start
 ~~~
@@ -161,7 +165,6 @@ crewctl start
 ## Geliştirme ve doğrulama
 
 ~~~bash
-cd orchestrator
 npm test
 ~~~
 

@@ -123,8 +123,10 @@ function main() {
   assert.equal(manualOpenCode.operator.cli, "opencode");
 
   store.ensureDirs();
-  assert.match(run("help"), /crewctl task/);
-  assert.equal(run("version").trim(), require("../package.json").version);
+  const help = run("help");
+  assert.match(help, /npx @omerrgocmen\/crewctl/);
+  assert.match(help, /crewctl task/);
+  assert.equal(run("version").trim(), require("../../package.json").version);
   const status = JSON.parse(run("status", "--json"));
   assert.ok(status.queue && Number.isInteger(status.queue.pending));
 
