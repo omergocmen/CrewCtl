@@ -4,17 +4,17 @@
 >
 > _A zero‑dependency, local, self‑hosted **multi‑agent AI orchestrator** that runs your installed CLI coding agents (OpenAI Codex, Claude Code, Google Gemini, OpenCode) as one **operator‑led team**, with a live web dashboard._
 
-[![GitHub stars](https://img.shields.io/github/stars/omergocmen/cli?style=flat&logo=github)](https://github.com/omergocmen/cli/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/omergocmen/cli?style=flat&logo=github)](https://github.com/omergocmen/cli/network/members)
-[![GitHub issues](https://img.shields.io/github/issues/omergocmen/cli)](https://github.com/omergocmen/cli/issues)
-[![Last commit](https://img.shields.io/github/last-commit/omergocmen/cli)](https://github.com/omergocmen/cli/commits)
+[![GitHub stars](https://img.shields.io/github/stars/omergocmen/CrewCtl?style=flat&logo=github)](https://github.com/omergocmen/CrewCtl/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/omergocmen/CrewCtl?style=flat&logo=github)](https://github.com/omergocmen/CrewCtl/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/omergocmen/CrewCtl)](https://github.com/omergocmen/CrewCtl/issues)
+[![Last commit](https://img.shields.io/github/last-commit/omergocmen/CrewCtl)](https://github.com/omergocmen/CrewCtl/commits)
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=node.js&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/dependencies-0-brightgreen)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4)](https://github.com/omergocmen/cli/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-ff69b4)](https://github.com/omergocmen/CrewCtl/pulls)
 
-🔗 **Repo:** [github.com/omergocmen/cli](https://github.com/omergocmen/cli)
+🔗 **Repo:** [github.com/omergocmen/CrewCtl](https://github.com/omergocmen/CrewCtl)
 
 Elinizde zaten **Codex CLI**, **Claude Code**, **Gemini CLI** veya **OpenCode** varsa; bu araç onları
 ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi koordine eder. Bir CLI
@@ -104,19 +104,23 @@ crewctl doctor         # salt-okunur ortam kontrolü
 > (`CREWCTL_HOME` ile değiştirilebilir). Çalışma klasörü varsayılan olarak komutu çalıştırdığınız
 > dizindir; panelden değiştirilebilir.
 
-<details>
-<summary>Kaynaktan çalıştırma (geliştirme)</summary>
+### Developer modu / uzun yol (Git clone)
+
+Kaynak kodu geliştirmek, testleri çalıştırmak veya npm paketi yerine doğrudan Git kopyasını
+kullanmak için:
 
 ```bash
-git clone https://github.com/omergocmen/cli.git
-cd cli
+git clone https://github.com/omergocmen/CrewCtl.git
+cd CrewCtl
+npm install
 npm run cli -- doctor  # salt-okunur ortam kontrolü
+npm test                # tam regresyon zinciri
 npm start              # sunucuyu başlatır ve tarayıcıyı açar
 ```
 
-Kaynaktan çalıştırıldığında (repo `test/` klasörü mevcutken) veri, mevcut davranışla uyumlu olarak
-`orchestrator/` klasöründe tutulur.
-</details>
+`npm install` runtime bağımlılığı indirmez; lock/yerel npm ortamını hazırlar. Kaynaktan
+çalıştırıldığında (repo `test/` klasörü mevcutken) geliştirme verileri `orchestrator/`
+klasöründe tutulur.
 
 `crewctl doctor` ayarları değiştirmez. Yalnızca keşif sonucunu `config.json` dosyasına uygulamak
 istediğinizde açıkça `crewctl doctor --fix` kullanın.

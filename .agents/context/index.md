@@ -8,7 +8,7 @@ Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. B
 
 | Source | Owning context |
 | --- | --- |
-| `README.md`, `package.json`, `.gitignore`, `.npmignore`, cross-module structure | `architecture.md` |
+| `README.md`, `CONTRIBUTING.md`, `package.json`, `.gitignore`, `.npmignore`, cross-module structure | `architecture.md` |
 | `orchestrator/config.default.json`, config schema/migrations | `configuration.md` |
 | `orchestrator/src/engine.js` | `engine.md` |
 | `orchestrator/src/server.js` | `server-api.md` |

@@ -6,10 +6,10 @@
 
 _A local, self-hosted, zero-dependency multi-agent AI orchestrator with an operator-led team and a live web command center._
 
-[![GitHub stars](https://img.shields.io/github/stars/omergocmen/cli?style=flat&logo=github)](https://github.com/omergocmen/cli/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/omergocmen/cli?style=flat&logo=github)](https://github.com/omergocmen/cli/network/members)
-[![GitHub issues](https://img.shields.io/github/issues/omergocmen/cli)](https://github.com/omergocmen/cli/issues)
-[![Last commit](https://img.shields.io/github/last-commit/omergocmen/cli)](https://github.com/omergocmen/cli/commits)
+[![GitHub stars](https://img.shields.io/github/stars/omergocmen/CrewCtl?style=flat&logo=github)](https://github.com/omergocmen/CrewCtl/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/omergocmen/CrewCtl?style=flat&logo=github)](https://github.com/omergocmen/CrewCtl/network/members)
+[![GitHub issues](https://img.shields.io/github/issues/omergocmen/CrewCtl)](https://github.com/omergocmen/CrewCtl/issues)
+[![Last commit](https://img.shields.io/github/last-commit/omergocmen/CrewCtl)](https://github.com/omergocmen/CrewCtl/commits)
 ![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-339933?logo=node.js&logoColor=white)
 ![Dependencies](https://img.shields.io/badge/runtime_dependencies-0-brightgreen)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](orchestrator/LICENSE)
@@ -133,18 +133,23 @@ Arayüz varsayılan olarak [http://localhost:4317](http://localhost:4317) adresi
 
 > **Veri konumu:** config, kuyruk ve görev geçmişi kullanıcı klasörünüzdeki <code>~/.crewctl</code> altında tutulur (ortam değişkeni <code>CREWCTL_HOME</code> ile değiştirilebilir). Çalışma klasörü varsayılan olarak komutu çalıştırdığınız dizindir; panelden değiştirilebilir. Makineye özel <code>config.json</code> ilk çalıştırmada otomatik üretilir.
 
-<details>
-<summary>Kaynaktan çalıştırma (geliştirme)</summary>
+### Developer modu / uzun yol (Git clone)
+
+Kaynak kodu geliştirmek, testleri çalıştırmak veya npm paketi yerine doğrudan Git kopyasını
+kullanmak için:
 
 ~~~bash
-git clone https://github.com/omergocmen/cli.git
-cd cli
+git clone https://github.com/omergocmen/CrewCtl.git
+cd CrewCtl
+npm install
 npm run doctor
+npm test
 npm start
 ~~~
 
-Kaynaktan çalıştırıldığında veri, mevcut davranışla uyumlu olarak <code>orchestrator/</code> klasöründe tutulur.
-</details>
+`npm install` runtime bağımlılığı indirmez; lock/yerel npm ortamını hazırlar. Kaynaktan
+çalıştırıldığında geliştirme verileri <code>orchestrator/</code> klasöründe tutulur. Sunucu
+çalışırken panel [http://localhost:4317](http://localhost:4317) adresindedir.
 
 ### CLI kullanımı
 

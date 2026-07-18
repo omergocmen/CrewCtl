@@ -1,6 +1,6 @@
 # Architecture Context
 
-**Sources:** `README.md`, `package.json`, `.gitignore`, `.npmignore`, `orchestrator/src/*.js`, `orchestrator/web/*.html`
+**Sources:** `README.md`, `CONTRIBUTING.md`, `package.json`, `.gitignore`, `.npmignore`, `orchestrator/src/*.js`, `orchestrator/web/*.html`
 
 **Last verified:** 2026-07-18
 
@@ -34,6 +34,8 @@ CrewCtl, kurulu Codex, Claude Code, Gemini ve OpenCode CLI'larını tek bir oper
 - Node.js 18+ ve CommonJS kullanılır; kök `package.json` runtime bağımlılığı tanımlamaz.
 - Npm paketi depo kökünden yayımlanır; `bin.crewctl` hedefi `orchestrator/src/cli.js` ve sürüm kaynağı kök `package.json` dosyasıdır.
 - Yayımlanmış paket `npx @omerrgocmen/crewctl` ile tüketici proje klasöründen çalıştırılır; CrewCtl kaynak deposunun kendi kökünde geliştirme girişi `npm start`'tır.
+- Canonical kaynak depo `https://github.com/omergocmen/CrewCtl` adresindedir; developer modu kök dizinde `npm install`, `npm test` ve `npm start` komutlarını kullanır.
+- `orchestrator/test/` altındaki test kaynakları Git'te tutulur ancak npm tarball'ına girmez; `.gitignore` yalnızca testlerin ürettiği `.tmp-*` klasörleri ve `*-output.txt` dosyalarını dışlar.
 - Uygulama yerel CLI kimlik doğrulamalarını kullanır; ayrı API anahtarı yönetmez.
 - Windows, macOS ve Linux desteklenir; proses ve yol değişiklikleri üç platformu gözetmelidir.
 - Operatör bir CLI'dır ve daima `roles/operator.md` rolünü kullanır; uzman agent profilleri `config.agents` altındadır.
@@ -53,12 +55,12 @@ Dashboard, Ekip Akışı ve Canlı Kod sayfaları `server.js` API/SSE sözleşme
 
 ### 2026-07-18 — Npm paketi sahipli kapsam altına taşındı
 
-- **Change:** Npm paket adı `crewctl` yerine public `@omerrgocmen/crewctl` oldu; `npx` ve global kurulum örnekleri scoped adı kullanıyor, kurulumun oluşturduğu executable adı `crewctl` olarak korunuyor.
+- **Change:** Npm paket adı `crewctl` yerine public `@omerrgocmen/crewctl` oldu; `npx` ve global kurulum örnekleri scoped adı kullanıyor, kurulumun oluşturduğu executable adı `crewctl` olarak korunuyor; canonical repo ve clone akışı `omergocmen/CrewCtl` adresine taşındı.
 - **Reason:** Unscoped `crewctl` adı başka bir npm sahibinin yayından kaldırılmış kaydıyla kilitli olduğundan sahipli ve çakışmasız bir yayın alanı kullanmak.
 - **Impact:** Kurulumsuz çalıştırma komutu `npx @omerrgocmen/crewctl`, global kurulum komutu `npm install -g @omerrgocmen/crewctl` oldu; kurulum sonrası `crewctl` komutları değişmedi.
 - **Compatibility:** Eski unscoped paket hiç yayımlanamadı; mevcut yerel `crewctl` executable kullanımı korunur.
 - **Verification:** `npm test`; `npm publish --dry-run --access public`; paket metadata ve lock adının `@omerrgocmen/crewctl@1.0.0` olduğunu doğrulama.
-- **Files:** `package.json`, `package-lock.json`, `README.md`, `orchestrator/README.md`, `orchestrator/src/cli.js`, `orchestrator/test/cli.test.js`
+- **Files:** `package.json`, `package-lock.json`, `.gitignore`, `README.md`, `orchestrator/README.md`, `CONTRIBUTING.md`, `orchestrator/src/cli.js`, `orchestrator/test/cli.test.js`
 
 ### 2026-07-18 — Npm yayın kökü ve ignore sınırları birleştirildi
 

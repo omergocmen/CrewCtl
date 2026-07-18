@@ -15,8 +15,8 @@ Bir hata bildirirken işletim sistemini, Node.js sürümünü, kullandığınız
 Node.js 18 veya daha yeni bir sürüm gereklidir.
 
 ```bash
-git clone https://github.com/omergocmen/cli.git
-cd cli/orchestrator
+git clone https://github.com/omergocmen/CrewCtl.git
+cd CrewCtl
 npm install
 npm run doctor
 npm test
