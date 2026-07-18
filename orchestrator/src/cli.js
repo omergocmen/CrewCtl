@@ -10,8 +10,12 @@ function help() {
 
 Kurulu kodlama CLI'larini tek kuyrukta yonetin.
 
+Hizli baslangic:
+  npx crewctl                           Paneli aninda baslat (kurulum gerektirmez)
+  npm i -g crewctl                      Global kur, ardindan: crewctl
+
 Kullanim:
-  crewctl start                         Web panelini baslat
+  crewctl [start]                       Web panelini baslat (komutsuz = start)
   crewctl doctor [--fix]                Ortami kontrol et (varsayilan salt okunur)
   crewctl run [--once] [--approval mod] Kuyrugu panelsiz calistir
   crewctl status [--json]               Kuyruk ve butce ozetini goster
@@ -26,8 +30,11 @@ Task secenekleri:
   --mode <mod>         auto | fast | balanced | deep
 
 Ornek:
-  crewctl task "Testleri duzelt" --dir .. --mode balanced
-  npm run cli -- status
+  crewctl task "Testleri duzelt" --dir . --mode balanced
+  crewctl status
+
+Veri (config, kuyruk, gecmis) ~/.crewctl altinda tutulur (CREWCTL_HOME ile degistirilebilir).
+Calisma klasoru varsayilan olarak komutun calistirildigi dizindir; panelden degistirilebilir.
 `);
 }
 
@@ -107,7 +114,8 @@ async function run(args) {
 
 async function main(argv = process.argv.slice(2)) {
   store.ensureDirs();
-  const [command = "help", ...args] = argv;
+  // Komutsuz cagri (or. `npx crewctl`) dogrudan web panelini baslatir.
+  const [command = "start", ...args] = argv;
   if (["help", "--help", "-h"].includes(command)) return help();
   if (["--version", "-v", "version"].includes(command)) return console.log(VERSION);
   if (command === "start") return require("./server");

@@ -112,15 +112,35 @@ kenar çubuğundaki **Zamanlanmış görevler** kartında sonraki çalışma zam
 
 **Gereksinim:** [Node.js](https://nodejs.org) 18+ ve en az bir kurulu, oturum açılmış CLI agent'ı.
 
+En hızlı yol — **tek komut, kurulum gerektirmez:**
+
+~~~bash
+npx crewctl
+~~~
+
+Ya da global kurun:
+
+~~~bash
+npm install -g crewctl
+crewctl
+~~~
+
+Arayüz varsayılan olarak [http://localhost:4317](http://localhost:4317) adresinde açılır. Panelde çalışma klasörünü seçin, operatör ve agent profillerini kontrol edin, ardından bir görev ekleyip **Başlat** düğmesine basın.
+
+> **Veri konumu:** config, kuyruk ve görev geçmişi kullanıcı klasörünüzdeki <code>~/.crewctl</code> altında tutulur (ortam değişkeni <code>CREWCTL_HOME</code> ile değiştirilebilir). Çalışma klasörü varsayılan olarak komutu çalıştırdığınız dizindir; panelden değiştirilebilir. Makineye özel <code>config.json</code> ilk çalıştırmada otomatik üretilir.
+
+<details>
+<summary>Kaynaktan çalıştırma (geliştirme)</summary>
+
 ~~~bash
 git clone https://github.com/omergocmen/cli.git
 cd cli/orchestrator
-npm install
 npm run doctor
 npm start
 ~~~
 
-Arayüz varsayılan olarak [http://localhost:4317](http://localhost:4317) adresinde açılır. Panelde çalışma klasörünü seçin, operatör ve agent profillerini kontrol edin, ardından bir görev ekleyip **Başlat** düğmesine basın. Makineye özel <code>config.json</code> ilk çalıştırmada otomatik üretilir.
+Kaynaktan çalıştırıldığında veri, mevcut davranışla uyumlu olarak <code>orchestrator/</code> klasöründe tutulur.
+</details>
 
 ### CLI kullanımı
 

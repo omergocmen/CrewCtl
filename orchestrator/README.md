@@ -80,24 +80,39 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 **Gereksinimler:** [Node.js](https://nodejs.org) **18+** ve en az bir kurulu CLI agent'ı
 (Codex, Claude Code, Gemini veya OpenCode). Başka npm bağımlılığı **yoktur**.
 
+**Tek komut — kurulum gerektirmez:**
+
+```bash
+npx crewctl            # paneli anında başlatır (komutsuz = start)
+```
+
+Ya da global kurun:
+
+```bash
+npm install -g crewctl
+crewctl                # panel
+crewctl status
+crewctl task "Testleri düzelt" --dir . --mode balanced
+crewctl doctor         # salt-okunur ortam kontrolü
+```
+
+> **Veri konumu:** config, kuyruk ve görev geçmişi `~/.crewctl` altında tutulur
+> (`CREWCTL_HOME` ile değiştirilebilir). Çalışma klasörü varsayılan olarak komutu çalıştırdığınız
+> dizindir; panelden değiştirilebilir.
+
+<details>
+<summary>Kaynaktan çalıştırma (geliştirme)</summary>
+
 ```bash
 git clone https://github.com/omergocmen/cli.git
 cd cli/orchestrator
-npm install          # bağımlılık yok — yalnızca projeyi hazırlar
 npm run cli -- doctor  # salt-okunur ortam kontrolü
-npm run cli -- start   # sunucuyu başlatır ve tarayıcıyı açar
+npm start              # sunucuyu başlatır ve tarayıcıyı açar
 ```
 
-İsterseniz `npm link` ile `crewctl` komutunu sisteme bağlayın. Bundan sonra web paneli ve
-headless kullanım aynı giriş noktasındadır:
-
-```bash
-crewctl status
-crewctl task "Testleri düzelt" --dir .. --mode balanced
-crewctl run --once
-crewctl approvals
-crewctl start
-```
+Kaynaktan çalıştırıldığında (repo `test/` klasörü mevcutken) veri, mevcut davranışla uyumlu olarak
+`orchestrator/` klasöründe tutulur.
+</details>
 
 `crewctl doctor` ayarları değiştirmez. Yalnızca keşif sonucunu `config.json` dosyasına uygulamak
 istediğinizde açıkça `crewctl doctor --fix` kullanın.

@@ -45,6 +45,27 @@ Dashboard, Ekip Akışı ve Canlı Kod sayfaları `server.js` API/SSE sözleşme
 
 ## Major Changes
 
+### 2026-07-18 — Yayınlanabilir paket: `npx crewctl` ve veri/asset ayrımı
+
+- **Change:** Paket npm'e yayınlanabilir hale getirildi (`private` kaldırıldı, `files`/repository/
+  homepage/bugs eklendi) ve `store.js` **ASSETS (paket, salt-okunur) ↔ ROOT (yazılabilir veri)**
+  ayrımı yaptı. Kurulu modda veri `~/.crewctl`'e (env `CREWCTL_HOME`) yazılır; geliştirme
+  kopyasında (`test/` mevcut) davranış korunur (ROOT=ASSETS). `roles/`+`skills/` varsayılanları
+  ilk çalışmada veri köküne seed edilir; `web/` ve `config.default.json` ASSETS'ten okunur.
+  Çalışma klasörü `store.WORK_BASE` (=cwd) üzerinden çözülür; `config.default.json` `workingDir: "."`.
+  Komutsuz `crewctl`/`npx crewctl` paneli başlatır.
+- **Reason:** Uygulamayı klonlamadan tek komutla (`npx crewctl`) çalıştırılabilir kılmak; veriyi
+  npm önbelleğine değil kalıcı kullanıcı dizinine yazmak.
+- **Impact:** `store.js`, `server.js`, `engine.js`, `cli.js`, `package.json`, `config.default.json`
+  ve README'ler etkilendi; ayrıntı için `configuration.md`.
+- **Compatibility:** `CLI_TEAM_ROOT` önceliği korunur → tüm testler izole çalışır; dev `npm start`/
+  `npm test` davranışı değişmez. Yalnız Node core kullanılır (sıfır bağımlılık korunur).
+- **Verification:** `npm test`; `npm pack` + kurulu-mod simülasyonu (veri `CREWCTL_HOME`'a,
+  paket dizinine değil; roles/skills seed; config.json üretildi; panel 200).
+- **Files:** `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/src/engine.js`,
+  `orchestrator/src/cli.js`, `orchestrator/package.json`, `orchestrator/config.default.json`,
+  `README.md`, `orchestrator/README.md`
+
 ### 2026-07-18 — Kanban Pano ve zamanlanmış görevler
 
 - **Change:** Görev yaşam döngüsünü sütunlarla gösteren salt-görsel `board.html` ve dostça ön

@@ -1,7 +1,6 @@
 {
   "name": "crewctl",
   "version": "1.0.0",
-  "private": true,
   "type": "commonjs",
   "description": "CrewCtl — Zero-dependency Node.js orchestrator that runs your installed CLI coding agents (Codex, Claude, Gemini, OpenCode) as one operator-led team, with a live web command center.",
   "keywords": [
@@ -16,6 +15,24 @@
     "cli"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omergocmen/cli.git",
+    "directory": "orchestrator"
+  },
+  "homepage": "https://github.com/omergocmen/cli#readme",
+  "bugs": {
+    "url": "https://github.com/omergocmen/cli/issues"
+  },
+  "files": [
+    "src/",
+    "web/",
+    "roles/",
+    "skills/",
+    "config.default.json",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "crewctl": "src/cli.js"
   },

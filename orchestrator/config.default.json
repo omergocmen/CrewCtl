@@ -1,7 +1,7 @@
 {
   "_comment": "ŞABLON. İlk çalıştırmada bu dosya config.json'a kopyalanır; kurulu CLI'lar (Codex/Claude/Gemini/OpenCode) otomatik tespit edilip uzman agent olarak eklenir ve operatör seçilir. config.json kişiye özeldir ve .gitignore'dadır; bu şablonu paylaşabilirsiniz.",
   "approvalMode": "auto",
-  "workingDir": "..",
+  "workingDir": ".",
   "dailyCallBudget": 150,
   "pollSeconds": 15,
   "memoryCharBudget": 8000,
