@@ -1,8 +1,8 @@
 # Architecture Context
 
-**Sources:** `README.md`, `orchestrator/package.json`, `orchestrator/src/*.js`, `orchestrator/web/*.html`
+**Sources:** `README.md`, `package.json`, `.gitignore`, `.npmignore`, `orchestrator/src/*.js`, `orchestrator/web/*.html`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-07-18
 
 ## Purpose
 
@@ -24,11 +24,16 @@ CrewCtl, kurulu Codex, Claude Code, Gemini ve OpenCode CLI'larını tek bir oper
 - `orchestrator/web/board.html`: görev yaşam döngüsünü sütunlarla gösteren salt-görsel Kanban panosu.
 - `orchestrator/roles/`: operatör ve uzman prompt sözleşmeleri.
 - `orchestrator/test/`: bağımlılıksız Node testleri ve sahte CLI prosesleri.
+- `package.json`: depo kökünden npm yayınını, `crewctl` executable'ını ve geliştirme scriptlerini tanımlar.
+- `.gitignore`: yerel config/runtime verisini, agent metadata'sını ve üretilen dosyaları Git dışında tutar.
+- `.npmignore` ve `package.json#files`: npm tarball'ını runtime kaynaklarıyla sınırlar; testler, yerel veri ve geliştirme metadata'sı yayımlanmaz.
 
 ## Contracts and invariants
 
-- Ürünün görünen adı `CrewCtl`, npm paket ve global executable adı `crewctl`'dir; “command center” yalnızca web arayüzünü açıklayan genel bir ifadedir.
-- Node.js 18+ ve CommonJS kullanılır; `package.json` runtime bağımlılığı tanımlamaz.
+- Ürünün görünen adı `CrewCtl`, npm paket adı `@omerrgocmen/crewctl`, global executable adı `crewctl`'dir; “command center” yalnızca web arayüzünü açıklayan genel bir ifadedir.
+- Node.js 18+ ve CommonJS kullanılır; kök `package.json` runtime bağımlılığı tanımlamaz.
+- Npm paketi depo kökünden yayımlanır; `bin.crewctl` hedefi `orchestrator/src/cli.js` ve sürüm kaynağı kök `package.json` dosyasıdır.
+- Yayımlanmış paket `npx @omerrgocmen/crewctl` ile tüketici proje klasöründen çalıştırılır; CrewCtl kaynak deposunun kendi kökünde geliştirme girişi `npm start`'tır.
 - Uygulama yerel CLI kimlik doğrulamalarını kullanır; ayrı API anahtarı yönetmez.
 - Windows, macOS ve Linux desteklenir; proses ve yol değişiklikleri üç platformu gözetmelidir.
 - Operatör bir CLI'dır ve daima `roles/operator.md` rolünü kullanır; uzman agent profilleri `config.agents` altındadır.
@@ -40,10 +45,50 @@ Dashboard, Ekip Akışı ve Canlı Kod sayfaları `server.js` API/SSE sözleşme
 
 ## Verification
 
-- `cd orchestrator && npm run doctor`
-- `cd orchestrator && npm test`
+- `npm run doctor`
+- `npm test`
+- `npm pack --dry-run --json`
 
 ## Major Changes
+
+### 2026-07-18 — Npm paketi sahipli kapsam altına taşındı
+
+- **Change:** Npm paket adı `crewctl` yerine public `@omerrgocmen/crewctl` oldu; `npx` ve global kurulum örnekleri scoped adı kullanıyor, kurulumun oluşturduğu executable adı `crewctl` olarak korunuyor.
+- **Reason:** Unscoped `crewctl` adı başka bir npm sahibinin yayından kaldırılmış kaydıyla kilitli olduğundan sahipli ve çakışmasız bir yayın alanı kullanmak.
+- **Impact:** Kurulumsuz çalıştırma komutu `npx @omerrgocmen/crewctl`, global kurulum komutu `npm install -g @omerrgocmen/crewctl` oldu; kurulum sonrası `crewctl` komutları değişmedi.
+- **Compatibility:** Eski unscoped paket hiç yayımlanamadı; mevcut yerel `crewctl` executable kullanımı korunur.
+- **Verification:** `npm test`; `npm publish --dry-run --access public`; paket metadata ve lock adının `@omerrgocmen/crewctl@1.0.0` olduğunu doğrulama.
+- **Files:** `package.json`, `package-lock.json`, `README.md`, `orchestrator/README.md`, `orchestrator/src/cli.js`, `orchestrator/test/cli.test.js`
+
+### 2026-07-18 — Npm yayın kökü ve ignore sınırları birleştirildi
+
+- **Change:** Tek npm manifesti depo köküne taşındı; `crewctl` bin yolu kökten tanımlandı, kök `.gitignore`/`.npmignore` ve paket `files` allowlist'i eklendi, geliştirme komutları kökten çalışacak şekilde güncellendi.
+- **Reason:** Kökten `npm publish`, `npm pack`, `npm link` ve sonrasında `npx crewctl` akışını desteklemek; yerel config, görev geçmişi, test ve agent metadata'sını yayın/Git dışında tutmak.
+- **Impact:** Paket sahipleri npm komutlarını artık depo kökünde çalıştırır; tarball yalnızca CLI, web assetleri, varsayılan rol/skill/config ve lisans/dokümantasyon içerir.
+- **Compatibility:** Yayımlanan executable adı ve runtime asset yerleşimi korunur; eski `cd orchestrator && npm ...` geliştirme akışı yerine kök dizin kullanılmalıdır.
+- **Verification:** `npm test`; `npm pack --dry-run --json` (95 dosya); tarball'ı geçici dizine kurup oluşan `crewctl version` executable'ını çalıştırma (`1.0.0`).
+- **Files:** `package.json`, `package-lock.json`, `.gitignore`, `.npmignore`, `orchestrator/src/cli.js`, `orchestrator/test/cli.test.js`, `README.md`, `orchestrator/README.md`
+
+### 2026-07-18 — Yayınlanabilir paket: `npx crewctl` ve veri/asset ayrımı
+
+- **Change:** Paket npm'e yayınlanabilir hale getirildi (`private` kaldırıldı, `files`/repository/
+  homepage/bugs eklendi) ve `store.js` **ASSETS (paket, salt-okunur) ↔ ROOT (yazılabilir veri)**
+  ayrımı yaptı. Kurulu modda veri `~/.crewctl`'e (env `CREWCTL_HOME`) yazılır; geliştirme
+  kopyasında (`test/` mevcut) davranış korunur (ROOT=ASSETS). `roles/`+`skills/` varsayılanları
+  ilk çalışmada veri köküne seed edilir; `web/` ve `config.default.json` ASSETS'ten okunur.
+  Çalışma klasörü `store.WORK_BASE` (=cwd) üzerinden çözülür; `config.default.json` `workingDir: "."`.
+  Komutsuz `crewctl`/`npx crewctl` paneli başlatır.
+- **Reason:** Uygulamayı klonlamadan tek komutla (`npx crewctl`) çalıştırılabilir kılmak; veriyi
+  npm önbelleğine değil kalıcı kullanıcı dizinine yazmak.
+- **Impact:** `store.js`, `server.js`, `engine.js`, `cli.js`, `package.json`, `config.default.json`
+  ve README'ler etkilendi; ayrıntı için `configuration.md`.
+- **Compatibility:** `CLI_TEAM_ROOT` önceliği korunur → tüm testler izole çalışır; dev `npm start`/
+  `npm test` davranışı değişmez. Yalnız Node core kullanılır (sıfır bağımlılık korunur).
+- **Verification:** `npm test`; `npm pack` + kurulu-mod simülasyonu (veri `CREWCTL_HOME`'a,
+  paket dizinine değil; roles/skills seed; config.json üretildi; panel 200).
+- **Files:** `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/src/engine.js`,
+  `orchestrator/src/cli.js`, `orchestrator/package.json`, `orchestrator/config.default.json`,
+  `README.md`, `orchestrator/README.md`
 
 ### 2026-07-18 — Kanban Pano ve zamanlanmış görevler
 

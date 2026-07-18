@@ -2,12 +2,26 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const os = require("os");
 
 const isWin = process.platform === "win32";
-// ROOT normalde repo kokudur. CLI_TEAM_ROOT env'i verilirse (izole test/CI veya alternatif
-// runtime dizini icin) onu kullaniriz; bu sayede testler canli config.json/queue'ya hic
-// dokunmadan kendi gecici klasorlerinde calisabilir. Ayar yoksa davranis aynen korunur.
-const ROOT = path.resolve(process.env.CLI_TEAM_ROOT || path.join(__dirname, ".."));
+// ASSETS: paket dizini (salt-okunur varlıklar: web/, config.default.json, varsayilan roles/+skills/).
+// __dirname/.. daima paketin gercek yeridir (npm global/npx onbellegi dahil).
+const ASSETS = path.join(__dirname, "..");
+// ROOT: yazilabilir VERI koku (config.json, queue/, state/, memory/, kullanicinin roles/+skills/).
+// Oncelik: CLI_TEAM_ROOT (izole test/CI) > CREWCTL_HOME (kullanici override) > mod tespiti.
+// Gelistirme kopyasinda test/ klasoru bulunur ve paket dizini yazilabilirdir; o zaman ROOT=ASSETS
+// (mevcut npm start/npm test davranisi aynen korunur). Yayinlanan pakette test/ gonderilmez, bu
+// yuzden kurulu modda veri ~/.crewctl'e yazilir (npm onbelleğine degil).
+const isDevCheckout = fs.existsSync(path.join(ASSETS, "test"));
+const ROOT = path.resolve(
+  process.env.CLI_TEAM_ROOT ||
+  process.env.CREWCTL_HOME ||
+  (isDevCheckout ? ASSETS : path.join(os.homedir(), ".crewctl"))
+);
+// WORK_BASE: agent'larin uzerinde calisacagi klasorun goreli cozumleme tabani. Kurulu modda
+// kullanici komutu nerede calistirdiysa orasidir (cwd); mutlak yol secilirse zaten o kullanilir.
+const WORK_BASE = process.cwd();
 const Q = path.join(ROOT, "queue");
 const STATES = ["pending", "done", "failed", "approval"];
 const MEM = path.join(ROOT, "memory");
@@ -42,12 +56,30 @@ function sweepStaleTemp(dir, maxAgeMs = 5 * 60 * 1000) {
   }
 }
 
+// Kurulu modda (ROOT != ASSETS) veri kokundeki roles/ ve skills/ bos ise paketle gelen
+// varsayilanlari BIR KEZ kopyala. Kullanicinin duzenlemeleri korunur (yalnizca bos dizine seed).
+let seededAssets = false;
+function seedDefaults() {
+  if (seededAssets) return;
+  seededAssets = true;
+  if (ROOT === ASSETS) return;
+  for (const [srcDir, dstDir] of [[path.join(ASSETS, "roles"), ROLES], [path.join(ASSETS, "skills"), SKILLS]]) {
+    try {
+      const existing = fs.existsSync(dstDir) ? fs.readdirSync(dstDir).filter((f) => f.toLowerCase().endsWith(".md")) : [];
+      if (existing.length) continue;
+      const defaults = fs.existsSync(srcDir) ? fs.readdirSync(srcDir).filter((f) => f.toLowerCase().endsWith(".md")) : [];
+      for (const f of defaults) fs.copyFileSync(path.join(srcDir, f), path.join(dstDir, f));
+    } catch {}
+  }
+}
+
 // ensureDirs, olay akisinda cok sik cagrilir; temizligi dakikada bir defayla sinirla ki
 // her stdout parcasinda dizin taramasi yapmayalim.
 let lastSweepAt = 0;
 function ensureDirs() {
   const dirs = [...STATES.map((s) => path.join(Q, s)), MEM, STATE, EVENTS, ROLES, SKILLS];
   dirs.forEach((d) => fs.mkdirSync(d, { recursive: true }));
+  seedDefaults();
   if (Date.now() - lastSweepAt > 60 * 1000) {
     lastSweepAt = Date.now();
     for (const s of STATES) sweepStaleTemp(path.join(Q, s));
@@ -130,7 +162,7 @@ function normalizeConfig(cfg) {
 function loadConfig() {
   const file = path.join(ROOT, "config.json");
   if (!fs.existsSync(file)) {
-    const template = path.join(ROOT, "config.default.json");
+    const template = path.join(ASSETS, "config.default.json");
     const seed = fs.existsSync(template) ? fs.readFileSync(template, "utf8") : JSON.stringify(FALLBACK_CONFIG, null, 2);
     atomicWrite(file, seed);
   }
@@ -301,6 +333,8 @@ function bumpCallCount() {
 
 module.exports = {
   ROOT,
+  ASSETS,
+  WORK_BASE,
   ensureDirs,
   loadConfig,
   normalizeConfig,

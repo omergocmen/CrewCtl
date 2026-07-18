@@ -747,7 +747,7 @@ class Engine extends EventEmitter {
       const command = cliRegistry.buildCommand(agent.cmd, rawArgs);
       const file = command.file;
       const args = command.args;
-      const cwd = this._cwd || path.resolve(store.ROOT, cfg.workingDir || ".");
+      const cwd = this._cwd || path.resolve(store.WORK_BASE, cfg.workingDir || ".");
       const started = Date.now();
       let stdout = "", stderr = "", settled = false, timedOut = false, silenceTimedOut = false;
       let timer, silenceTimer, progressTimer;
@@ -1061,7 +1061,7 @@ class Engine extends EventEmitter {
     task.operatorCli = operatorCli;
     this.busy = true;
     this.current = { id: task.id, stage: "operator", agent: operatorCli };
-    this._cwd = path.resolve(store.ROOT, task.targetDir || cfg.workingDir || ".");
+    this._cwd = path.resolve(store.WORK_BASE, task.targetDir || cfg.workingDir || ".");
     this._snapBefore = snapshotDir(this._cwd);
     this.startLiveDiff(task);
     this.publish("log", { level: "task", msg: `GOREV ${task.id}: ${task.prompt}` }, task.id);
@@ -1281,7 +1281,7 @@ class Engine extends EventEmitter {
     if (!operatorCli || !cliRegistry.operatorSpec(operatorCli, cfg)) throw new Error("Sohbet icin operator CLI bulunamadi.");
     this.busy = true;
     this.current = { id: task.id, stage: "operator-chat", agent: operatorCli };
-    this._cwd = path.resolve(store.ROOT, parent.targetDir || cfg.workingDir || ".");
+    this._cwd = path.resolve(store.WORK_BASE, parent.targetDir || cfg.workingDir || ".");
     this.publish("log", { level: "task", msg: `OPERATOR SOHBETI ${parent.id}: ${task.prompt}` }, task.id);
     this.emit("status", this.status());
 

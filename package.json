@@ -1,0 +1,51 @@
+{
+  "name": "@omerrgocmen/crewctl",
+  "version": "1.0.0",
+  "description": "CrewCtl — Zero-dependency Node.js orchestrator that runs installed CLI coding agents as one operator-led team.",
+  "keywords": [
+    "ai",
+    "agents",
+    "orchestrator",
+    "codex",
+    "claude",
+    "gemini",
+    "opencode",
+    "multi-agent",
+    "cli"
+  ],
+  "license": "MIT",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omergocmen/cli.git"
+  },
+  "homepage": "https://github.com/omergocmen/cli#readme",
+  "bugs": {
+    "url": "https://github.com/omergocmen/cli/issues"
+  },
+  "files": [
+    "orchestrator/src/",
+    "orchestrator/web/",
+    "orchestrator/roles/",
+    "orchestrator/skills/",
+    "orchestrator/config.default.json",
+    "orchestrator/README.md",
+    "orchestrator/LICENSE"
+  ],
+  "bin": {
+    "crewctl": "orchestrator/src/cli.js"
+  },
+  "scripts": {
+    "start": "node orchestrator/src/server.js",
+    "cli": "node orchestrator/src/cli.js",
+    "doctor": "node orchestrator/src/doctor.js",
+    "test": "node orchestrator/test/ui-smoke.test.js && node orchestrator/test/cli.test.js && node orchestrator/test/skills.test.js && node orchestrator/test/schedule.test.js && node orchestrator/test/team-flow.test.js && node orchestrator/test/live-diff.test.js && node orchestrator/test/checkpoints.test.js",
+    "prepublishOnly": "npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

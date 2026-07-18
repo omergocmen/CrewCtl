@@ -22,7 +22,7 @@ process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", (e
 
 const PORT = process.env.PORT || 4317;
 const HOST = process.env.HOST || "127.0.0.1";
-const WEB = path.join(store.ROOT, "web");
+const WEB = path.join(store.ASSETS, "web");
 const HEALTH_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const HEALTH_CACHE_VERSION = 2;
 const CODEX_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -233,7 +233,7 @@ async function explorerPlaces() {
     { id: "documents", label: "Belgeler", icon: "▤", path: path.join(home, "Documents") },
     oneDrive && { id: "onedrive-documents", label: "OneDrive Belgeler", icon: "▤", path: path.join(oneDrive, "Documents") },
     { id: "downloads", label: "İndirilenler", icon: "↓", path: path.join(home, "Downloads") },
-    { id: "project", label: "Orkestratör", icon: "◇", path: store.ROOT },
+    { id: "project", label: "Çalışma klasörü", icon: "◇", path: store.WORK_BASE },
   ].filter(Boolean);
   return uniqExistingDirs(candidates);
 }
@@ -320,7 +320,7 @@ const server = http.createServer(async (req, res) => {
           cliStatus,
           schedules: cfg.schedules || [],
           platform: process.platform,
-          workingDirAbs: path.resolve(store.ROOT, cfg.workingDir || "."),
+          workingDirAbs: path.resolve(store.WORK_BASE, cfg.workingDir || "."),
         });
       }
       if (pathname === "/api/security/autonomous-consent" && req.method === "POST") {
@@ -404,7 +404,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === "/api/checkpoints" && req.method === "GET") {
         const dir = url.parse(req.url, true).query.dir;
-        return send(res, 200, checkpoints.listCheckpoints(dir ? path.resolve(store.ROOT, dir) : undefined));
+        return send(res, 200, checkpoints.listCheckpoints(dir ? path.resolve(store.WORK_BASE, dir) : undefined));
       }
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         cliStatus = cliRegistry.discoverInstalled();

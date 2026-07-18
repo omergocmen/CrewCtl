@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/cli.js`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-18
 
 ## Purpose
 
@@ -19,7 +19,7 @@ Web paneline gerek olmadan sunucuyu, engine'i ve dosya tabanlı görev kuyruğun
 
 ## Contracts and invariants
 
-- `package.json` global executable'ı `crewctl` adıyla yayımlar; help ve hata yönlendirmeleri de aynı komut adını kullanır.
+- Kök `package.json`, `@omerrgocmen/crewctl` npm paketinden `crewctl` global executable'ını yayımlar; CLI sürümünü bu manifestten okur, help metni scoped `npx`/kurulum komutlarını ve executable kullanımını birlikte gösterir.
 - Geçerli görev modları `auto`, `fast`, `balanced`, `deep`'tir.
 - Bilinmeyen option veya değersiz option hata üretir.
 - `run --once` yalnızca ilk pending görevi çalıştırır ve engine running durumunu `finally` ile kapatır.
@@ -31,7 +31,7 @@ Kuyruk ve config için `store.js`, yürütme için `engine.js`, doctor için `do
 
 ## Verification
 
-- `cd orchestrator && node test/cli.test.js`
+- `node orchestrator/test/cli.test.js`
 - Yeni komut veya option eklenirse help metni ve CLI testini birlikte güncelle.
 
 ## Major Changes

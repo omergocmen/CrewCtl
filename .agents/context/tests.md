@@ -1,8 +1,8 @@
 # Tests Context
 
-**Sources:** `orchestrator/test/**`, `orchestrator/package.json`
+**Sources:** `orchestrator/test/**`, `package.json`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-07-18
 
 ## Purpose
 
@@ -14,11 +14,13 @@ Gerçek model/provider çağrısı yapmadan CLI, UI syntax/smoke ve uçtan uca e
 - `test/cli.test.js`: config göçü/saflığı, adapter/cmd uzlaştırması, prompt-file health hazırlığı/temizliği, katalog destekli model argümanları, OpenCode miras/override ayrımı, parser/readiness, discovery/ignore davranışı ve `crewctl` help/version/status/task/approval CLI akışlarını test eder.
 - `test/team-flow.test.js`: fake CLI'larla fast/balanced görev, approval devamı, operator chat, recovery/routing, rol bazlı `allowedKinds`, PASS hızlı yolu, inceleme valisi, kısmi teslimat, ID dedupe, OpenCode JSON ve consent davranışlarını test eder.
 - `test/live-diff.test.js`: canlı filechange tekilleştirmesini, aynı dosyanın yeniden yayınını, created/modified/deleted satır hunk'larını, line counts, hassas içerik redaksiyonunu, kalıcı replay olaylarını ve timer bayraklarını test eder.
+- `test/schedule.test.js`: zamanlama doğrulamasını, sonraki çalışma hesabını ve due seçimini test eder.
+- `test/checkpoints.test.js`: checkpoint oluşturma, saklama ve güvenli geri yükleme davranışlarını test eder.
 - `test/fake-cli.js` ve diğer fake komutlar: operatör/uzman stdout, stderr, auth failure ve silence senaryolarını taklit eder.
 
 ## Contracts and invariants
 
-- `npm test` sırayla UI smoke, CLI, skills, team-flow ve live-diff testlerini çalıştırır; ilk hata zinciri durdurur.
+- Kök `npm test` sırayla UI smoke, CLI, skills, schedule, team-flow, live-diff ve checkpoints testlerini çalıştırır; ilk hata zinciri durdurur.
 - Testler Node'un yerleşik `assert`, `child_process`, `fs` ve geçici dizinlerini kullanır; harici test framework'ü yoktur.
 - Testler gerçek Codex/Claude/Gemini/OpenCode veya ağ erişimi gerektirmemelidir.
 - Oluşturulan task/runtime verileri ve temp workspace'ler test sonunda temizlenmelidir.
@@ -30,7 +32,7 @@ Test sahipliği kaynak modül context'leriyle ortaktır. Engine/registry/role de
 
 ## Verification
 
-- `cd orchestrator && npm test`
+- `npm test`
 
 ## Major Changes
 

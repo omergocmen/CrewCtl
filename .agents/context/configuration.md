@@ -10,7 +10,13 @@ Paylaşılabilir varsayılan yapılandırmayı, kişiye özel `config.json` yaş
 
 ## Current behavior
 
-- `store.loadConfig()`, `config.json` yoksa `config.default.json` kopyalar ve sonra saf/idempotent `normalizeConfig()` uygular.
+- **Veri/asset ayrımı:** `store.ASSETS` paket dizinidir (salt-okunur: `web/`, `config.default.json`,
+  varsayılan `roles/`+`skills/`). `store.ROOT` yazılabilir veri köküdür (config.json, queue/, state/,
+  memory/, kullanıcının roles/+skills/). ROOT önceliği: `CLI_TEAM_ROOT` > `CREWCTL_HOME` > mod tespiti
+  (`test/` varsa geliştirme kopyası → ROOT=ASSETS; yoksa kurulu paket → `~/.crewctl`). `store.WORK_BASE`
+  (=cwd) çalışma/hedef klasör çözümleme tabanıdır. `ensureDirs`, ROOT≠ASSETS iken boş `roles/`+`skills/`'i
+  ASSETS varsayılanlarından bir kez seed eder.
+- `store.loadConfig()`, `config.json` yoksa `ASSETS/config.default.json`'ı kopyalar ve sonra saf/idempotent `normalizeConfig()` uygular.
 - `cliSettings` doğrulanmış model kataloğu bulunan Codex ve OpenCode için CLI bazlı model ayarlarını tutar; Claude/Gemini CLI varsayılanını kullanır.
 - Eski `operator.codexSettings` ve `operator.model` alanları `cliSettings` altına taşınır ve operatör nesnesinden silinir.
 - `operator` tur/delegasyon/protokol/kurtarma politikalarını; `agents` uzman profillerini; `riskyPatterns` insan onayı gerektirebilecek metinleri tanımlar.

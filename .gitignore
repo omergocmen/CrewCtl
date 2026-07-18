@@ -1,0 +1,55 @@
+# Dependencies and generated package artifacts
+node_modules/
+coverage/
+.nyc_output/
+dist/
+build/
+.cache/
+*.tgz
+
+# Local configuration, credentials and environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+orchestrator/config.json
+orchestrator/config.local.json
+orchestrator/config.*.local.json
+
+# CrewCtl runtime data (generated again on demand)
+orchestrator/queue/
+orchestrator/state/
+orchestrator/memory/log.md
+
+# Local agent/editor metadata
+.claude/
+.codex/
+orchestrator/.claude/
+orchestrator/.codex/
+.vscode/
+.idea/
+*.code-workspace
+
+# Logs and temporary files
+*.log
+*.log.*
+*.pid
+*.pid.lock
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+tmp/
+temp/
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
