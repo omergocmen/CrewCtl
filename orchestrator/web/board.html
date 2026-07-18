@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pano · CrewCtl</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg:#090c12;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;--acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;--purple:#a98bff;
+--headerbg:#0a0f1acc;--input:#0b111c;--nodebg:#0b1220;--shadow:0 14px 40px #0008;
+--appbg:radial-gradient(1200px 620px at 50% -14%,#5e8bff16,transparent),radial-gradient(1000px 520px at 90% -6%,#a98bff12,transparent),var(--bg)}
+[data-theme=light]{--bg:#edf1f8;--panel:#ffffff;--panel2:#f3f6fc;--line:#dce4ef;--tx:#131a27;--dim:#5a6779;--acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;--purple:#7350f0;
+--headerbg:#ffffffe6;--input:#f4f7fd;--nodebg:#f7f9fd;--shadow:0 14px 36px #7a90b820;
+--appbg:radial-gradient(1200px 620px at 50% -14%,#3a63f012,transparent),radial-gradient(1000px 520px at 90% -6%,#7350f00e,transparent),var(--bg)}
+body{margin:0;background:var(--appbg);background-attachment:fixed;color:var(--tx);font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif;transition:background .3s,color .3s}
+button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;transition:border-color .18s,transform .1s,box-shadow .18s}
+button:hover{border-color:var(--acc);box-shadow:0 4px 14px color-mix(in srgb,var(--acc) 16%,transparent)}button:active{transform:translateY(1px)}
+button.sm{padding:4px 8px;font-size:12px}button.ok{color:var(--ok)}button.danger{color:var(--err)}
+a.btn{text-decoration:none;display:inline-block}
+/* Header */
+header{height:58px;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--headerbg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weight:800}.sep{color:var(--dim)}.grow{flex:1}
+.pill{border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:5px 11px;color:var(--dim);font-size:12px;display:inline-flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+.dot.on{background:var(--ok);box-shadow:0 0 10px var(--ok);animation:beat 1.6s ease-in-out infinite}
+@keyframes beat{50%{box-shadow:0 0 3px var(--ok)}}
+.muted{color:var(--dim);font-size:12px}
+/* Zamanlama şeridi */
+.sched-strip{margin:14px 14px 0;background:linear-gradient(120deg,var(--panel),var(--panel2));border:1px solid var(--line);border-radius:14px;padding:11px 14px;box-shadow:var(--shadow)}
+.sched-strip .kick{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--acc);font-weight:800;display:flex;align-items:center;gap:7px}
+.sched-list{display:flex;gap:9px;flex-wrap:wrap;margin-top:8px}
+.sched-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:11.5px;color:var(--dim)}
+.sched-chip b{color:var(--tx);font-weight:600}.sched-chip .when{color:var(--acc);font-variant-numeric:tabular-nums}
+.sched-chip.off{opacity:.55}
+/* Board */
+main{padding:14px}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+.col{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:11px;min-width:0;box-shadow:var(--shadow)}
+.col-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.col-head h2{margin:0;font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:var(--dim)}
+.col-head .count{margin-left:auto;font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;color:var(--dim);font-variant-numeric:tabular-nums}
+.col .accent{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
+.col.pending .accent{background:var(--acc)}.col.running .accent{background:var(--ok);box-shadow:0 0 9px var(--ok);animation:beat 1.4s ease-in-out infinite}.col.done .accent{background:var(--ok)}.col.failed .accent{background:var(--err)}
+.cards{display:flex;flex-direction:column;gap:9px;min-height:40px}
+.tcard{border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:10px;animation:pop .3s cubic-bezier(.2,.8,.2,1)}
+@keyframes pop{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.tcard .top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tcard .id{font:10px ui-monospace,Consolas,monospace;color:var(--dim)}
+.badge{font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 6px;color:var(--dim)}
+.badge.sched{color:var(--acc);border-color:color-mix(in srgb,var(--acc) 45%,var(--line))}
+.tcard .prompt{margin:6px 0 0;font-size:13px;line-height:1.45;word-break:break-word;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}
+.tcard .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.col.running .tcard{border-color:color-mix(in srgb,var(--ok) 42%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--ok) 20%,transparent)}
+.col.failed .tcard{border-color:color-mix(in srgb,var(--err) 34%,var(--line))}
+.col-empty{color:var(--dim);font-size:12px;padding:18px 8px;text-align:center;border:1px dashed var(--line);border-radius:10px}
+.run-state{font-size:11px;color:var(--ok);margin-top:6px;display:flex;align-items:center;gap:6px}
+.run-state .rd{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);animation:beat 1.3s ease-in-out infinite}
+@media(max-width:1100px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:620px){.board{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.dot.on,.col.running .accent,.run-state .rd{animation:none}.tcard{animation:none}}
+</style>
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1><span class="brand">CrewCtl</span> <span class="sep">·</span> Pano</h1>
+  <span class="pill"><span id="dot" class="dot"></span><span id="engineState">durdu</span></span>
+  <span id="modePill" class="pill">boşta</span>
+  <div class="grow"></div>
+  <a class="btn" href="flow.html"><button>Ekip Akışı</button></a>
+  <a class="btn" href="code.html"><button>Canlı Kod</button></a>
+  <button id="themeBtn" onclick="toggleTheme()" title="Açık / koyu tema"><svg class="i i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="i i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+  <a class="btn" href="index.html"><button>← Komuta Merkezi</button></a>
+</header>
+
+<div class="sched-strip" id="schedStrip" hidden>
+  <div class="kick"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg> Yaklaşan zamanlanmış görevler</div>
+  <div class="sched-list" id="schedList"></div>
+</div>
+
+<main>
+  <div class="board">
+    <div class="col pending"><div class="col-head"><span class="accent"></span><h2>Bekleyen</h2><span class="count" id="cnt-pending">0</span></div><div class="cards" id="col-pending"></div></div>
+    <div class="col running"><div class="col-head"><span class="accent"></span><h2>Çalışıyor</h2><span class="count" id="cnt-running">0</span></div><div class="cards" id="col-running"></div></div>
+    <div class="col done"><div class="col-head"><span class="accent"></span><h2>Tamamlanan</h2><span class="count" id="cnt-done">0</span></div><div class="cards" id="col-done"></div></div>
+    <div class="col failed"><div class="col-head"><span class="accent"></span><h2>Başarısız</h2><span class="count" id="cnt-failed">0</span></div><div class="cards" id="col-failed"></div></div>
+  </div>
+</main>
+
+<script>
+const $=s=>document.querySelector(s);
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+const CLI_LABEL={codex:'Codex',claude:'Claude Code',gemini:'Gemini',opencode:'OpenCode'};
+function cliLabel(id){return CLI_LABEL[id]||(String(id||'').charAt(0).toUpperCase()+String(id||'').slice(1))}
+const SCHED_DAYS=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+/* ---- Tema ---- */
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('cliTheme',t)}catch{}}
+function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
+(function(){let t='dark';try{t=localStorage.getItem('cliTheme')||'dark'}catch{}applyTheme(t)})();
+
+const BOARD={queue:{pending:[],approval:[],done:[],failed:[]},status:{},schedules:[]};
+function api(path,method='GET'){return fetch(path,{method}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('HTTP '+r.status));return j})}
+
+/* ---- Kart ---- */
+function taskCard(t,state){const opLabel=t.operatorCli?cliLabel(t.operatorCli):'';const sched=t.scheduleId?'<span class="badge sched">⏱ zamanlanmış</span>':'';
+  let acts='';
+  if(state==='pending')acts=`<button class="danger sm" onclick="delTask('${esc(t.id)}')">Sil</button>`;
+  else if((state==='done'||state==='failed')&&(t.delivery&&(t.delivery.files||[]).length))acts=`<a class="btn" href="code.html?task=${esc(t.id)}"><button class="sm">Kodu gör</button></a>`;
+  return `<div class="tcard"><div class="top"><span class="id">${esc(t.id)}</span><div class="grow"></div><span class="badge">${esc(t.executionMode||'auto')}</span>${opLabel?`<span class="badge">${esc(opLabel)}</span>`:''}${sched}</div><div class="prompt">${esc(t.prompt||'')}</div>${acts?`<div class="acts">${acts}</div>`:''}</div>`}
+function runningCard(cur){const stage=cur.stage?`<span class="badge">${esc(cur.stage)}</span>`:'';return `<div class="tcard"><div class="top"><span class="id">${esc(cur.id||'')}</span><div class="grow"></div>${stage}</div><div class="prompt">${esc(cur.prompt||'')}</div><div class="run-state"><span class="rd"></span>${esc(cur.agent?cur.agent+' çalışıyor':'operatör çalışıyor')}</div></div>`}
+function fill(id,html,count){$('#col-'+id).innerHTML=html||`<div class="col-empty">—</div>`;$('#cnt-'+id).textContent=count}
+function renderBoard(){const q=BOARD.queue||{},cur=BOARD.status?.current||null,runId=cur&&cur.id;
+  const pending=(q.pending||[]).filter(t=>!runId||t.id!==runId);
+  fill('pending',pending.map(t=>taskCard(t,'pending')).join(''),pending.length);
+  fill('running',cur?runningCard(cur):'',cur?1:0);
+  fill('done',(q.done||[]).map(t=>taskCard(t,'done')).join(''),(q.done||[]).length);
+  fill('failed',(q.failed||[]).map(t=>taskCard(t,'failed')).join(''),(q.failed||[]).length)}
+function applyStatus(s){BOARD.status=s||{};$('#dot').className='dot'+(s&&s.running?' on':'');$('#engineState').textContent=s&&s.running?'çalışıyor':'durdu';$('#modePill').textContent=s&&s.current?`${esc(s.current.agent||'operatör')} · ${esc(s.current.stage||'')}`:(s&&s.busy?'meşgul':'boşta');renderBoard()}
+
+/* ---- Zamanlama şeridi ---- */
+function schedTriggerText(s){const t=s.trigger||{};if(t.type==='interval'){const n=t.everyMinutes||0;return n%60===0&&n>=60?`Her ${n/60} saatte bir`:`Her ${n} dk`}if(t.type==='daily')return `Her gün ${esc(t.at||'')}`;if(t.type==='weekly')return `${(t.days||[]).map(d=>SCHED_DAYS[d]).join(', ')} ${esc(t.at||'')}`;return '—'}
+function schedWhen(s){if(s.enabled===false)return 'devre dışı';if(!s.nextRunAt)return '—';try{return new Date(s.nextRunAt).toLocaleString('tr-TR',{dateStyle:'short',timeStyle:'short'})}catch{return '—'}}
+function renderSchedules(){const list=(BOARD.schedules||[]).slice().sort((a,b)=>{const na=a.nextRunAt?Date.parse(a.nextRunAt):Infinity,nb=b.nextRunAt?Date.parse(b.nextRunAt):Infinity;return na-nb});const strip=$('#schedStrip');if(!list.length){strip.hidden=true;return}strip.hidden=false;$('#schedList').innerHTML=list.map(s=>`<span class="sched-chip${s.enabled===false?' off':''}" title="${esc(s.prompt||'')}"><b>${schedTriggerText(s)}</b><span class="when">${schedWhen(s)}</span></span>`).join('')}
+
+/* ---- Eylemler ---- */
+async function delTask(id){if(window.appConfirm&&!await appConfirm({title:'Görev silinsin mi?',body:'Bu bekleyen görev kuyruktan kaldırılacak.',confirmLabel:'Sil',cancelLabel:'Vazgeç',danger:true}))return;try{await api('/api/tasks/'+encodeURIComponent(id),'DELETE')}catch(e){alert(e.message)}}
+
+/* ---- SSE ---- */
+const es=new EventSource('/api/events');
+function dispatch(type,data){if(type==='status')applyStatus(data);else if(type==='queue'){BOARD.queue=data;renderBoard()}else if(type==='schedules'){BOARD.schedules=data;renderSchedules()}}
+for(const type of ['status','queue','schedules'])es.addEventListener(type,event=>{try{dispatch(type,JSON.parse(event.data))}catch{}});
+window.addEventListener('pagehide',()=>{try{es.close()}catch{}});
+window.addEventListener('pageshow',x=>{if(x.persisted)location.reload()});
+
+/* ---- Açılış ---- */
+async function boot(){try{const st=await api('/api/state');if(st.status)applyStatus(st.status);if(st.queue)BOARD.queue=st.queue;BOARD.schedules=st.schedules||[];renderBoard();renderSchedules()}catch(e){/* sessizce yeniden dene SSE ile */}}
+boot();
+</script>
+</body>
+</html>

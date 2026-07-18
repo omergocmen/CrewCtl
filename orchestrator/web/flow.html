@@ -255,7 +255,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const time=at=>new Date(at||Date.now()).toLocaleTimeString();
 const isOpStage=s=>String(s||'').startsWith('operator');
-const CLI_META={codex:{label:'Codex',c:'#10a37f'},claude:{label:'Claude',c:'#d97757'},gemini:{label:'Gemini',c:'#4285f4'},opencode:{label:'OpenCode',c:'#ec4899'},custom:{label:'CLI',c:'#8b98b0'}};
+const CLI_META={codex:{label:'Codex',c:'#10a37f'},claude:{label:'Claude',c:'#d97757'},gemini:{label:'Gemini',c:'#4285f4'},opencode:{label:'OpenCode',c:'#0ea5e9'},custom:{label:'CLI',c:'#8b98b0'}};
 function adapterOf(a){const b=String(a?.adapter||a?.cmd||a||'').toLowerCase();return ['codex','claude','gemini','opencode'].find(x=>b.includes(x))||'custom'}
 const cliLabel=id=>(CLI_META[id]||CLI_META.custom).label;
 const cliColor=id=>(CLI_META[id]||CLI_META.custom).c;

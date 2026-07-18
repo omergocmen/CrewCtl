@@ -17,9 +17,11 @@ CrewCtl, kurulu Codex, Claude Code, Gemini ve OpenCode CLI'larını tek bir oper
 - `orchestrator/src/cli-registry.js`: CLI keşfi, model/argüman normalizasyonu ve sağlık kontrolleri.
 - `orchestrator/src/skill-registry.js`: yerel skill keşfi, eşleştirme, bağlam bütçesi ve çağrı takibi.
 - `orchestrator/src/checkpoints.js`: görev öncesi çalışma klasörü checkpoint'i, listeleme, saklama limiti ve güvenli geri yükleme.
-- `orchestrator/web/index.html`: ana dashboard ve tüm yönetim modalları.
+- `orchestrator/src/schedule.js`: zamanlanmış görevlerin saf (yan etkisiz) doğrulama ve sonraki-çalışma hesabı.
+- `orchestrator/web/index.html`: ana dashboard ve tüm yönetim modalları (zamanlama sekmesi dahil).
 - `orchestrator/web/flow.html`: Three.js/WebGL tabanlı canlı ekip akışı, agent filosu ve görev zaman çizelgesi.
 - `orchestrator/web/code.html`: dosya/hunk bazlı Git benzeri canlı kod diff'i ve görev geçmişi replay'i.
+- `orchestrator/web/board.html`: görev yaşam döngüsünü sütunlarla gösteren salt-görsel Kanban panosu.
 - `orchestrator/roles/`: operatör ve uzman prompt sözleşmeleri.
 - `orchestrator/test/`: bağımlılıksız Node testleri ve sahte CLI prosesleri.
 
@@ -42,6 +44,22 @@ Dashboard, Ekip Akışı ve Canlı Kod sayfaları `server.js` API/SSE sözleşme
 - `cd orchestrator && npm test`
 
 ## Major Changes
+
+### 2026-07-18 — Kanban Pano ve zamanlanmış görevler
+
+- **Change:** Görev yaşam döngüsünü sütunlarla gösteren salt-görsel `board.html` ve dostça ön
+  ayarlı zamanlama katmanı (`schedule.js`, `config.schedules`, `/api/schedules`, `schedules`
+  SSE olayı, 30 sn zamanlayıcı tik'i, Ayarlar → Zamanlama sekmesi) eklendi. Ayrıntı için
+  `board.md` ve `scheduling.md`.
+- **Reason:** Kuyruğu tek bakışta anlaşılır kılmak ve tekrar eden görevleri otomatik kuyruğa almak.
+- **Impact:** İki yeni yüzey; ikisi de mevcut task/queue/SSE sözleşmesini additive biçimde tüketir.
+  Zamanlanan görev motor duruyorsa yalnızca kuyruğa girer (otomatik başlatma yok).
+- **Compatibility:** `schedules` yoksa `[]` varsayılır; mevcut config, kuyruk ve UI davranışı korunur.
+- **Verification:** `npm test`; yeni `schedule.test.js`, genişletilmiş `ui-smoke.test.js` ve canlı
+  `/api/schedules` duman testi.
+- **Files:** `orchestrator/src/schedule.js`, `orchestrator/src/store.js`, `orchestrator/src/server.js`,
+  `orchestrator/config.default.json`, `orchestrator/web/board.html`, `orchestrator/web/index.html`,
+  `orchestrator/test/schedule.test.js`, `orchestrator/test/ui-smoke.test.js`
 
 ### 2026-07-17 — Canlı görünürlük ve görev öncesi sürümleme genişletildi
 
