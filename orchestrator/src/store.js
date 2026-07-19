@@ -209,6 +209,20 @@ function listTasks(state) {
     .filter(Boolean)
     .sort((a, b) => (a.id < b.id ? -1 : 1));
 }
+// Yalnizca en yeni `limit` gorevi okur. Gorev id'si zaman damgasiyla basladigi icin dosya adi
+// siralamasi = kronolojik siralama; boylece done/failed gecmisi buyudukce (yuzlerce/binlerce
+// dosya) her pano yenilemesinde TUM dosyalari okuyup ayristirma maliyeti sabit N'e iner.
+function listRecentTasks(state, limit) {
+  const dir = path.join(Q, state);
+  if (!fs.existsSync(dir)) return [];
+  let names = fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+  if (limit && names.length > limit) names = names.slice(-limit);
+  return names
+    .map((f) => {
+      try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch { return null; }
+    })
+    .filter(Boolean);
+}
 function nextPending() {
   return listTasks("pending")[0] || null;
 }
@@ -344,6 +358,7 @@ module.exports = {
   writeRole,
   deleteRole,
   listTasks,
+  listRecentTasks,
   nextPending,
   addTask,
   addChatTask,

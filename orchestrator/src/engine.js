@@ -757,6 +757,10 @@ class Engine extends EventEmitter {
       this.emit("status", this.status());
       this.publish("activity", { ...base, kind: "process.started", cmd: agent.cmd, args: rawArgs, cwd });
 
+      // Motor onceliklidir: canli CLI saglik/model probe'lari (or. codex app-server / codex exec)
+      // ayni CLI'yi ayni anda calistirirsa codex ikinci exec oturumunu SIGTERM ile keser. Bu yuzden
+      // operatör/agent kosumuna girmeden uctaki tum probe'lari sonlandiriyoruz.
+      cliRegistry.abortActiveProbes();
       let child;
       try { child = spawn(file, args, { cwd, env: cliRegistry.agentEnvironment(agent), windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
       catch (error) { return reject(error); }
