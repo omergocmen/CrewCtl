@@ -59,6 +59,34 @@ const DEFINITIONS = {
 const RESOLVED = new Map();
 let OPEN_CODE_MODELS = [];
 
+// En fazla bir CLI'yi (or. codex) ayni anda hem canli saglik/model probe'u hem de motorun
+// operatör kosumu calistirirsa, codex gibi bazi CLI'lar ayni is dizininde ikinci exec oturumunu
+// SIGTERM ile keser. Probe'lar "en iyi caba"dir; motor onceliklidir. Aktif probe cocuklarini
+// izleyip motor bir goreve baslarken hepsini sonlandiriyoruz.
+const ACTIVE_PROBES = new Set();
+function registerProbe(child) {
+  if (!child) return () => {};
+  ACTIVE_PROBES.add(child);
+  return () => ACTIVE_PROBES.delete(child);
+}
+// Uctan uca proses agacini oldur (codex kabuk altinda alt proses baslatabilir).
+function terminateProbeTree(child) {
+  if (!child) return;
+  try {
+    if (isWin && child.pid) spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, stdio: "ignore" });
+    else child.kill("SIGKILL");
+  } catch {}
+}
+// Motor bir goreve baslarken cagirir: uctaki tum canli probe'lari sonlandirir ki operatörun
+// CLI'si (codex vb.) temiz bir alanda calissin. Probe'lar sonuc olarak "timeout/failed" doner;
+// bu zararsizdir, motor bosaldiginda yeniden denenir.
+function abortActiveProbes() {
+  const count = ACTIVE_PROBES.size;
+  for (const child of ACTIVE_PROBES) terminateProbeTree(child);
+  ACTIVE_PROBES.clear();
+  return count;
+}
+
 function selectOpenCodeModel(models) {
   const list = Array.isArray(models) ? models.map(String).filter(Boolean) : [];
   const priorities = [
@@ -366,10 +394,12 @@ function testInstalledCli(id, options = {}) {
       prepared.cleanup();
       return resolve({ id, installed: true, version: found.version, health: classifyHealthFailure(error.message) });
     }
+    const unregister = registerProbe(child);
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try { child.kill(); } catch {}
+      unregister();
+      terminateProbeTree(child);
       prepared.cleanup();
       resolve({ id, installed: true, version: found.version, health: { status: "timeout", label: "Yanıt zaman aşımına uğradı", detail: `Sağlık testi ${Math.round(timeoutMs / 1000)} saniyede tamamlanmadı.` } });
     }, timeoutMs);
@@ -381,6 +411,7 @@ function testInstalledCli(id, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      unregister();
       prepared.cleanup();
       const failure = classifyHealthFailure(error.message);
       resolve({ id, installed: true, version: found.version, health: failure });
@@ -389,6 +420,7 @@ function testInstalledCli(id, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      unregister();
       prepared.cleanup();
       const raw = `${stdout}\n${stderr}`.trim();
       if (code === 0 && /HEALTH_OK/i.test(raw)) resolve({ id, installed: true, version: found.version, health: { status: "ready", label: "Hazır", detail: "Gerçek sağlık testi başarılı." } });
@@ -409,17 +441,19 @@ function listCodexModels(options = {}) {
   const timeoutMs = Math.max(5000, Number(options.timeoutMs || 20000));
   return new Promise((resolve, reject) => {
     let buffer = "", settled = false, modelRequestSent = false;
-    let child;
+    let child, unregister = () => {};
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      try { child?.kill(); } catch {}
+      unregister();
+      terminateProbeTree(child);
       if (error) reject(error); else resolve(value);
     };
     const timer = setTimeout(() => finish(new Error(`Codex model listesi ${Math.round(timeoutMs / 1000)} saniyede alınamadı.`)), timeoutMs);
     try { child = spawn(command.file, command.args, { shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim }); }
     catch (error) { finish(error); return; }
+    unregister = registerProbe(child);
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
     child.stdout?.on("data", (chunk) => {
@@ -576,4 +610,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, healthCheckAll, listCodexModels, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, healthCheckAll, listCodexModels, abortActiveProbes, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

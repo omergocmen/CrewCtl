@@ -78,12 +78,22 @@ function broadcastSchedules() {
   broadcast("schedules", store.loadConfig().schedules || []);
 }
 
+// Pano/kuyruk listesi yalnizca ozet alanlari gosterir; teamState (tum agent ciktilari/mesajlari),
+// conversation ve changes gibi agir ic alanlar liste yukunu gereksiz sisirir ve her SSE queue
+// yayininda serilestirilir. Detay gorunumleri tam gorevi ayri /api/tasks/:id ile ceker; burada
+// bu agir alanlari cikartip yayin boyutunu kuculturuz. (planPreview/delivery/summary korunur.)
+function liteTask(task) {
+  const { teamState, conversation, changes, ...rest } = task;
+  return rest;
+}
 function snapshot() {
   return {
-    pending: store.listTasks("pending"),
-    approval: store.listTasks("approval"),
-    done: store.listTasks("done").filter((task) => task.kind !== "operator-chat").slice(-30).reverse(),
-    failed: store.listTasks("failed").slice(-30).reverse(),
+    pending: store.listTasks("pending").map(liteTask),
+    approval: store.listTasks("approval").map(liteTask),
+    // Operator-chat gorevleri de done'a yazildigi icin filtreden sonra 30 gercek gorev kalsin
+    // diye biraz genis bir pencere (80) okunur; yine de sabit ve gecmisten bagimsizdir.
+    done: store.listRecentTasks("done", 80).filter((task) => task.kind !== "operator-chat").slice(-30).reverse().map(liteTask),
+    failed: store.listRecentTasks("failed", 30).reverse().map(liteTask),
   };
 }
 
@@ -122,8 +132,15 @@ function applyHealthToConfig(results) {
 }
 
 let healthRunning = false;
+// Motor bir gorev calistirirken (or. operatör codex) ayni CLI'ye karsi canli probe acmak
+// codex'in ikinci exec/app-server oturumunu SIGTERM ile kesmesine yol acar. Probe'lar en iyi
+// cabadir; motor mesgulken canli probe atlanip son bilinen sonuc dondurulur.
+function engineBusy() {
+  try { return Boolean(engine.status().current); } catch { return false; }
+}
 async function getCodexModels(force = false) {
   if (!force && codexModelCache.models.length && Date.now() - codexModelCache.checkedAt < CODEX_MODEL_CACHE_TTL_MS) return codexModelCache.models;
+  if (engineBusy()) return codexModelCache.models;
   const models = await cliRegistry.listCodexModels({ timeoutMs: 20000 });
   codexModelCache = { checkedAt: Date.now(), models };
   const cfg = store.loadConfig();
@@ -136,6 +153,10 @@ async function refreshCliHealth(force = false) {
   const cfg = store.loadConfig();
   const cachedAt = Date.parse(cfg.cliHealthCache?.checkedAt || "");
   if (!force && cfg.cliHealthCache?.version === HEALTH_CACHE_VERSION && Number.isFinite(cachedAt) && Date.now() - cachedAt < HEALTH_CACHE_TTL_MS) {
+    broadcast("cli-health", cliStatus);
+    return cliStatus;
+  }
+  if (engineBusy()) {
     broadcast("cli-health", cliStatus);
     return cliStatus;
   }
@@ -642,7 +663,13 @@ function startupBanner() {
     console.log(`    ${DIM}Ayrıntı için:  npm run doctor${X}`);
   }
   console.log(`\n  ${B}▶ Panel:  ${C}${url}${X}`);
-  console.log(`  ${DIM}Panelde 'Başlat'a basıp bir görev gönderin. (tarayıcı otomatik açılmazsa yukarıdaki adresi açın)${X}\n`);
+  console.log(`  ${DIM}Panelde 'Başlat'a basıp bir görev gönderin. (tarayıcı otomatik açılmazsa yukarıdaki adresi açın)${X}`);
+  // npx gecici onbellekten calisiyorsa kalici 'crewctl' komutu kurulmamistir; kullaniciya nasil
+  // kalici hale getirecegini hatirlat (aksi halde kapatinca 'crewctl' bulunamaz).
+  if (/[\\/]_npx[\\/]/.test(__dirname)) {
+    console.log(`  ${DIM}Kalıcı 'crewctl' komutu için:  ${Y}npm i -g @omerrgocmen/crewctl${X}`);
+  }
+  console.log("");
   openBrowser(url);
 }
 
