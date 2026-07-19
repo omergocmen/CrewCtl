@@ -1,6 +1,6 @@
 {
   "name": "@omerrgocmen/crewctl",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CrewCtl — Zero-dependency Node.js orchestrator that runs installed CLI coding agents as one operator-led team.",
   "keywords": [
     "ai",
