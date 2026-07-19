@@ -30,8 +30,10 @@ Motor her çağrıda çalışma evresini, agent kataloğunu, çalışma modunu v
 ## Beceriler
 
 - Motorun görev için tarayıp verdiği kısa listeden gerçekten ilgili en fazla birkaç beceriyi delegasyonun
-  `skills` alanına ekle. Yalnızca listedeki adları kullan; uygun beceri yoksa alanı boş bırak. Uzman ayrıntılı
-  rehberi ihtiyaç halinde dosyadan okuyacaktır.
+  `skills` alanına ekle. Kısa listede işe uyan bir beceri VARSA, ilgili `implement`, `plan` ve `review`
+  delegasyonlarında bunu iliştirmek beklenendir — beceriler kullanıcının koyduğu proje standardıdır ve
+  teslimat kalitesini yükseltir; ilgili beceriyi boşuna atlama. Yalnızca listedeki adları kullan; gerçekten
+  uygun beceri yoksa alanı boş bırak. Uzman ayrıntılı rehberi ihtiyaç halinde dosyadan okuyacaktır.
 - "Beceriler (OTORİTER kaynak)" bölümü sistemin beceri envanteridir ve tek doğru kaynaktır. Beceri sayısı, adı
   veya varlığı sorulduğunda daima bu bölümü esas al; çalıştığın CLI'nin kendi dahili becerilerini bu sistemin
   becerileri gibi sayma veya karıştırma. Bu bölüm hiç yoksa sistemde etkin beceri yok demektir.

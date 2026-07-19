@@ -14,6 +14,12 @@
   "liveDiffIntervalMs": 2500,
   "versioning": true,
   "versioningRetention": 20,
+  "notify": {
+    "_comment": "Görev bitince/başarısız olunca webhookUrl'e {text,...} POST edilir (Slack incoming webhook ile uyumlu). Boş webhookUrl = bildirim kapalı.",
+    "webhookUrl": "",
+    "onComplete": true,
+    "onFailed": true
+  },
   "operator": {
     "roleFile": "roles/operator.md",
     "maxRounds": 6,
@@ -27,7 +33,7 @@
     "opencode": { "model": "" }
   },
   "skills": {
-    "_comment": "Yalnizca enabled listesindeki beceriler taranir. Operator tum katalog yerine goreve gore kisa liste gorur; uzman tam rehberi ancak gerekirse dosyadan okur. Bos enabled = beceri kullanilmaz.",
+    "_comment": "Yalnizca enabled listesindeki beceriler taranir. Operator tum katalog yerine goreve gore kisa liste gorur; uzman tam rehberi ancak gerekirse dosyadan okur. ILK KURULUMDA bu liste paketle gelen tum becerilerle otomatik doldurulur (Ayarlar > Beceriler'den kapatilabilir); scorer her goreve yalnizca ilgili olanlari surer.",
     "enabled": [],
     "autoMatch": true,
     "catalogLimit": 12,

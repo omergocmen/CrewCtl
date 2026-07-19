@@ -41,7 +41,10 @@ const DEFINITIONS = {
     // OpenCode saglayici/model kombinasyonuna gore uzun sure sessiz kalabilir. Varsayilan
     // agent timeout'u, basarili bir calismayi SIGTERM ile yarida kesmeyecek kadar genis tut.
     timeoutSeconds: 1800,
-    silenceTimeoutSeconds: 180,
+    // OpenCode adim baslattiktan sonra model/provider yanitini beklerken uzun sure hic cikti
+    // akitmayabilir (ozellikle yavas/rate-limitli modeller). 180sn cok agresifti ve calisan bir
+    // kosmayi yariyordu; sessizlik payini genis tut. Gercek takilma yine timeoutSeconds ile yakalanir.
+    silenceTimeoutSeconds: 300,
     // Bazi eski OpenCode surumleri --auto bayragini tanimaz. Otonom izinler
     // engine tarafinda OPENCODE_CONFIG_CONTENT ile surumden bagimsiz aktarilir.
     defaultArgs: ["run", "--format", "json", "Attached file contains the full task. Follow it exactly, make the changes, and report what you did.", "--file", "{PROMPT_FILE}"],

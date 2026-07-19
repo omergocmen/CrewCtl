@@ -1,0 +1,12 @@
+{
+  "name": "CrewCtl",
+  "short_name": "CrewCtl",
+  "description": "Operatör liderliğindeki çok-agent CLI orkestratörü.",
+  "icons": [
+    { "src": "/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#111826",
+  "background_color": "#090c12",
+  "display": "standalone"
+}

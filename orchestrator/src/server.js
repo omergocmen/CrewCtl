@@ -73,6 +73,34 @@ engine.on("activity", (d) => broadcast("activity", d));
 engine.on("message", (d) => broadcast("message", d));
 engine.on("filechange", (d) => broadcast("filechange", d));
 engine.on("queue", () => broadcast("queue", snapshot()));
+engine.on("notify", (d) => { sendNotification(d); broadcast("notify", d); });
+
+// Görev bitince/başarısız olunca kullanıcının yapılandırdığı webhook'a POST atar (Slack incoming
+// webhook formatıyla uyumlu: {text}). Tamamen opsiyonel ve ateşle-unut; Node'un yerleşik fetch'ini
+// kullanır (yeni bağımlılık yok). Hata görevi asla etkilemez. Yapılandırılmamışsa sessizce atlanır.
+function sendNotification(outcome) {
+  try {
+    const cfg = store.loadConfig();
+    const n = cfg.notify || {};
+    const url = String(n.webhookUrl || "").trim();
+    if (!url || !/^https?:\/\//i.test(url)) return;
+    if (outcome.status === "failed" ? n.onFailed === false : n.onComplete === false) return;
+    const icon = outcome.status === "failed" ? "❌" : "✅";
+    const head = outcome.status === "failed" ? "Görev başarısız" : "Görev tamamlandı";
+    const detail = outcome.status === "failed"
+      ? (outcome.error ? `\nHata: ${String(outcome.error).slice(0, 300)}` : "")
+      : `${outcome.operator ? ` · ${outcome.operator}` : ""}${outcome.rounds ? ` · ${outcome.rounds} tur` : ""}${Number.isFinite(outcome.fileCount) ? ` · ${outcome.fileCount} dosya` : ""}${outcome.verification ? ` · ✓ ${String(outcome.verification).slice(0, 120)}` : ""}`;
+    const text = `${icon} CrewCtl — ${head}: ${String(outcome.prompt || outcome.id).slice(0, 200)}${detail}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, crewctl: outcome }),
+      signal: controller.signal,
+    }).catch(() => {}).finally(() => clearTimeout(timer));
+  } catch {}
+}
 
 function broadcastSchedules() {
   broadcast("schedules", store.loadConfig().schedules || []);
@@ -191,7 +219,7 @@ function readBody(req) {
     });
   });
 }
-const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+const MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".png": "image/png", ".ico": "image/x-icon", ".svg": "image/svg+xml", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".webmanifest": "application/manifest+json", ".json": "application/json" };
 function serveStatic(res, file) {
   const p = path.resolve(WEB, file);
   if ((p !== WEB && !p.startsWith(WEB + path.sep)) || !fs.existsSync(p)) {
@@ -583,6 +611,11 @@ const server = http.createServer(async (req, res) => {
         for (const [name, agent] of Object.entries(cfg.agents)) {
           if (!name.trim() || !agent.cmd || typeof agent.cmd !== "string") return send(res, 400, { error: `gecersiz agent: ${name}` });
           if (!Array.isArray(agent.args)) return send(res, 400, { error: `${name}.args dizi olmali` });
+        }
+        if (cfg.notify !== undefined) {
+          if (typeof cfg.notify !== "object" || cfg.notify === null) return send(res, 400, { error: "notify nesne olmali" });
+          const url = String(cfg.notify.webhookUrl || "").trim();
+          if (url && !/^https?:\/\//i.test(url)) return send(res, 400, { error: "notify.webhookUrl http(s) ile baslamali veya bos olmali" });
         }
         store.saveConfig(cfg);
         broadcast("status", engine.status());
