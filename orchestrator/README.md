@@ -1,3 +1,5 @@
+<p align="center"><img src="https://raw.githubusercontent.com/omergocmen/CrewCtl/main/icon.png" alt="CrewCtl" width="140"></p>
+
 # CrewCtl 🛰️
 
 > **Kurulu CLI kodlama agent'larınızı — Codex, Claude Code, Gemini ve OpenCode — tek bir operatör‑liderliğindeki takım halinde çalıştıran, sıfır bağımlılıklı, yerel ve açık kaynak Node.js çok‑agent (multi‑agent) AI orkestratörü. Canlı web komuta merkezi dahil.**

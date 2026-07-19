@@ -97,12 +97,22 @@ function main() {
     );
     assert.deepEqual(autoMatched[0].skills, ["sample"], "operator alani atlarsa gorev metninden eslesmeli");
 
+    // Yeni davranis: operator kodlama/plan/review isinde skills:[] gonderse bile, kullanicinin
+    // etkin becerilerinden goreve GERCEKTEN uyanlar otomatik eklenir (skiller guvenilir kullanilsin).
     const explicitNone = normalizeAssignments(
       [{ id: "a", agent: "worker", kind: "implement", instruction: "test yaz", dependsOn: [], skills: [] }],
       { ...cfgEnabled, skills: { enabled: ["sample"], autoMatch: true } },
       "operator", new Set(), "test"
     );
-    assert.deepEqual(explicitNone[0].skills, [], "operatorun acik bos secimi korunmali");
+    assert.deepEqual(explicitNone[0].skills, ["sample"], "implement/plan/review'da acik bos secim ilgili beceriyle otomatik doldurulur");
+
+    // Opt-out: autoMatch kapaliyken operatorun acik bos secimi korunur.
+    const explicitNoneNoAuto = normalizeAssignments(
+      [{ id: "a", agent: "worker", kind: "implement", instruction: "test yaz", dependsOn: [], skills: [] }],
+      { ...cfgEnabled, skills: { enabled: ["sample"], autoMatch: false } },
+      "operator", new Set(), "test"
+    );
+    assert.deepEqual(explicitNoneNoAuto[0].skills, [], "autoMatch kapaliyken acik bos secim korunur");
 
     const specialistPrompt = engine.specialistPrompt(
       { prompt: "Bir test ekle" },

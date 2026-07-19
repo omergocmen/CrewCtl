@@ -125,6 +125,7 @@ const FALLBACK_CONFIG = {
   discoveryIgnoredAdapters: [],
   liveDiff: true, liveDiffIntervalMs: 2500,
   versioning: true, versioningRetention: 20,
+  notify: { webhookUrl: "", onComplete: true, onFailed: true },
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
   cliSettings: {
     codex: { model: "", reasoningEffort: "medium", serviceTier: "fast" },
@@ -159,12 +160,31 @@ function normalizeConfig(cfg) {
 }
 // config.json kisiye ozeldir (gitignore). Yoksa config.default.json sablonundan uretilir;
 // boylece kullanici klonlayip `npm start` dedigi anda calisir ve kurulu CLI'lar keşifle eklenir.
+// Paketle gelen beceri dosyalarinin slug'lari (dosya adi = frontmatter name, dogrulanir).
+// Ilk config uretiminde beceriler VARSAYILAN OLARAK ETKIN gelsin diye kullanilir; boylece
+// operator, kullanicinin becerilerini kodlama/planlama/review delegasyonlarinda kullanabilir.
+function shippedSkillSlugs() {
+  try {
+    return fs.readdirSync(path.join(ASSETS, "skills"))
+      .filter((f) => f.toLowerCase().endsWith(".md"))
+      .map((f) => f.replace(/\.md$/i, ""));
+  } catch { return []; }
+}
 function loadConfig() {
   const file = path.join(ROOT, "config.json");
   if (!fs.existsSync(file)) {
     const template = path.join(ASSETS, "config.default.json");
     const seed = fs.existsSync(template) ? fs.readFileSync(template, "utf8") : JSON.stringify(FALLBACK_CONFIG, null, 2);
-    atomicWrite(file, seed);
+    let seedObj;
+    try { seedObj = JSON.parse(seed); } catch { seedObj = { ...FALLBACK_CONFIG }; }
+    // Ilk kurulumda tum paket becerilerini etkinlestir (kullanici Ayarlar'dan kapatabilir).
+    // Sonraki yuklemelerde dosya var oldugundan bu blok CALISMAZ; kullanicinin secimi korunur.
+    seedObj.skills = seedObj.skills || {};
+    if (!Array.isArray(seedObj.skills.enabled) || !seedObj.skills.enabled.length) {
+      const slugs = shippedSkillSlugs();
+      if (slugs.length) seedObj.skills.enabled = slugs;
+    }
+    atomicWrite(file, JSON.stringify(seedObj, null, 2));
   }
   return normalizeConfig(JSON.parse(fs.readFileSync(file, "utf8")));
 }

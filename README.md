@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="icon.png" alt="CrewCtl" width="140">
+
 # CrewCtl 🛰️
 
 **Kurulu CLI kodlama agent'larınızı — Codex, Claude Code, Gemini ve OpenCode — tek bir operatör liderliğindeki ekip olarak çalıştıran yerel, açık kaynak ve sıfır runtime bağımlılıklı Node.js orkestratörü.**

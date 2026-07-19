@@ -295,7 +295,7 @@ async function main() {
 
     const effectiveOpenCode = cliRegistry.effectiveAgent({ cmd: "opencode", adapter: "opencode", args: [], model: "opencode/test-model" });
     assert.equal(cliRegistry.DEFINITIONS.opencode.timeoutSeconds, 1800);
-    assert.equal(effectiveOpenCode.silenceTimeoutSeconds, 180);
+    assert.equal(effectiveOpenCode.silenceTimeoutSeconds, 300);
     assert.equal(effectiveOpenCode.args[0], "run");
     assert.ok(!effectiveOpenCode.args.includes("--auto"));
     assert.ok(effectiveOpenCode.args.includes("--format"));
@@ -305,6 +305,13 @@ async function main() {
     assert.ok(effectiveOpenCode.args.includes("{PROMPT_FILE}"));
     assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local", "opencode/free-model"]), "opencode/free-model");
     assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local"]), "", "yerel Ollama otomatik olarak erisilebilir varsayilmamali");
+
+    // Uygulama agenti kalmadi guvenligi: tek executor karantinaya alininca implement agenti kalmaz.
+    const implCfg = { agents: { p: { roleFile: "roles/planner.md", capabilities: ["planning"] }, r: { roleFile: "roles/reviewer.md", capabilities: ["review"] }, x: { roleFile: "roles/executor.md", capabilities: ["implementation"] } } };
+    assert.equal(engine.hasUsableImplementAgent(implCfg, "operator"), true, "executor saglikliyken implement agenti var");
+    engine.unhealthyAgents.set("x", { code: "CLI_STALLED", at: new Date().toISOString() });
+    assert.equal(engine.hasUsableImplementAgent(implCfg, "operator"), false, "tek executor karantinada iken implement agenti kalmamali");
+    engine.unhealthyAgents.delete("x");
     if (process.platform === "win32") {
       base.workingDir = openCodeWorkspace;
       store.saveConfig(base);

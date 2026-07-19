@@ -415,12 +415,22 @@ function normalizeAssignments(value, cfg, operatorName, usedIds, taskText = "") 
     // Beceriler kullanici-kapilidir: operator yalnizca cfg.skills.enabled icindekileri iliştirebilir.
     // Tanimsiz/etkin olmayan beceri sessizce dusurulur; asla gorevi olduren bir hata degildir.
     const hasExplicitSkills = Object.prototype.hasOwnProperty.call(raw, "skills");
+    const autoMatchOn = cfg.skills?.autoMatch !== false;
     const requestedSkills = Array.isArray(raw.skills)
       ? raw.skills
-      : (!hasExplicitSkills && cfg.skills?.autoMatch !== false
+      : (!hasExplicitSkills && autoMatchOn
           ? skillRegistry.suggest(cfg, `${taskText}\n${instruction}`, kind)
           : []);
-    const skills = skillRegistry.resolveForAssignment(requestedSkills, cfg).map((skill) => skill.name);
+    let skills = skillRegistry.resolveForAssignment(requestedSkills, cfg).map((skill) => skill.name);
+    // Operator kodlama/planlama/review isinde beceri iliştirmeyi atlarsa (or. skills:[] dönerse),
+    // kullanicinin etkin becerilerinden goreve GERCEKTEN uyanlari otomatik ekle. suggest() yalnizca
+    // lexical eslesme oldugunda skill döner; alakasiz beceri asla iliştirilmez. Boylece "operator
+    // becerileri kullanmiyor" durumu ortadan kalkar.
+    if (!skills.length && autoMatchOn && ["implement", "plan", "review"].includes(kind)) {
+      skills = skillRegistry.resolveForAssignment(
+        skillRegistry.suggest(cfg, `${taskText}\n${instruction}`, kind), cfg
+      ).map((skill) => skill.name);
+    }
     let agent = requestedAgent;
     const unavailable = new Set(cfg.runtimeUnavailableAgents || []);
     if (unavailable.has(agent) || !supportsKind(cfg.agents[agent], kind)) {
@@ -688,6 +698,7 @@ class Engine extends EventEmitter {
             const failure = classifyCliError(error);
             this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary }, task.id);
           }
+          this.notifyOutcome(task, "failed", { error: error.message });
           this.emit("queue");
         }
       } finally {
@@ -848,6 +859,15 @@ class Engine extends EventEmitter {
       child.stdin.on("error", () => {});
       child.stdin.end(useStdin ? prompt : "");
     });
+  }
+
+  // Katalogda dosya yazabilen (implement) kullanilabilir bir uzman var mi? Operatorun kendisi ve
+  // bu oturumda karantinaya alinan agentler haric. Tek executor (or. opencode) sessizlik nedeniyle
+  // dustugunde takim fiilen dosya uretemez hale gelir; bu kontrol o durumu erken yakalar.
+  hasUsableImplementAgent(cfg, operatorName) {
+    return Object.entries(cfg.agents || {}).some(([name, agent]) =>
+      name !== operatorName && agent.enabled !== false && agentUsable(agent)
+      && !this.unhealthyAgents.has(name) && supportsKind(agent, "implement"));
   }
 
   agentCatalog(cfg, operatorName) {
@@ -1160,6 +1180,22 @@ class Engine extends EventEmitter {
         recoveryRounds++;
         this.publish("log", { level: "warn", msg: `CLI altyapi hatasi tur butcesinden dusulmedi; ${maxRecoveryRounds - recoveryRounds} ek kurtarma turu kaldi.` }, task.id);
       }
+      // Uygulama agenti kalmadi guvenligi: Gorev acikca dosya olusturma/degistirme gerektiriyor
+      // fakat katalogda 'implement' yapabilen kullanilabilir hicbir agent kalmadiysa (or. tek
+      // executor opencode sessizlik nedeniyle karantinaya alindi) ve simdiye kadar tamamlanmis bir
+      // uygulama isi da yoksa, HICBIR ek tur dosya uretemez. Operatoru planlayici/gap-analizi
+      // dongusunde bosuna dondurup tur ve cagri butcesini yakmak yerine net, eyleme donuk bir
+      // hatayla dur (kullanicinin gordugu "circle seklinde uzayip gitme" sorununu bu keser).
+      if (taskRequiresDelegation(task.prompt)
+          && !this.hasUsableImplementAgent(cfg, operatorCli)
+          && !Object.values(state.results).some((result) => result.kind === "implement" && result.status === "completed")) {
+        const dead = [...this.unhealthyAgents.keys()];
+        throw new Error(
+          "Bu gorev dosya olusturma/degistirme gerektiriyor fakat kullanilabilir bir uygulama (implement) agenti yok" +
+          (dead.length ? ` (${dead.join(", ")} bu oturumda kullanim disi kaldi)` : "") +
+          ". Ayarlar > Agent'lar'dan 'implementation' yetenekli bir agent (Codex/Claude/Gemini/OpenCode) ekleyip etkinlestirin veya opencode'un oturum/model durumunu kontrol edin, sonra gorevi tekrar calistirin."
+        );
+      }
       if (task.executionMode === "fast" && assignments.every((assignment) => state.results[assignment.id]?.status === "completed")) {
         const reports = assignments.map((assignment) => state.results[assignment.id].result).join("\n\n");
         this.publish("log", { level: "info", msg: "FAST mod: uzman teslimati basarili; ikinci operator degerlendirme cagrisi atlandi." }, task.id);
@@ -1355,8 +1391,25 @@ class Engine extends EventEmitter {
     store.appendMemory(`${task.id} [${status}] ${task.prompt}`, `${task.summary}\nDosyalar: ${[...changes.created, ...changes.modified, ...changes.deleted].join(", ")}`);
     this.publish("result", { id: task.id, prompt: task.prompt, status, dir: this._cwd, changes, summary: task.summary, delivery: task.delivery, operator: task.operatorCli, rounds: state.round }, task.id);
     this.publish("log", { level: "ok", msg: `GOREV tamamlandi: ${task.id}` }, task.id);
+    this.notifyOutcome(task, status, { summary: task.summary, rounds: state.round, fileCount: files.length, verification: task.delivery.verification });
     this.emit("queue");
     this._textBefore = null;
+  }
+
+  // Dis bildirim icin tek cikis noktasi: server.js bu event'i dinleyip (varsa) webhook'a POST atar.
+  // Motoru HTTP'den bagimsiz tutar; bildirim basarisiz olsa bile gorev akisini etkilemez.
+  notifyOutcome(task, status, extra = {}) {
+    try {
+      this.emit("notify", {
+        status,
+        id: task.id,
+        prompt: task.prompt,
+        operator: task.operatorCli || null,
+        dir: this._cwd || task.targetDir || null,
+        at: new Date().toISOString(),
+        ...extra,
+      });
+    } catch {}
   }
 }
 
