@@ -336,18 +336,57 @@ function applyExecutionPolicy(base, mode) {
   return cfg;
 }
 
+const EMPTY_USAGE = { input: 0, output: 0, reasoning: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+
+function addUsage(target, extra) {
+  const sum = { ...(target || EMPTY_USAGE) };
+  for (const key of Object.keys(EMPTY_USAGE)) sum[key] = (sum[key] || 0) + (Number(extra?.[key]) || 0);
+  return sum;
+}
+
+function usageTotal(usage) {
+  return (Number(usage?.input) || 0) + (Number(usage?.output) || 0);
+}
+
+// OpenCode'un step_finish olayindaki token/maliyet alanlarini normalize eder. Alan adlari
+// surumler arasinda degisebildigi icin eksik alan 0 sayilir; hicbir sayi yoksa null doner
+// ki "veri yok" ile "sifir maliyet" ayirt edilebilsin.
+function readStepUsage(event) {
+  const tokens = event.part?.tokens || event.tokens;
+  const cost = Number(event.part?.cost ?? event.cost);
+  if (!tokens && !Number.isFinite(cost)) return null;
+  return {
+    input: Number(tokens?.input) || 0,
+    output: Number(tokens?.output) || 0,
+    reasoning: Number(tokens?.reasoning) || 0,
+    cacheRead: Number(tokens?.cache?.read) || 0,
+    cacheWrite: Number(tokens?.cache?.write) || 0,
+    cost: Number.isFinite(cost) ? cost : 0,
+  };
+}
+
+// DIKKAT: text/error sozlesmesi degismemeli — operatorun JSON protokolu bu metni okuyor.
+// usage yalnizca EK bir alandir; cikarilamadiginda null kalir ve hicbir akisi etkilemez.
 function normalizeCliOutput(agent, stdout) {
-  if (agent.adapter !== "opencode" || !(agent.args || []).includes("json")) return { text: String(stdout || "").trim(), error: "" };
+  if (agent.adapter !== "opencode" || !(agent.args || []).includes("json")) {
+    return { text: String(stdout || "").trim(), error: "", usage: null };
+  }
   const texts = [], errors = [];
+  let usage = null;
   for (const line of String(stdout || "").split(/\r?\n/)) {
     if (!line.trim()) continue;
     try {
       const event = JSON.parse(line);
       if (event.type === "text" && event.part?.text) texts.push(String(event.part.text));
       if (event.type === "error") errors.push(String(event.error?.message || event.error || "OpenCode model/provider hatasi"));
+      // Bir kosumda birden fazla adim olabilir; hepsi toplanir.
+      if (event.type === "step_finish") {
+        const step = readStepUsage(event);
+        if (step) usage = addUsage(usage, step);
+      }
     } catch {}
   }
-  return { text: texts.join("\n").trim(), error: errors.join("\n").trim() };
+  return { text: texts.join("\n").trim(), error: errors.join("\n").trim(), usage };
 }
 
 // Metindeki DENGELI suslu parantezli en dis JSON nesnesi adaylarini cikarir. String icindeki
@@ -652,6 +691,35 @@ class Engine extends EventEmitter {
       defaultOperator: cfg.operator?.cli || "",
       callsToday: store.getCallCount(),
       budget: cfg.dailyCallBudget,
+      usageToday: store.getDailyUsage(),
+    };
+  }
+
+  // KULLANIM TELEMETRISI: gorev suresince agent bazinda token/maliyet toplar. Tamamen
+  // additive ve hata toleranslidir — veri veremeyen CLI'lar (metin modunda calisan
+  // codex/claude/gemini) icin sayaclar bos kalir, hicbir akis bundan etkilenmez.
+  resetUsage() {
+    this._usage = { total: { ...EMPTY_USAGE }, byAgent: {}, calls: 0, reportingCalls: 0 };
+  }
+
+  recordUsage(agentName, usage) {
+    if (!this._usage) this.resetUsage();
+    this._usage.total = addUsage(this._usage.total, usage);
+    this._usage.byAgent[agentName] = addUsage(this._usage.byAgent[agentName], usage);
+    this._usage.reportingCalls++;
+    try { store.addDailyUsage(usage); } catch {}
+  }
+
+  // Gorev kapanisinda saklanacak sekil. Hicbir cagri veri vermediyse null doner ki arayuz
+  // "0 token" gibi yaniltici bir sayi yerine "veri yok" gosterebilsin.
+  usageSummary() {
+    const usage = this._usage;
+    if (!usage || !usage.reportingCalls) return null;
+    return {
+      total: usage.total,
+      byAgent: usage.byAgent,
+      calls: usage.calls,
+      reportingCalls: usage.reportingCalls,
     };
   }
 
@@ -792,6 +860,8 @@ class Engine extends EventEmitter {
           // Siniflandirilmis teshis gorevle birlikte saklanir; arayuz "ne oldu / ne yapmali"
           // ayrimini ham hata metnini kirparak tahmin etmek yerine buradan okur.
           task.failure = failure;
+          // Basarisiz gorev de para harcar; telemetri burada da saklanmali.
+          task.usage = this.usageSummary();
           task.finishedAt = new Date().toISOString();
           if (found) store.moveTask(found.state, "failed", task);
           this.publish("log", { level: "error", msg: `HATA (${failure.code}): ${failure.summary}` }, task.id);
@@ -835,6 +905,8 @@ class Engine extends EventEmitter {
       if (count > (cfg.dailyCallBudget || Number.MAX_SAFE_INTEGER)) {
         return reject(new Error(`Gunluk cagri butcesi asildi (${cfg.dailyCallBudget}).`));
       }
+      if (!this._usage) this.resetUsage();
+      this._usage.calls++;
 
       const callId = `${this.current?.id || "run"}-${++this.callSequence}`;
       let promptFile = "";
@@ -945,7 +1017,10 @@ class Engine extends EventEmitter {
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
         const durationMs = Date.now() - started;
-        this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs, reason: silenceTimedOut ? "silence-timeout" : (timedOut ? "timeout" : null) });
+        // Cikti tek kez ayristirilir; hem kullanim telemetrisi hem metin ayni sonuctan okunur.
+        const normalized = normalizeCliOutput(agent, stdout);
+        if (normalized.usage) this.recordUsage(displayName, normalized.usage);
+        this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs, usage: normalized.usage, reason: silenceTimedOut ? "silence-timeout" : (timedOut ? "timeout" : null) });
         if (silenceTimedOut) return reject(new Error(`CLI_STALLED: ${agent.cmd} ${Math.round(silenceTimeoutMs / 1000)} saniye boyunca cikti uretmedi ve otomatik durduruldu.`));
         if (timedOut) return reject(new Error(`${agent.cmd} ${Math.round(timeoutMs / 1000)} saniyede zaman asimina ugradi${signal ? ` (signal=${signal})` : ""}. ${clip(stdout || stderr, 500)}`));
         // Teshis icin HER IKI akis da gerekir: bazi CLI'lar (Gemini dahil) kota/oturum hatasini
@@ -954,10 +1029,9 @@ class Engine extends EventEmitter {
           const detail = [stderr, stdout].map((stream) => String(stream || "").trim()).filter(Boolean).join("\n");
           return reject(new Error(`${agent.cmd} cikis kodu ${code ?? "yok"}${signal ? ` (signal=${signal})` : ""}.\n${clip(detail, 2000)}`));
         }
-        const normalized = normalizeCliOutput(agent, stdout);
         if (normalized.error) return reject(new Error(`OpenCode model/provider hatasi: ${clip(normalized.error, 500)}`));
         if (!normalized.text) return reject(new Error(`${agent.cmd} kullanilabilir cikti dondurmedi.${stderr ? ` ${clip(stderr, 300)}` : ""}`));
-        resolve({ text: normalized.text, stderr: stderr.trim(), exitCode: code, durationMs, callId });
+        resolve({ text: normalized.text, stderr: stderr.trim(), exitCode: code, durationMs, callId, usage: normalized.usage });
       });
 
       // Prompt argumanla/dosyayla verilse bile stdin MUTLAKA kapatilmali. OpenCode gibi CLI'lar
@@ -1206,6 +1280,8 @@ class Engine extends EventEmitter {
     this._cwd = path.resolve(store.WORK_BASE, task.targetDir || cfg.workingDir || ".");
     this._snapBefore = snapshotDir(this._cwd);
     this.startLiveDiff(task);
+    // Onay sonrasi devam eden gorevde sayaci sifirlamayiz; ilk girise ozgu.
+    if (!task.approved || !this._usage) this.resetUsage();
     this.publish("log", { level: "task", msg: `GOREV ${task.id}: ${task.prompt}` }, task.id);
     // Otomatik surumleme: gorev CALISMADAN ONCE calisma klasorunun bir surumunu al ki ajan
     // mevcut kodu bozarsa bu gorev oncesine tek tikla donulebilsin. Yalnizca ilk girus'te
@@ -1504,6 +1580,7 @@ class Engine extends EventEmitter {
     task.summary = concise;
     task.final = finalText;
     task.changes = changes;
+    task.usage = this.usageSummary();
     const warnings = (Array.isArray(decision.warnings) ? decision.warnings : []).map(String).filter(Boolean);
     task.delivery = {
       summary: concise,
@@ -1519,7 +1596,7 @@ class Engine extends EventEmitter {
     const found = store.findTask(task.id);
     store.moveTask(found?.state || "pending", status, task);
     store.appendMemory(`${task.id} [${status}] ${task.prompt}`, `${task.summary}\nDosyalar: ${[...changes.created, ...changes.modified, ...changes.deleted].join(", ")}`);
-    this.publish("result", { id: task.id, prompt: task.prompt, status, dir: this._cwd, changes, summary: task.summary, delivery: task.delivery, operator: task.operatorCli, rounds: state.round }, task.id);
+    this.publish("result", { id: task.id, prompt: task.prompt, status, dir: this._cwd, changes, summary: task.summary, delivery: task.delivery, usage: task.usage, operator: task.operatorCli, rounds: state.round }, task.id);
     this.publish("log", { level: "ok", msg: `GOREV tamamlandi: ${task.id}` }, task.id);
     this.notifyOutcome(task, status, { summary: task.summary, rounds: state.round, fileCount: files.length, verification: task.delivery.verification });
     this.emit("queue");
@@ -1549,4 +1626,5 @@ module.exports._internals = {
   normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, snapshotDir, diffSnapshots,
   captureTextSnapshot, buildLineDiff, describeFileDiff, isSensitiveDiffPath, taskRequiresDelegation,
   parseJson, conversationalAnswer, classifyCliError, RECOVERABLE_CLI_ERRORS, QUARANTINE_CLI_ERRORS,
+  normalizeCliOutput, addUsage, usageTotal,
 };

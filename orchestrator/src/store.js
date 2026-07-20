@@ -365,6 +365,31 @@ function bumpCallCount() {
   return n;
 }
 
+// ---- Gunluk token/maliyet birikimi ----
+// Cagri sayacinin yanina gunluk token ve maliyet toplami. Ayri dosyada tutulur ki mevcut
+// calls-*.txt bicimi (ve onu okuyan cli.js) hic degismesin. Bozuk/eksik dosya sifir sayilir;
+// telemetri hicbir kosulda gorev akisini durdurmamali.
+const USAGE_FIELDS = ["input", "output", "reasoning", "cacheRead", "cacheWrite", "cost"];
+function usageFile(day) {
+  return path.join(STATE, `usage-${day || new Date().toISOString().slice(0, 10)}.json`);
+}
+function getDailyUsage(day) {
+  const empty = Object.fromEntries(USAGE_FIELDS.map((k) => [k, 0]));
+  try {
+    const parsed = JSON.parse(fs.readFileSync(usageFile(day), "utf8"));
+    for (const key of USAGE_FIELDS) empty[key] = Number(parsed?.[key]) || 0;
+    empty.calls = Number(parsed?.calls) || 0;
+  } catch { empty.calls = 0; }
+  return empty;
+}
+function addDailyUsage(usage) {
+  const current = getDailyUsage();
+  for (const key of USAGE_FIELDS) current[key] += Number(usage?.[key]) || 0;
+  current.calls += 1;
+  atomicWrite(usageFile(), JSON.stringify(current));
+  return current;
+}
+
 module.exports = {
   ROOT,
   ASSETS,
@@ -393,6 +418,8 @@ module.exports = {
   appendMemory,
   getCallCount,
   bumpCallCount,
+  getDailyUsage,
+  addDailyUsage,
   appendRunEvent,
   listRunEvents,
   hashText,

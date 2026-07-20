@@ -285,6 +285,33 @@ async function main() {
     assert.equal(conversationalAnswer(new Error("baska bir hata")), null);
     assert.equal(conversationalAnswer((() => { try { parseJson("  .  ", "Operator plani"); } catch (e) { return e; } })()), null);
 
+    // Kullanim telemetrisi: OpenCode step_finish olayindan token/maliyet cikarilmali,
+    // metin sozlesmesi HIC degismemeli, veri vermeyen CLI'lar 0 degil null dondurmeli.
+    const { normalizeCliOutput, addUsage, usageTotal } = engine._internals;
+    const opencodeAgent = { adapter: "opencode", args: ["run", "--format", "json"] };
+    const realOutput = [
+      '{"type":"text","part":{"type":"text","text":"Merhaba!\\n\\n{\\"status\\":\\"complete\\",\\"final\\":\\"selam\\"}"}}',
+      '{"type":"step_finish","part":{"cost":0,"tokens":{"input":5714,"output":263,"reasoning":195,"cache":{"read":10240,"write":0}}}}',
+    ].join("\n");
+    const parsed = normalizeCliOutput(opencodeAgent, realOutput);
+    assert.equal(parsed.usage.input, 5714);
+    assert.equal(parsed.usage.output, 263);
+    assert.equal(parsed.usage.reasoning, 195);
+    assert.equal(parsed.usage.cacheRead, 10240);
+    // Regresyon koruma: telemetri eklemek operatorun okudugu metni bozmamali.
+    assert.equal(parseJson(parsed.text, "t").final, "selam");
+    // Coklu adim toplanmali.
+    const twoSteps = realOutput + '\n{"type":"step_finish","part":{"cost":0.0042,"tokens":{"input":100,"output":50,"cache":{"read":5,"write":7}}}}';
+    const summed = normalizeCliOutput(opencodeAgent, twoSteps).usage;
+    assert.equal(summed.input, 5814);
+    assert.equal(summed.cost, 0.0042);
+    assert.equal(summed.cacheWrite, 7);
+    // Metin modundaki CLI'lar ve token alani olmayan adimlar "veri yok" demeli.
+    assert.equal(normalizeCliOutput({ adapter: "claude", args: ["-p"] }, "duz metin").usage, null);
+    assert.equal(normalizeCliOutput(opencodeAgent, '{"type":"step_finish","part":{"reason":"stop"}}').usage, null);
+    assert.equal(usageTotal({ input: 10, output: 5 }), 15);
+    assert.equal(addUsage(null, { input: 3, cost: 1 }).input, 3);
+
     // CLI hata teshisi: kullanicinin "limitim mi bitti, CLI mi acilmadi" sorusunu ayirt etmeli.
     const { classifyCliError, QUARANTINE_CLI_ERRORS } = engine._internals;
     const code = (message) => classifyCliError(new Error(message)).code;
@@ -361,6 +388,18 @@ async function main() {
       assert.equal(openCodeFound.state, "done");
       assert.equal(openCodeFound.task.teamState.results["opencode-build"].agent, "openworker");
       assert.ok(fs.existsSync(path.join(openCodeWorkspace, "opencode-output.txt")));
+      // UCTAN UCA telemetri: sahte OpenCode'un yayinladigi step_finish, gorevin usage
+      // ozetine ve agent bazli dokumune ulasmis olmali. Ayrica gunluk birikim islemeli.
+      const usage = openCodeFound.task.usage;
+      assert.ok(usage, "tamamlanan gorevde kullanim ozeti bulunmali");
+      assert.equal(usage.byAgent.openworker.input, 1200);
+      assert.equal(usage.byAgent.openworker.cost, 0.0125);
+      assert.equal(usage.total.output, 340);
+      assert.equal(usage.total.cacheRead, 800);
+      // Operator (fake-team-cli) telemetri vermez; toplam cagri > bildiren cagri olmali ki
+      // arayuz "eksik olabilir" uyarisini gosterebilsin.
+      assert.ok(usage.calls > usage.reportingCalls, "telemetri vermeyen cagrilar sayilmali");
+      assert.ok(store.getDailyUsage().input >= 1200, "gunluk birikim yazilmali");
       const promptDir = path.join(store.ROOT, "state", "prompts");
       const leftovers = fs.existsSync(promptDir) ? fs.readdirSync(promptDir).filter((file) => file.startsWith(openCodeTask.id)) : [];
       assert.equal(leftovers.length, 0);
