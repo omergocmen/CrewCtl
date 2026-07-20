@@ -30,9 +30,14 @@ let codexModelRefreshDue = false;
 let codexModelCache = { checkedAt: 0, models: [] };
 
 store.ensureDirs();
-let cliStatus = cliRegistry.discoverInstalled();
+// Acilis maliyetini dusurmek icin onceki kesfin sonucu kullanilir; ayrintili kurallar
+// cli-registry.discoverInstalled icinde. Onbellek gecersiz/eksikse tam yoklama yapilir.
+let cliStatus = cliRegistry.discoverInstalled({ cache: store.loadConfig().cliDiscoveryCache });
 {
   const cfg = store.loadConfig();
+  const nextDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
+  const discoveryCacheChanged = JSON.stringify((cfg.cliDiscoveryCache || {}).results || {}) !== JSON.stringify(nextDiscoveryCache.results);
+  if (discoveryCacheChanged) cfg.cliDiscoveryCache = nextDiscoveryCache;
   const savedModels = cfg.codexModelCache && typeof cfg.codexModelCache === "object" ? cfg.codexModelCache : {};
   const startupCount = Number(savedModels.startupCount || 0) + 1;
   codexModelCache = {
@@ -53,7 +58,7 @@ let cliStatus = cliRegistry.discoverInstalled();
   }
   let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
   if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-  if (changed || staleHealthCleared || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
+  if (changed || staleHealthCleared || discoveryCacheChanged || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
 }
 
 // ---- SSE istemcileri ----
@@ -191,8 +196,22 @@ async function refreshCliHealth(force = false) {
   healthRunning = true;
   cliStatus = cliStatus.map((cli) => ({ ...cli, health: { status: "testing", label: "Test ediliyor", detail: "Gerçek CLI sağlık testi çalışıyor." } }));
   broadcast("cli-health", cliStatus);
+  const generation = cliRegistry.currentProbeGeneration();
   try {
-    cliStatus = await cliRegistry.healthCheckAll(cliStatus, { timeoutMs: 45000, cfg });
+    const results = await cliRegistry.healthCheckAll(cliStatus, { timeoutMs: 45000, cfg });
+    // Motor bu sirada bir goreve basladiysa probe'lar SIGKILL edilmistir; elimizdeki
+    // "failed/timeout" sonuclari gercek degil, iptalin yan urunudur. Onbellege yazmak
+    // CLI'yi 6 saat boyunca yanlislikla arizali gosterirdi. Durumu bilinmiyor'a cekip
+    // (engellemeyen gecici durum) bir sonraki tetiklemede yeniden olcmeyi bekleriz.
+    if (cliRegistry.currentProbeGeneration() !== generation) {
+      cliStatus = cliStatus.map((cli) => ({
+        ...cli,
+        health: { status: "unknown", label: "Bilinmiyor", detail: "Sağlık testi, bir görev başladığı için yarıda kesildi; sonuç kaydedilmedi." },
+      }));
+      broadcast("cli-health", cliStatus);
+      return cliStatus;
+    }
+    cliStatus = results;
     applyHealthToConfig(cliStatus);
     broadcast("cli-health", cliStatus);
     return cliStatus;
@@ -392,9 +411,17 @@ const server = http.createServer(async (req, res) => {
         const cliEntry = (name) => cliStatus.find((c) => c.id === name);
         const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed
           && (name !== "opencode" || c.ready !== false || Boolean(cfg.cliSettings?.opencode?.model)));
+        // "testing" ve "unknown" BILGI YOKLUGUDUR, ariza kaniti degildir. Eskiden yalnizca
+        // "ready" kabul ediliyordu; bu yuzden acilistaki saglik testi suresince (olculen: 13.3 sn)
+        // HER gorev 409 ile reddediliyor ve kullaniciya "CLI kullanilabilir degil" deniyordu.
+        // Bu kume kasitli olarak eski davranisin UST KUMESIDIR: bugun kabul edilen hicbir
+        // gorev reddedilemez, yalnizca iki gecici durum artik engellemiyor. Gercekten arizali
+        // CLI'lar (auth-required/quota/failed/timeout/version-incompatible) aynen engellenir.
+        const TRANSIENT_HEALTH = new Set(["testing", "unknown"]);
         const usableCli = (name) => {
-          const entry = cliEntry(name);
-          return installedCli(name) && (!entry?.health || entry.health.status === "ready");
+          if (!installedCli(name)) return false;
+          const status = cliEntry(name)?.health?.status;
+          return !status || status === "ready" || TRANSIENT_HEALTH.has(status);
         };
         let selectedCli = operatorCli || cfg.operator?.cli;
         if (!installedCli(selectedCli)) {
@@ -456,8 +483,10 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, checkpoints.listCheckpoints(dir ? path.resolve(store.WORK_BASE, dir) : undefined));
       }
       if (pathname === "/api/cli/discover" && req.method === "POST") {
-        cliStatus = cliRegistry.discoverInstalled();
+        // "Yeniden Tara" kullanicinin acik talebidir: onbellegi tumden atla, her CLI'yi yokla.
+        cliStatus = cliRegistry.discoverInstalled({ force: true });
         const cfg = store.loadConfig();
+        cfg.cliDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
         const body = await readBody(req);
         if (Array.isArray(body.ignoredAdapters)) {
           cfg.discoveryIgnoredAdapters = [...new Set(body.ignoredAdapters.filter((id) => cliRegistry.KNOWN_CLIS.includes(id)))];

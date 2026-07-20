@@ -83,8 +83,18 @@ function terminateProbeTree(child) {
 // Motor bir goreve baslarken cagirir: uctaki tum canli probe'lari sonlandirir ki operatörun
 // CLI'si (codex vb.) temiz bir alanda calissin. Probe'lar sonuc olarak "timeout/failed" doner;
 // bu zararsizdir, motor bosaldiginda yeniden denenir.
+// Iptal sayaci: motor bir goreve baslarken probe'lari oldurdugunde artar. Oldurulen probe
+// "cikis kodu != 0" ile doner ve saglik siniflandiricisi bunu GERCEK bir ariza sanardi;
+// sonuc 6 saatlik onbellege yazilinca CLI o sure boyunca yanlislikla kullanilamaz kalirdi.
+// refreshCliHealth bu sayaci once/sonra karsilastirip kirlenmis sonucu ONBELLEGE YAZMAZ.
+let probeGeneration = 0;
+function currentProbeGeneration() {
+  return probeGeneration;
+}
+
 function abortActiveProbes() {
   const count = ACTIVE_PROBES.size;
+  if (count) probeGeneration++;
   for (const child of ACTIVE_PROBES) terminateProbeTree(child);
   ACTIVE_PROBES.clear();
   return count;
@@ -302,8 +312,64 @@ function probe(id, definition) {
   return result;
 }
 
-function discoverInstalled() {
-  return Object.entries(DEFINITIONS).map(([id, definition]) => ({ id, ...definition, ...probe(id, definition) }));
+// Her acilista tum CLI'lar --version ile yoklaniyordu; olculen maliyet 4.8 saniye ve panel
+// bu sure boyunca hic acilmiyordu. Onbellek YALNIZCA su kosulda kullanilir: CLI daha once
+// KURULU bulunmus VE cozulmus ikili dosya HALA diskte duruyor. Bu durumda tekrar yoklamak
+// zaten bilinen bir cevabi dogrulamaktan ibarettir.
+//
+// Bilerek onbelleklenmeyenler (dogruluk hizdan onceliklidir):
+//   - Daha once "kurulu degil" bulunanlar  -> yeni kurulan CLI ilk acilista gorunur.
+//   - Diskte bulunamayan cozulmus yol      -> kaldirilan CLI hemen fark edilir.
+//   - opencode                             -> model listesi/ready durumu degisebilir;
+//                                             her acilista tam yoklanir, davranisi aynen korunur.
+// "Yeniden Tara" (/api/cli/discover) daima force ile cagirir ve onbellegi tumden atlar.
+const DISCOVERY_CACHE_VERSION = 1;
+const ALWAYS_PROBE = new Set(["opencode"]);
+
+// probeCommand, CLI'yi PATH uzerinden buldugunda resolvedCommand'i CIPLAK AD olarak dondurur
+// ("codex"), mutlak yol olarak degil. Duz fs.existsSync bu durumda daima false verir ve
+// onbellek hic tutmaz. Bu yuzden ciplak adlar PATH (+ Windows'ta PATHEXT) uzerinde aranir:
+// spawn maliyeti olmadan, birkac milisaniyede ve dogru sonucla.
+function resolvesOnPath(command) {
+  if (!command) return false;
+  if (command.includes("/") || command.includes("\\")) return fs.existsSync(command);
+  const dirs = String(process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const exts = isWin ? String(process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean) : [""];
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      try { if (fs.existsSync(path.join(dir, command + ext))) return true; } catch {}
+    }
+  }
+  return false;
+}
+
+function cachedProbeUsable(entry) {
+  return Boolean(entry && entry.installed && entry.resolvedCommand && resolvesOnPath(entry.resolvedCommand));
+}
+
+function discoverInstalled(options = {}) {
+  const cache = options.cache?.version === DISCOVERY_CACHE_VERSION ? options.cache.results || {} : {};
+  const force = options.force === true;
+  return Object.entries(DEFINITIONS).map(([id, definition]) => {
+    const cached = cache[id];
+    if (!force && !ALWAYS_PROBE.has(id) && cachedProbeUsable(cached)) {
+      RESOLVED.set(id, cached.resolvedCommand);
+      return { id, ...definition, installed: true, version: cached.version || "kurulu", error: "", resolvedCommand: cached.resolvedCommand, fromCache: true };
+    }
+    return { id, ...definition, ...probe(id, definition) };
+  });
+}
+
+// Bir sonraki acilista kullanilacak onbellek gorununu uretir. Yalnizca kurulu ve yolu
+// cozulmus girdiler saklanir; digerleri zaten her acilista yeniden yoklanir.
+function discoveryCacheFrom(discovered) {
+  const results = {};
+  for (const cli of discovered || []) {
+    if (cli.installed && cli.resolvedCommand && !ALWAYS_PROBE.has(cli.id)) {
+      results[cli.id] = { installed: true, version: cli.version || "kurulu", resolvedCommand: cli.resolvedCommand };
+    }
+  }
+  return { version: DISCOVERY_CACHE_VERSION, checkedAt: new Date().toISOString(), results };
 }
 
 // Tek kaynak: hem gercek gorev calistirici (engine.runCli) hem saglik testi ve model
@@ -613,4 +679,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, healthCheckAll, listCodexModels, abortActiveProbes, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
