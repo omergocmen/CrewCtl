@@ -151,6 +151,48 @@ function main() {
   } finally {
     for (const state of ["approval", "pending", "failed"]) store.removeTask(state, approval.id);
   }
+  // --- Kesif onbellegi (acilis suresi) ---
+  // Onbellek YALNIZCA kurulu bulunmus ve hala PATH/diskte duran CLI icin kullanilir.
+  // Sahte bir onbellek girdisiyle davranisi CLI kurulumundan bagimsiz dogrulariz.
+  const fakeCache = {
+    version: 1,
+    results: {
+      // process.execPath daima mevcut: "kurulu ve yolu gecerli" senaryosu.
+      codex: { installed: true, version: "onbellek-surumu", resolvedCommand: process.execPath },
+      // Var olmayan yol: onbellek KULLANILMAMALI, yeniden yoklanmali.
+      claude: { installed: true, version: "x", resolvedCommand: path.join(store.ROOT, "olmayan-ikili-dosya") },
+      // opencode her zaman yoklanir (model/ready durumu degisebilir).
+      opencode: { installed: true, version: "x", resolvedCommand: process.execPath },
+    },
+  };
+  const cacheProbed = cliRegistry.discoverInstalled({ cache: fakeCache });
+  const byId = Object.fromEntries(cacheProbed.map((c) => [c.id, c]));
+  assert.equal(byId.codex.fromCache, true, "gecerli yolu olan onbellek girdisi kullanilmali");
+  assert.equal(byId.codex.version, "onbellek-surumu");
+  assert.ok(!byId.claude.fromCache, "yolu bulunamayan onbellek girdisi yeniden yoklanmali");
+  assert.ok(!byId.opencode.fromCache, "opencode asla onbellekten gelmemeli");
+  // force=true onbellegi tumden atlamali ("Yeniden Tara" dugmesi bu yolu kullanir).
+  assert.ok(!cliRegistry.discoverInstalled({ cache: fakeCache, force: true }).some((c) => c.fromCache),
+    "force=true iken hicbir sonuc onbellekten gelmemeli");
+  // Uretilen onbellek gorunumu opencode'u ICERMEMELI.
+  const produced = cliRegistry.discoveryCacheFrom([
+    { id: "codex", installed: true, version: "1", resolvedCommand: "codex" },
+    { id: "opencode", installed: true, version: "1", resolvedCommand: "opencode" },
+    { id: "gemini", installed: false, version: "", resolvedCommand: "" },
+  ]);
+  assert.equal(produced.version, 1);
+  assert.ok(produced.results.codex, "kurulu CLI onbellege yazilmali");
+  assert.ok(!produced.results.opencode, "opencode onbellege yazilmamali");
+  assert.ok(!produced.results.gemini, "kurulu olmayan CLI onbellege yazilmamali");
+
+  // --- Probe iptal sayaci (saglik onbelleginin kirlenmesini onler) ---
+  // Motor goreve baslarken probe'lari oldurur; oldurulen probe'un "basarisiz" sonucu
+  // 6 saatlik saglik onbellegine YAZILMAMALIDIR. Sunucu bunu sayacin degisimiyle anlar.
+  const generationBefore = cliRegistry.currentProbeGeneration();
+  assert.equal(cliRegistry.abortActiveProbes(), 0, "aktif probe yokken 0 donmeli");
+  assert.equal(cliRegistry.currentProbeGeneration(), generationBefore,
+    "oldurulen probe yokken sayac artmamali (bos iptal saglik sonucunu gecersiz kilmamali)");
+
   console.log("cli flow ok");
 }
 

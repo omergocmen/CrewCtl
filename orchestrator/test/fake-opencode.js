@@ -28,4 +28,10 @@ process.stdin.on("end", () => {
   }
   fs.writeFileSync("opencode-output.txt", "opencode adapter ok\n");
   process.stdout.write(JSON.stringify({ type: "text", part: { type: "text", text: "YAPILANLAR: opencode-output.txt olusturuldu.\nDOGRULAMA: dosya mevcut." } }) + "\n");
+  // Gercek OpenCode her adim sonunda token/maliyet yayinlar; kullanim telemetrisinin
+  // uctan uca (runCli -> recordUsage -> task.usage) tasindigi bu olayla dogrulanir.
+  process.stdout.write(JSON.stringify({
+    type: "step_finish",
+    part: { type: "step-finish", reason: "stop", cost: 0.0125, tokens: { input: 1200, output: 340, reasoning: 60, cache: { read: 800, write: 20 } } },
+  }) + "\n");
 });
