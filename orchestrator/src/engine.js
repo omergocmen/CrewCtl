@@ -240,37 +240,71 @@ function extractVerdict(text) {
   return /PASS/i.test(matches[matches.length - 1]) ? "PASS" : "FAIL";
 }
 
-function classifyCliError(error) {
-  const raw = String(error?.message || error || "Bilinmeyen CLI hatasi");
-  if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
-    return { code: "VERSION_INCOMPATIBLE", summary: "CLI sürümü seçilen modeli desteklemiyor.", action: "CLI aracını güncelleyin veya desteklenen bir model seçin.", raw: clip(raw, 5000) };
-  }
-  if (/sessiz kaldi|cikti uretmedi|CLI_STALLED/i.test(raw)) {
-    return { code: "CLI_STALLED", summary: "CLI uzun süre yeni çıktı üretmeyince otomatik durduruldu.", action: "Önceki ilerleme kayıtları korundu; operatör bu oturumda farklı bir agent kullanacak.", raw: clip(raw, 5000) };
-  }
-  if (/API key not valid|API_KEY_INVALID/i.test(raw)) {
-    return { code: "AUTH_INVALID", summary: "API anahtari gecersiz veya kullanilamiyor.", action: "Bu agentin kimlik bilgilerini duzeltin ya da baska bir agent kullanin.", raw: clip(raw, 5000) };
-  }
-  if (/unauthorized|unauthenticated|authentication|login required|not logged in/i.test(raw)) {
-    return { code: "AUTH_REQUIRED", summary: "CLI oturumu veya kimlik dogrulamasi gerekli.", action: "CLI'yi terminalde oturum acarak dogrulayin.", raw: clip(raw, 5000) };
-  }
-  if (/rate.?limit|too many requests|quota/i.test(raw)) {
-    return { code: "RATE_LIMIT", summary: "Saglayici kota veya hiz sinirina takildi.", action: "Daha sonra deneyin veya alternatif agent kullanin.", raw: clip(raw, 5000) };
-  }
-  if (/ConnectionRefused|Unable to connect|provider hatasi|provider error|ECONNREFUSED/i.test(raw)) {
-    return { code: "PROVIDER_UNAVAILABLE", summary: "Secilen model saglayicisina baglanilamadi.", action: "OpenCode icin baska bir model secin veya saglayici baglantisini duzeltin.", raw: clip(raw, 5000) };
-  }
-  if (/not recognized as an internal|ENOENT|not found/i.test(raw)) {
-    return { code: "CLI_NOT_FOUND", summary: "CLI komutu bulunamadi veya baslatilamadi.", action: "Agent komutunu ve PATH ayarini kontrol edin.", raw: clip(raw, 5000) };
-  }
-  if (/timeout|timed out|zaman asim|zaman aşım/i.test(raw)) {
-    return { code: "TIMEOUT", summary: "CLI zaman asimina ugradi.", action: "Timeout degerini artirin veya gorevi daha kucuk parcalara bolun.", raw: clip(raw, 5000) };
-  }
-  return { code: "CLI_FAILED", summary: clip(raw.split(/\r?\n/)[0], 500), action: "Teknik ayrintiyi inceleyin veya alternatif agent kullanin.", raw: clip(raw, 5000) };
+// Siniflandirilamayan hatada "gemini cikis kodu 1." gibi bilgisiz bir ilk satir yerine metnin
+// icindeki GERCEK hata cumlesini bulur; kullaniciya gosterilen tek satir buysa anlamli olmali.
+function meaningfulErrorLine(raw) {
+  const all = String(raw).split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  // Yigin izleri ve motorun kendi sardigi "<cli> cikis kodu N." satiri teshis tasimaz;
+  // gercek neden hemen arkalarindaki satirdadir.
+  const useful = all.filter((line) => !/^at\s|^node:internal|^[{}[\]]+$/.test(line) && !/cikis kodu/i.test(line));
+  const signal = useful.find((line) => /error|hata|failed|failure|denied|invalid|exceeded|limit|quota|unable|cannot|must/i.test(line) && line.length > 20);
+  return signal || useful[0] || all[0] || String(raw).trim();
 }
 
-const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_LIMIT", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "TIMEOUT", "CLI_STALLED", "CLI_FAILED", "VERSION_INCOMPATIBLE"]);
-const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "CLI_STALLED", "VERSION_INCOMPATIBLE"]);
+// Ham CLI ciktisini kullaniciya "ne oldu + ne yapmali" seklinde anlamli bir teshise cevirir.
+// SIRA ONEMLIDIR: spesifik desenler once gelmeli. Ornegin Gemini'nin "GEMINI_API_KEY ...
+// not found" mesaji bir PATH/kurulum sorunu DEGILDIR; genis /not found/ deseni bu yuzden
+// daraltildi ve kimlik kontrollerinin arkasina alindi.
+function classifyCliError(error) {
+  const raw = String(error?.message || error || "Bilinmeyen CLI hatasi");
+  const of = (code, summary, action) => ({ code, summary, action, raw: clip(raw, 5000) });
+  if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
+    return of("VERSION_INCOMPATIBLE", "CLI sürümü seçilen modeli desteklemiyor.", "CLI aracını güncelleyin veya desteklenen bir model seçin.");
+  }
+  if (/sessiz kaldi|cikti uretmedi|CLI_STALLED/i.test(raw)) {
+    return of("CLI_STALLED", "CLI uzun süre yeni çıktı üretmeyince otomatik durduruldu.", "Önceki ilerleme kayıtları korundu; operatör bu oturumda farklı bir agent kullanacak.");
+  }
+  if (/API key not valid|API_KEY_INVALID|invalid[_ ]api[_ ]key|incorrect api key/i.test(raw)) {
+    return of("AUTH_INVALID", "API anahtarı geçersiz veya reddedildi.", "Agent ayarlarındaki API anahtarını yenileyin (Gemini için GEMINI_API_KEY / GOOGLE_API_KEY).");
+  }
+  // Gemini CLI oturum acilmadiginda "Please set an Auth method" / "GEMINI_API_KEY environment
+  // variable not found" yazar; her ikisi de kurulum degil OTURUM sorunudur.
+  if (/set an auth method|GEMINI_API_KEY|GOOGLE_API_KEY|unauthorized|unauthenticated|authentication|login required|not logged in|please (run )?login|credentials? (not found|missing|expired)|PERMISSION_DENIED|\b40[13]\b/i.test(raw)) {
+    return of("AUTH_REQUIRED", "CLI oturum açmamış; kimlik doğrulaması gerekiyor.", "Terminalde ilgili CLI ile oturum açın (Gemini: `gemini` çalıştırıp 'Login with Google' veya GEMINI_API_KEY tanımlayın), sonra görevi tekrar deneyin.");
+  }
+  // Kota (gunluk/aylik hak bitti) ile hiz siniri (kisa sureli) AYRI teshislerdir: ilki
+  // beklemekle gecmez, ikincisi gecer. Kullanicinin sordugu "limitim mi bitti" ayrimi budur.
+  if (/RESOURCE_EXHAUSTED|quota exceeded|exceeded your current quota|daily limit|günlük limit|gunluk limit|out of credits|insufficient (credit|balance|quota)|billing/i.test(raw)) {
+    return of("QUOTA_EXCEEDED", "Sağlayıcı kotanız doldu (günlük/aylık hak veya bakiye bitti).", "Kota yenilenene kadar bu agent kullanılamaz; başka bir agent seçin, faturalandırmayı yükseltin veya API anahtarını kotası olan bir hesapla değiştirin.");
+  }
+  if (/rate.?limit|too many requests|\b429\b/i.test(raw)) {
+    return of("RATE_LIMIT", "İstek hızı sınırına takıldı (kota bitmedi, çok sık istek gönderildi).", "Kısa bir süre bekleyip tekrar deneyin; operatör bu turda alternatif bir agent kullanabilir.");
+  }
+  if (/overloaded|\bUNAVAILABLE\b|\b(503|500)\b|internal error|try again later/i.test(raw)) {
+    return of("MODEL_OVERLOADED", "Model sağlayıcısı geçici olarak aşırı yüklü ya da hata döndürdü.", "Sağlayıcı kaynaklı geçici bir sorun; birkaç dakika sonra tekrar deneyin.");
+  }
+  if (/location is not supported|not available in your country|region.*not supported/i.test(raw)) {
+    return of("REGION_BLOCKED", "Model bulunduğunuz bölgede kullanıma kapalı.", "Desteklenen bir bölge/hesap kullanın veya başka bir sağlayıcının agent'ını seçin.");
+  }
+  if (/ConnectionRefused|Unable to connect|provider hatasi|provider error|ECONNREFUSED/i.test(raw)) {
+    return of("PROVIDER_UNAVAILABLE", "Seçilen model sağlayıcısına bağlanılamadı.", "Sağlayıcı bağlantısını kontrol edin veya başka bir model seçin.");
+  }
+  if (/ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|getaddrinfo|fetch failed|socket hang up|network (error|unreachable)|proxy/i.test(raw)) {
+    return of("NETWORK_ERROR", "Ağ bağlantısı kurulamadı (DNS/proxy/internet).", "İnternet veya kurumsal proxy ayarlarınızı kontrol edip görevi tekrar çalıştırın.");
+  }
+  if (/not recognized as an internal|is not recognized|command not found|spawn .*ENOENT|\bENOENT\b|no such file or directory/i.test(raw)) {
+    return of("CLI_NOT_FOUND", "CLI komutu bulunamadı; kurulu değil veya PATH üzerinde görünmüyor.", "CLI'yi kurun (Gemini: `npm install -g @google/gemini-cli`) ve Ayarlar → Agent'lar bölümünde komut adını doğrulayın.");
+  }
+  if (/timeout|timed out|zaman asim|zaman aşım/i.test(raw)) {
+    return of("TIMEOUT", "CLI ayrılan süre içinde tamamlanamadı.", "Agent ayarlarından timeout değerini artırın veya görevi daha küçük parçalara bölün.");
+  }
+  return of("CLI_FAILED", clip(meaningfulErrorLine(raw), 500), "Ham CLI çıktısı teknik ayrıntılarda saklandı; sorun sürerse alternatif bir agent deneyin.");
+}
+
+const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_LIMIT", "QUOTA_EXCEEDED", "MODEL_OVERLOADED", "NETWORK_ERROR", "REGION_BLOCKED", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "TIMEOUT", "CLI_STALLED", "CLI_FAILED", "VERSION_INCOMPATIBLE"]);
+// Karantina = bu oturumda tekrar denemek anlamsiz. Kota/bolge kisiti beklemekle gecmez;
+// hiz siniri (RATE_LIMIT) ve gecici saglayici hatasi (MODEL_OVERLOADED) gecer, karantinaya alinmaz.
+const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "QUOTA_EXCEEDED", "REGION_BLOCKED", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "CLI_STALLED", "VERSION_INCOMPATIBLE"]);
 
 function resolveExecutionMode(task) {
   if (["fast", "balanced", "deep"].includes(task.executionMode)) return task.executionMode;
@@ -316,18 +350,81 @@ function normalizeCliOutput(agent, stdout) {
   return { text: texts.join("\n").trim(), error: errors.join("\n").trim() };
 }
 
-function parseJson(text, label) {
-  const candidates = [];
-  const fenced = String(text).match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) candidates.push(fenced[1]);
-  candidates.push(String(text).trim());
-  const first = String(text).indexOf("{");
-  const last = String(text).lastIndexOf("}");
-  if (first >= 0 && last > first) candidates.push(String(text).slice(first, last + 1));
-  for (const candidate of candidates) {
-    try { return JSON.parse(candidate); } catch {}
+// Metindeki DENGELI suslu parantezli en dis JSON nesnesi adaylarini cikarir. String icindeki
+// parantez/kacis karakterleri sayilmaz; boylece "final" metninde gecen bir { veya } eski
+// "ilk-{ .. son-}" kestirmesini bozmaz. Ayrica model aciklama + nesne + ek aciklama yazdiginda
+// (ya da birden fazla nesne dondurdugunde) her nesne ayri aday olur.
+function jsonObjectCandidates(text) {
+  const src = String(text);
+  const found = [];
+  const stack = [];
+  let inString = false, escaped = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") stack.push(i);
+    else if (ch === "}" && stack.length) {
+      const start = stack.pop();
+      if (!stack.length) found.push(src.slice(start, i + 1));
+    }
   }
-  throw new Error(`${label} gecerli JSON dondurmedi.`);
+  return found;
+}
+
+// Model bazen JSON'u tek tirnak, sondaki virgul veya akilli tirnakla yazar. Kati parse
+// basarisiz oldugunda son care olarak bu yaygin sapmalari onarip bir kez daha dener.
+function repairJsonText(candidate) {
+  return String(candidate)
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1");
+}
+
+const PROTOCOL_KEYS = /"(status|assignments|summary|completionCriteria|final)"\s*:/;
+
+function parseJson(text, label) {
+  const raw = String(text);
+  const candidates = [];
+  for (const fence of raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) candidates.push(fence[1]);
+  candidates.push(raw.trim());
+  // Protokol anahtari iceren nesneler once denenir; ayni onem sirasinda SONDAKI nesne kazanir
+  // (modeller once dusunce/aciklama, en sona nihai protokol nesnesini yazar).
+  const objects = jsonObjectCandidates(raw).reverse();
+  candidates.push(...objects.filter((o) => PROTOCOL_KEYS.test(o)), ...objects.filter((o) => !PROTOCOL_KEYS.test(o)));
+  for (const candidate of candidates) {
+    for (const attempt of [candidate, repairJsonText(candidate)]) {
+      try {
+        const parsed = JSON.parse(attempt);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+      } catch {}
+    }
+  }
+  const error = new Error(`${label} gecerli JSON dondurmedi.`);
+  error.rawText = raw;
+  throw error;
+}
+
+// Protokol hatasinda operatorun ham metnini kullaniciya gosterilebilir bir cevaba cevirir.
+// Yarim kalmis/kirik JSON parcalarini ve kod bloklarini atar; geriye anlamli duz metin
+// kalmiyorsa null doner (o zaman normal hata akisi calisir).
+function conversationalAnswer(error) {
+  if (!/gecerli JSON dondurmedi/i.test(String(error?.message || ""))) return null;
+  const raw = String(error.rawText || "");
+  if (!raw.trim()) return null;
+  const stripped = raw
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\{[\s\S]*\}/g, " ")
+    .replace(/[\s\S]*?^\s*\{[\s\S]*$/m, (match) => match.split("{")[0])
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  // Cok kisa artiklar (or. tek noktalama) cevap sayilmaz.
+  return stripped.length >= 8 ? stripped : null;
 }
 
 function capabilitiesFor(agent) {
@@ -689,16 +786,20 @@ class Engine extends EventEmitter {
       } catch (error) {
         if (!this.salvage(task, error)) {
           const found = store.findTask(task.id);
+          const failure = classifyCliError(error);
           task.status = "failed";
           task.error = error.message;
+          // Siniflandirilmis teshis gorevle birlikte saklanir; arayuz "ne oldu / ne yapmali"
+          // ayrimini ham hata metnini kirparak tahmin etmek yerine buradan okur.
+          task.failure = failure;
           task.finishedAt = new Date().toISOString();
           if (found) store.moveTask(found.state, "failed", task);
-          this.publish("log", { level: "error", msg: `HATA: ${error.message}` }, task.id);
+          this.publish("log", { level: "error", msg: `HATA (${failure.code}): ${failure.summary}` }, task.id);
+          this.publish("log", { level: "warn", msg: `Ne yapmali: ${failure.action}` }, task.id);
           if (task.kind === "operator-chat") {
-            const failure = classifyCliError(error);
-            this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary }, task.id);
+            this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary, failure }, task.id);
           }
-          this.notifyOutcome(task, "failed", { error: error.message });
+          this.notifyOutcome(task, "failed", { error: failure.summary, failureCode: failure.code, action: failure.action });
           this.emit("queue");
         }
       } finally {
@@ -847,7 +948,12 @@ class Engine extends EventEmitter {
         this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs, reason: silenceTimedOut ? "silence-timeout" : (timedOut ? "timeout" : null) });
         if (silenceTimedOut) return reject(new Error(`CLI_STALLED: ${agent.cmd} ${Math.round(silenceTimeoutMs / 1000)} saniye boyunca cikti uretmedi ve otomatik durduruldu.`));
         if (timedOut) return reject(new Error(`${agent.cmd} ${Math.round(timeoutMs / 1000)} saniyede zaman asimina ugradi${signal ? ` (signal=${signal})` : ""}. ${clip(stdout || stderr, 500)}`));
-        if (code !== 0) return reject(new Error(`${agent.cmd} cikis kodu ${code ?? "yok"}${signal ? ` (signal=${signal})` : ""}. ${clip(stderr || stdout, 500)}`));
+        // Teshis icin HER IKI akis da gerekir: bazi CLI'lar (Gemini dahil) kota/oturum hatasini
+        // stdout'a, yigin izini stderr'e yazar. Yalnizca birini almak siniflandiriciyi kor birakiyordu.
+        if (code !== 0) {
+          const detail = [stderr, stdout].map((stream) => String(stream || "").trim()).filter(Boolean).join("\n");
+          return reject(new Error(`${agent.cmd} cikis kodu ${code ?? "yok"}${signal ? ` (signal=${signal})` : ""}.\n${clip(detail, 2000)}`));
+        }
         const normalized = normalizeCliOutput(agent, stdout);
         if (normalized.error) return reject(new Error(`OpenCode model/provider hatasi: ${clip(normalized.error, 500)}`));
         if (!normalized.text) return reject(new Error(`${agent.cmd} kullanilabilir cikti dondurmedi.${stderr ? ` ${clip(stderr, 300)}` : ""}`));
@@ -897,7 +1003,13 @@ class Engine extends EventEmitter {
         // auth/timeout veya proses hatasi ayni operatoru tekrar calistirmamalidir.
         if (!/gecerli JSON dondurmedi/i.test(String(error?.message || ""))) throw error;
         if (attempt >= retries) break;
-        correction = `\n\nONCEKI CEVAP PROTOKOLE UYMADI: ${error.message}\nAciklama veya Markdown eklemeden yalnizca istenen JSON nesnesini yeniden dondur.`;
+        // Modelin ne dondurdugunu duzeltme istegine geri veriyoruz: "yalnizca JSON dondur"
+        // talimatini tekrarlamak, hatayi goremeyen model icin cogu zaman ayni cevabi uretiyordu.
+        correction = `\n\nONCEKI CEVAP PROTOKOLE UYMADI: ${error.message}\n` +
+          `Senin onceki cevabin (kirpilmis):\n"""\n${clip(String(error.rawText || ""), 1200)}\n"""\n` +
+          `Bu cevap gecerli bir JSON nesnesi degildi. Simdi SADECE tek bir JSON nesnesi dondur: ` +
+          `ilk karakter { ve son karakter } olsun; oncesinde/sonrasinda selamlama, aciklama, dusunce, ` +
+          `Markdown veya \`\`\` kod bloğu OLMASIN. Metin alanlarindaki cift tirnaklari \\" ile kacir.`;
         this.publish("log", { level: "warn", msg: `${label} protokol hatasi; operator yeniden deneniyor (${attempt + 2}/${retries + 1}).` });
       }
     }
@@ -959,7 +1071,8 @@ class Engine extends EventEmitter {
       : "";
     const protocol = phase === "plan"
       ? `Yalnizca gecerli JSON dondur. Gorev bir is/degisiklik/arastirma gerektiriyorsa delege et: {"summary":"yaklasim", "completionCriteria":["..."], "assignments":[{"id":"benzersiz-id", "agent":"catalog-name", "kind":"implement|review|research|plan", "instruction":"net gorev ve teslimat", "dependsOn":[]${skillField}}]} (en az bir assignment). ` +
-        `Gorev yalnizca bir bilgi/soru ise ve yaniti sana verilen baglamdan (or. Beceriler bolumu, agent katalogu, proje hafizasi) dogrudan biliyorsan, HICBIR delegasyon acmadan: {"status":"complete", "final":"kisa ve net cevap", "verification":"cevabin dayandigi kaynak"}. Gercek is gerektiren gorevi bu kestirmeyle atlatma.${skillProtocol}`
+        `Gorev yalnizca bir bilgi/soru VEYA bir selamlasma/sohbet mesaji ise (or. "merhaba", "nasilsin", "kac beceri var") ve yaniti dogrudan verebiliyorsan, HICBIR delegasyon acmadan: {"status":"complete", "final":"kullaniciya gosterilecek CEVABIN TAM METNI", "verification":"cevabin dayandigi kaynak"}. ` +
+        `Selamlasmalarda bile cevabi JSON DISINA yazma: kullaniciya gosterilen tek alan "final"dir, nesnenin disindaki her metin atilir. Gercek is gerektiren gorevi bu kestirmeyle atlatma.${skillProtocol}`
       : `Yalnizca gecerli JSON dondur. Is tamamlanmadiysa {"status":"continue", "reason":"...", "assignments":[{"id":"...", "agent":"...", "kind":"implement|review|research|plan", "instruction":"...", "dependsOn":[]${skillField}}]}; tum kabul kriterleri karsilandiysa {"status":"complete", "final":"en fazla 5 kisa maddeyle ne yapildi", "verification":"tek satir dogrulama"}. Dosya listesini motor ekleyecek; final icinde uzun log veya ham agent cevabi tekrarlama. Continue icin en az bir yeni assignment zorunlu.${skillProtocol}\n` +
         `INCELEME DISIPLINI: Bagimsiz denetim VERDICT: PASS verdiyse ayni teslimat icin YENI review delegasyonu acma; complete dondur ve dusuk/orta onemdeki kalan notlari final metninde kalan risk olarak belirt. Ekipte bulunmayan dogrulama yetenegini (or. canli tarayici) tamamlanma sarti yapma; NOT RUN kalan dusuk riskli kontroller teslimati engellemez.`;
     const strategy = task.executionMode === "fast"
@@ -968,6 +1081,11 @@ class Engine extends EventEmitter {
         ? "DERIN MOD: Isi uygun uzmanliklar arasinda dagit — planlama, uygulama, test ve bagimsiz inceleme icin AYRI ve dogru uzmanlari kullan."
         : "DENGELI MOD: Katalogda planner, executor ve reviewer varsa ucunu da ILK planda kullan. PLANLAMA -> UYGULAMA -> BAGIMSIZ INCELEME delegasyonlarini dependsOn ile ayni turda zincirle ve isi tek turda bitirmeyi hedefle. Ayni rolde birden fazla esdeger agent varsa yalnizca en uygun olani sec.";
     return `${role}\n\n---\n## Operator protokolu\n${protocol}\n` +
+      // OpenCode gibi sohbet odakli CLI'lar varsayilan olarak once bir cumle yazip JSON'u
+      // arkasina ekliyor; motor bunu ayiklayabilse de belirsizlik protokol hatasi uretiyordu.
+      `## Cikti bicimi (KATI)\nCevabin TAMAMI tek bir JSON nesnesi olmali: ilk karakter { , son karakter } . ` +
+      `Oncesinde/sonrasinda selamlama, aciklama, dusunce notu, Markdown basligi veya \`\`\` kod bloğu YAZMA. ` +
+      `Kullaniciya iletmek istedigin her seyi ilgili JSON alanina ("final" veya "summary") koy; nesnenin disindaki metin kullaniciya ULASMAZ.\n` +
       `Yalnizca katalogdaki agent adlarini kullan. Her assignment kind degeri secilen agentin allowedKinds listesinde olmali. Kendine gorev atama. Ayni delegasyon id'sini tekrar kullanma.\n` +
       `Bir agent basarisiz veya kullanilamaz raporlandiysa ayni isi ona tekrar verme; katalogdaki alternatif bir uzmani sec.\n` +
       `AJAN SECIMI: Her alt gorevi, katalogdaki YETENEKLERE ve role gore o ise EN UYGUN uzmana ata; tum isi tek bir CLI'ye yigma. Isin ihtiyac duydugu her uzmanlik icin dogru uzmani sec (plan/tasarim -> planlama yetenegi; uygulama -> implementation; inceleme/dogrulama -> review/test; arastirma -> research/web). Ayni KIND icin birden fazla eşdeğer agent varsa YALNIZCA birini (en uygun ve en dusuk maliyetli) kullan; ayni isi iki eşdeğer agente verme. Farkli roller (or. bir uygulayici + bir inceleyici) FARKLI islerdir, tekrar sayilmaz.\n` +
@@ -1128,7 +1246,19 @@ class Engine extends EventEmitter {
       const shortcutRetries = requiresWork ? Math.max(1, cfg.operator?.protocolRetries ?? 1) : 0;
       let plan, shortcutAttempt = 0, planCorrection = "";
       while (true) {
-        plan = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "plan") + planCorrection, cfg, "operator-plan", "Operator plani");
+        try {
+          plan = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "plan") + planCorrection, cfg, "operator-plan", "Operator plani");
+        } catch (error) {
+          // Sohbet kurtarma: gorev delegasyon gerektirmiyorsa (selamlasma, kisa soru) ve operator
+          // protokol nesnesi yerine duz metinle cevap verdiyse, kullaniciyi "gecerli JSON
+          // dondurmedi" hatasiyla karsilamak yanlistir — istenen sey zaten o metindi. Yalnizca
+          // is gerektirmeyen gorevlerde ve elde gercek bir metin varken devreye girer.
+          const prose = conversationalAnswer(error);
+          if (requiresWork || !prose) throw error;
+          this.publish("log", { level: "warn", msg: "Operator protokol nesnesi dondurmedi; gorev is gerektirmedigi icin duz metin cevabi teslimat sayildi." }, task.id);
+          task.teamState = state;
+          return this.complete(task, state, "done", prose, { verification: "Operatorun dogrudan yaniti (protokol nesnesi yerine duz metin)." });
+        }
         const isShortcut = plan && String(plan.status).toLowerCase() === "complete" && !Array.isArray(plan.assignments);
         if (!isShortcut) break;
         if (!requiresWork) {
@@ -1418,4 +1548,5 @@ module.exports = new Engine();
 module.exports._internals = {
   normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, snapshotDir, diffSnapshots,
   captureTextSnapshot, buildLineDiff, describeFileDiff, isSensitiveDiffPath, taskRequiresDelegation,
+  parseJson, conversationalAnswer, classifyCliError, RECOVERABLE_CLI_ERRORS, QUARANTINE_CLI_ERRORS,
 };

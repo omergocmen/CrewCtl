@@ -112,6 +112,7 @@ assert.match(codeHtml, /class=\"diff-hunk\"/, "canli kodlama Git-benzeri hunk ba
 assert.match(codeHtml, /f\.hunks/, "canli kodlama satir diff payload'ini render etmeli");
 assert.match(codeHtml, /Hassas dosya içeriği güvenlik için gizlendi/, "hassas dosya diff icerigi UI'da gizlenmeli");
 assert.match(html, /uzun süre yeni çıktı vermediği için otomatik durduruldu/, "sessizlik mesaji onceki ilerlemeyi yok saymamalı");
+assert.match(html, /\.friendly-error\{[^}]*overflow-wrap:anywhere/, "agent ozet kutusundaki uzun metin kutu disina tasmamali");
 assert.match(html, /OpenCode modeli/, "OpenCode agenti icin kesfedilen model secimi sunulmali");
 assert.match(html, /data-tab="clis"/, "CLI ve model ayarlari ayri sekmede olmali");
 assert.match(html, /function renderClis\(/, "CLI ayarlari ayri renderer kullanmali");

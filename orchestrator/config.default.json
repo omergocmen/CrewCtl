@@ -25,7 +25,7 @@
     "maxRounds": 6,
     "maxDelegationsPerRound": 8,
     "maxInfrastructureRecoveryRounds": 2,
-    "protocolRetries": 1,
+    "protocolRetries": 2,
     "passFastPath": true
   },
   "cliSettings": {

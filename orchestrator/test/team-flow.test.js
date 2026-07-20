@@ -269,6 +269,43 @@ async function main() {
 
     // Saf kurallar: kimlik cakismasi yeniden adlandirilmali, verdict metnin sonundan okunmali.
     const { normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, taskRequiresDelegation } = engine._internals;
+
+    // Protokol ayiklama: operator JSON'u aciklamayla sarmalasa, final metninde susly parantez
+    // kullansa veya birden fazla nesne dondurse bile protokol nesnesi bulunmali.
+    const { parseJson, conversationalAnswer } = engine._internals;
+    assert.equal(parseJson('Merhaba!\n\n{"status":"complete","final":"selam"}', "t").final, "selam");
+    assert.equal(parseJson('{"status":"complete","final":"kod: {a:1} bitti"}', "t").final, "kod: {a:1} bitti");
+    assert.equal(parseJson('{"not":"protokol"}\n{"status":"complete","final":"son"}', "t").final, "son");
+    assert.equal(parseJson('```json\n{"status":"complete","final":"fenced",}\n```', "t").final, "fenced");
+    assert.throws(() => parseJson("hicbir nesne yok", "Operator plani"), /gecerli JSON dondurmedi/);
+
+    // Sohbet kurtarma: is gerektirmeyen gorevde duz metin cevap, protokol hatasi yerine teslimat olur.
+    const protocolError = (() => { try { parseJson("Merhaba! Size nasil yardimci olabilirim?", "Operator plani"); } catch (e) { return e; } })();
+    assert.equal(conversationalAnswer(protocolError), "Merhaba! Size nasil yardimci olabilirim?");
+    assert.equal(conversationalAnswer(new Error("baska bir hata")), null);
+    assert.equal(conversationalAnswer((() => { try { parseJson("  .  ", "Operator plani"); } catch (e) { return e; } })()), null);
+
+    // CLI hata teshisi: kullanicinin "limitim mi bitti, CLI mi acilmadi" sorusunu ayirt etmeli.
+    const { classifyCliError, QUARANTINE_CLI_ERRORS } = engine._internals;
+    const code = (message) => classifyCliError(new Error(message)).code;
+    assert.equal(code("gemini cikis kodu 1.\nPlease set an Auth method in your settings"), "AUTH_REQUIRED");
+    // Regresyon: bu mesaj eskiden genis /not found/ deseniyle CLI_NOT_FOUND'a dusuyordu.
+    assert.equal(code("GEMINI_API_KEY environment variable not found"), "AUTH_REQUIRED");
+    assert.equal(code("[429] RESOURCE_EXHAUSTED: Quota exceeded for quota metric"), "QUOTA_EXCEEDED");
+    assert.equal(code("Error: 429 Too Many Requests, retry in 12s"), "RATE_LIMIT");
+    assert.equal(code("503 The model is overloaded. Please try again later."), "MODEL_OVERLOADED");
+    assert.equal(code("getaddrinfo ENOTFOUND generativelanguage.googleapis.com"), "NETWORK_ERROR");
+    assert.equal(code("'gemini' is not recognized as an internal or external command"), "CLI_NOT_FOUND");
+    assert.equal(code("User location is not supported for the API use"), "REGION_BLOCKED");
+    assert.equal(code("API key not valid. Please pass a valid API key."), "AUTH_INVALID");
+    // Kota/bolge beklemekle gecmez -> karantina; hiz siniri ve gecici yuk gecer -> karantina yok.
+    assert.ok(QUARANTINE_CLI_ERRORS.has("QUOTA_EXCEEDED") && QUARANTINE_CLI_ERRORS.has("REGION_BLOCKED"));
+    assert.ok(!QUARANTINE_CLI_ERRORS.has("RATE_LIMIT") && !QUARANTINE_CLI_ERRORS.has("MODEL_OVERLOADED"));
+    // Siniflandirilamayan hatada bilgisiz ilk satir yerine gercek hata cumlesi ozetlenmeli.
+    const opaque = classifyCliError(new Error("gemini cikis kodu 1.\n    at run (node:internal/x)\nSomething unexpected went wrong while contacting the service"));
+    assert.equal(opaque.code, "CLI_FAILED");
+    assert.match(opaque.summary, /Something unexpected went wrong/);
+    assert.ok(opaque.action);
     assert.equal(taskRequiresDelegation("3D lunapark sahnesi olustur"), true);
     assert.equal(taskRequiresDelegation("kac beceri var"), false);
     const dedupeUsed = new Set(["fix-1"]);
