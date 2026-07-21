@@ -28,6 +28,7 @@ Task secenekleri:
   --dir <klasor>       Calisma klasoru
   --operator <cli>     codex | claude | gemini | opencode
   --mode <mod>         auto | fast | balanced | deep
+  --fresh              Proje profilini yukleme; temiz sayfadan basla
 
 Ornek:
   crewctl task "Testleri duzelt" --dir . --mode balanced
@@ -66,6 +67,9 @@ function addTask(args) {
   const targetDir = takeOption(args, "--dir");
   const operator = takeOption(args, "--operator");
   const mode = takeOption(args, "--mode") || "auto";
+  // --fresh: bu gorevde proje profilini (.crewctl/CONTEXT.md) yukleme; temiz sayfadan basla.
+  const fresh = args.includes("--fresh");
+  if (fresh) args.splice(args.indexOf("--fresh"), 1);
   if (!VALID_MODES.has(mode)) throw new Error(`Gecersiz mod: ${mode}`);
   const unknown = args.find((arg) => arg.startsWith("--"));
   if (unknown) throw new Error(`Bilinmeyen secenek: ${unknown}`);
@@ -75,8 +79,9 @@ function addTask(args) {
   const selectedOperator = operator || cfg.operator?.cli;
   const resolvedDir = targetDir ? path.resolve(targetDir) : undefined;
   const task = store.addTask(prompt, resolvedDir, selectedOperator, mode);
+  if (fresh) { task.freshContext = true; store.saveTask("pending", task); }
   console.log(`Eklendi: ${task.id}`);
-  console.log(`Mod: ${mode}  |  Operator: ${selectedOperator || "varsayilan"}`);
+  console.log(`Mod: ${mode}  |  Operator: ${selectedOperator || "varsayilan"}${fresh ? "  |  Temiz sayfa (--fresh)" : ""}`);
 }
 
 function approvals() {
