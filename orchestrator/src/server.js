@@ -29,10 +29,26 @@ const CODEX_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 let codexModelRefreshDue = false;
 let codexModelCache = { checkedAt: 0, models: [] };
 
+// OpenCode model listesini config'e yaz: prob taze (cache-disi) liste dondurdugunde saklariz
+// ki bir sonraki acilista `opencode models` gecici olarak yavas/basarisiz olsa bile dropdown
+// bos kalmasin — son bilinen liste fallback olur. codexModelCache ile ayni desen.
+function persistOpenCodeModels(cfg, statuses) {
+  const oc = (statuses || []).find((c) => c.id === "opencode");
+  const fresh = oc && oc.installed && !oc.modelsFromCache && Array.isArray(oc.models) ? oc.models : [];
+  if (!fresh.length) return false;
+  if (JSON.stringify((cfg.openCodeModelCache || {}).models || []) === JSON.stringify(fresh)) return false;
+  cfg.openCodeModelCache = { checkedAt: new Date().toISOString(), models: fresh };
+  return true;
+}
+
 store.ensureDirs();
 // Acilis maliyetini dusurmek icin onceki kesfin sonucu kullanilir; ayrintili kurallar
 // cli-registry.discoverInstalled icinde. Onbellek gecersiz/eksikse tam yoklama yapilir.
-let cliStatus = cliRegistry.discoverInstalled({ cache: store.loadConfig().cliDiscoveryCache });
+// OpenCode modelleri persist EDILMEDIGI icin son bilinen listeyi fallback olarak veririz.
+let cliStatus = cliRegistry.discoverInstalled({
+  cache: store.loadConfig().cliDiscoveryCache,
+  openCodeModels: store.loadConfig().openCodeModelCache?.models,
+});
 {
   const cfg = store.loadConfig();
   const nextDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
@@ -58,7 +74,8 @@ let cliStatus = cliRegistry.discoverInstalled({ cache: store.loadConfig().cliDis
   }
   let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
   if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-  if (changed || staleHealthCleared || discoveryCacheChanged || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
+  const openCodeModelsChanged = persistOpenCodeModels(cfg, cliStatus);
+  if (changed || staleHealthCleared || discoveryCacheChanged || openCodeModelsChanged || JSON.stringify(savedModels) !== JSON.stringify(cfg.codexModelCache)) store.saveConfig(cfg);
 }
 
 // ---- SSE istemcileri ----
@@ -403,7 +420,7 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, await browseDir(url.parse(req.url, true).query.path));
       }
       if (pathname === "/api/tasks" && req.method === "POST") {
-        const { prompt, targetDir, operatorCli, executionMode } = await readBody(req);
+        const { prompt, targetDir, operatorCli, executionMode, freshContext } = await readBody(req);
         if (!prompt || !prompt.trim()) return send(res, 400, { error: "prompt gerekli" });
         const cfg = store.loadConfig();
         // Operatör, uzman agent'lardan bağımsız bir CLI'dır (claude/codex/gemini/opencode);
@@ -437,6 +454,8 @@ const server = http.createServer(async (req, res) => {
         }
         const mode = ["auto", "fast", "balanced", "deep"].includes(executionMode) ? executionMode : "auto";
         const t = store.addTask(prompt.trim(), targetDir, selectedCli, mode);
+        // --fresh esdegeri: bu gorevde proje profili (.crewctl/CONTEXT.md) yuklenmez.
+        if (freshContext === true) { t.freshContext = true; store.saveTask("pending", t); }
         engine.wake();
         broadcast("queue", snapshot());
         return send(res, 200, t);
@@ -484,7 +503,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         // "Yeniden Tara" kullanicinin acik talebidir: onbellegi tumden atla, her CLI'yi yokla.
-        cliStatus = cliRegistry.discoverInstalled({ force: true });
+        // OpenCode modelleri persist edilmedigi icin son bilinen listeyi fallback ver; taze
+        // liste gelirse persistOpenCodeModels ile guncellenir.
+        const prevCfg = store.loadConfig();
+        cliStatus = cliRegistry.discoverInstalled({ force: true, openCodeModels: prevCfg.openCodeModelCache?.models });
         const cfg = store.loadConfig();
         cfg.cliDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
         const body = await readBody(req);
@@ -493,6 +515,7 @@ const server = http.createServer(async (req, res) => {
         }
         let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
         if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
+        if (persistOpenCodeModels(cfg, cliStatus)) changed = true;
         if (changed || Array.isArray(body.ignoredAdapters)) store.saveConfig(cfg);
         await refreshCliHealth(true);
         return send(res, 200, { cliStatus, changed, config: store.loadConfig() });

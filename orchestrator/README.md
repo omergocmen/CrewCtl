@@ -367,10 +367,21 @@ checkpoint'i oluşturulur; böylece geri alma da geri alınabilir. Sürümler `s
 tutulur (`versioningRetention`, varsayılan 20 sürüm/klasör) ve yalnızca motor **boşta** iken geri yüklenir.
 Bu, Git yerine geçmez; kritik iş için normal sürüm kontrolünüzü sürdürün.
 
-> ⚠️ Otonom çalışma onayı bir sandbox değildir. Agent'lar çalışma klasöründeki dosyaları değiştirebilir,
-> komut çalıştırabilir ve CLI'ın verdiği yetki ölçüsünde daha geniş sisteme erişebilir. İzole çalışma
-> klasörü/repo kullanın, önemli dosyaları sürüm kontrolünde tutun ve **web panelini güvenilmeyen bir
-> ağa açmayın** — ayar API'si CLI komutlarını değiştirebilir.
+### 🧱 Ajan hapsi (sandbox)
+
+`config.json` → `sandbox` alanı ajanı **çalışma klasörüne** hapseder. **Docker veya Git GEREKTİRMEZ**, her PC'de (Windows/macOS/Linux) çalışır:
+
+| `sandbox.mode` | Davranış |
+|----------------|----------|
+| `"workspace"` (varsayılan) | Ajan yalnızca çalışma klasörüne yazabilir. **Codex**: `-s workspace-write` ile dışarıya yazma + ağ, OS-native olarak engellenir (mac Seatbelt / Linux Landlock+seccomp / Windows restricted-token+ACL). **Claude**: orkestratörün kendi dizinleri (config/memory/kurulum) `permissions.deny` ile gizlenir. **Tüm CLI'lar**: prompt'ta katı "yalnız bu klasör" talimatı. |
+| `"off"` | Eski davranış (hapis yok). |
+
+- `sandbox.extraWritableDirs`: çalışma klasörü dışında izin verilen ek yazılabilir mutlak yollar (monorepo/paylaşılan bağımlılık için). Codex'e `writable_roots` olarak geçer.
+- **Dürüst sınır:** Codex/Claude/Cursor dahil tüm OS-native sandbox'lar **okumayı** kasten serbest bırakır; `workspace` modu dışarıya *yazmayı* keser ama okumayı tam engellemez. Okumayı da tümüyle hapsetmek yalnızca konteynerle mümkündür (Docker gerekir; bu projede kapsam dışı). Codex tarafında okuma+yazma birlikte, mac/Linux'ta çekirdek düzeyinde hapsedilir.
+
+> ⚠️ `workspace` modu güçlü bir koruma sağlar ama tam bir izolasyon garantisi değildir. Yine de izole çalışma
+> klasörü kullanın, önemli dosyaları sürüm kontrolünde tutun ve **web panelini güvenilmeyen bir ağa açmayın**
+> — ayar API'si CLI komutlarını değiştirebilir.
 
 ## 🗄️ Depolama
 
