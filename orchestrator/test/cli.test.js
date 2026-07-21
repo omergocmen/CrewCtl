@@ -42,10 +42,77 @@ function main() {
   const openCode = cliRegistry.effectiveAgent({ adapter: "opencode", cmd: "opencode", args: [], model: "opencode/agent" }, modelCfg);
   assert.equal(openCode.model, "opencode/agent", "agent modeli global CLI ayarini gecersiz kilmali");
 
+  // --- Ajan hapsi (sandbox) ---
+  // workspace modu: codex disariya yazamasin diye -s workspace-write eklenir; exec/skip-git ilk
+  // ikili ve model/effort/tier son alti KORUNUR (sandbox bayragi arada, sonda degil).
+  const sbCfg = { sandbox: { mode: "workspace", extraWritableDirs: [] }, cliSettings: { codex: { model: "gpt-x", reasoningEffort: "high", serviceTier: "priority" } } };
+  const codexSb = cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: [] }, sbCfg);
+  assert.equal(codexSb.args[codexSb.args.indexOf("-s") + 1], "workspace-write", "workspace modunda codex -s workspace-write eklenmeli");
+  assert.deepEqual(codexSb.args.slice(0, 2), ["exec", "--skip-git-repo-check"], "sandbox eklense de exec/skip-git ilk ikili kalmali");
+  assert.deepEqual(codexSb.args.slice(-6), ["--model", "gpt-x", "-c", 'model_reasoning_effort="high"', "-c", 'service_tier="priority"'], "model/effort/tier sona kalmali");
+  // off modu: hicbir sandbox bayragi eklenmez (eski davranis).
+  const codexOff = cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: [] }, { sandbox: { mode: "off" } });
+  assert.ok(!codexOff.args.includes("workspace-write"), "off modunda sandbox bayragi eklenmemeli");
+  // cfg'siz cagri (test/edge) hapissiz kalir; arguman-esitlik testleri bozulmaz.
+  const codexNoCfg = cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: [] });
+  assert.ok(!codexNoCfg.args.includes("workspace-write"), "cfg verilmeyince sandbox eklenmemeli");
+  // Kullanici kendi sandbox/bypass secimini koyduysa EZME (ikinci -s eklenmez).
+  const codexUser = cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: ["exec", "--skip-git-repo-check", "-s", "danger-full-access"] }, sbCfg);
+  assert.equal(codexUser.args.filter((a) => a === "-s").length, 1, "kullanicinin -s secimi tek kalmali");
+  assert.ok(!codexUser.args.includes("workspace-write"), "kullanici danger-full-access dediyse workspace-write eklenmemeli");
+  // extraWritableDirs -> codex writable_roots config'ine cevrilir.
+  const codexRoots = cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: [] }, { sandbox: { mode: "workspace", extraWritableDirs: ["C:/shared", "  ", ""] } });
+  const rootsArg = codexRoots.args.find((a) => String(a).startsWith("sandbox_workspace_write.writable_roots="));
+  assert.ok(rootsArg && rootsArg.includes("C:/shared"), "extraWritableDirs writable_roots olarak gecmeli");
+  assert.ok(!rootsArg.includes('"  "') && !rootsArg.includes('""'), "bos/whitespace yollar elenmeli");
+
+  // buildCommand bare-shell dali: bosluk iceren yol argumanlari (--settings/--file) shell:true
+  // altinda ikiye bolunmesin diye tirnaklanmali; sade bayrak/model adlari dokunulmamali.
+  if (process.platform === "win32") {
+    const bc = cliRegistry.buildCommand("claude", ["--settings", "C:\\a b\\x.json", "--model", "sonnet"]);
+    assert.equal(bc.shell, true, "bare CLI shell:true olmali");
+    assert.equal(bc.args[0], "--settings", "bosluksuz bayrak tirnaklanmamali");
+    assert.equal(bc.args[1], '"C:\\a b\\x.json"', "bosluklu yol tirnaklanmali");
+    assert.equal(bc.args[2], "--model", "model bayragi dokunulmamali");
+    assert.equal(bc.args[3], "sonnet", "model adi tirnaklanmamali");
+  }
+
   assert.deepEqual(cliRegistry.parseOpenCodeModels([
     "Available models:", "opencode/free-model", "opencode-go/paid-model", "ollama/qwen 2", "ollama/qwen2", "log: done",
   ].join("\n")), ["opencode/free-model", "opencode-go/paid-model", "ollama/qwen2"]);
   assert.equal(cliRegistry.selectOpenCodeModel(["opencode-go/paid-model"]), "opencode-go/paid-model");
+
+  // OpenCode model fallback: prob bos donerse son bilinen liste kullanilir (dropdown bos kalmasin).
+  const fb = ["opencode/big-pickle", "opencode-go/pro"];
+  const emptyProbe = cliRegistry.applyOpenCodeFallback({ id: "opencode", installed: true, models: [], ready: false, recommendedModel: "" }, fb);
+  assert.deepEqual(emptyProbe.models, fb, "bos prob'ta fallback modelleri uygulanmali");
+  assert.equal(emptyProbe.ready, true, "fallback ile ready true olmali");
+  assert.equal(emptyProbe.recommendedModel, "opencode/big-pickle", "fallback'tan oneri secilmeli");
+  assert.equal(emptyProbe.modelsFromCache, true, "fallback kullanildigi isaretlenmeli");
+  // Taze modeller varsa fallback YOK SAYILIR (bayat listeyi taze listeye tercih etme).
+  const freshProbe = cliRegistry.applyOpenCodeFallback({ id: "opencode", installed: true, models: ["opencode/new"], ready: true }, fb);
+  assert.deepEqual(freshProbe.models, ["opencode/new"], "taze modeller korunmali");
+  assert.ok(!freshProbe.modelsFromCache, "taze modelde cache isareti olmamali");
+  // opencode disi CLI, bos fallback ve KURULU OLMAYAN opencode dokunulmaz (hayali model gosterme).
+  assert.deepEqual(cliRegistry.applyOpenCodeFallback({ id: "codex", installed: true, models: [] }, fb).models, [], "opencode disi entry degismemeli");
+  assert.deepEqual(cliRegistry.applyOpenCodeFallback({ id: "opencode", installed: true, models: [] }, []).models, [], "bos fallback ile degismemeli");
+  assert.deepEqual(cliRegistry.applyOpenCodeFallback({ id: "opencode", installed: false, models: [] }, fb).models, [], "kurulu olmayan opencode'a fallback uygulanmamali");
+
+  // Proje context (path'e ozel .crewctl/CONTEXT.md): oku/yaz/temizle round-trip.
+  const ctxRoot = fs.mkdtempSync(path.join(require("os").tmpdir(), "crewctl-ctx-"));
+  try {
+    assert.equal(store.readProjectContext(ctxRoot), "", "context yokken bos string donmeli");
+    assert.equal(store.writeProjectContext(ctxRoot, "# Proje\nMimari: X"), true, "yazma basarili olmali");
+    assert.ok(store.projectContextPath(ctxRoot).replace(/\\/g, "/").endsWith(".crewctl/CONTEXT.md"), "yol .crewctl/CONTEXT.md olmali");
+    assert.equal(store.readProjectContext(ctxRoot), "# Proje\nMimari: X", "yazilan icerik geri okunmali");
+    assert.equal(store.writeProjectContext(ctxRoot, "# Proje v2"), true, "ustune yazma basarili olmali");
+    assert.equal(store.readProjectContext(ctxRoot), "# Proje v2", "revize edilen icerik okunmali (append degil)");
+    assert.equal(store.clearProjectContext(ctxRoot), true, "temizleme basarili olmali");
+    assert.equal(store.readProjectContext(ctxRoot), "", "temizlendikten sonra bos donmeli");
+    assert.equal(store.readProjectContext(""), "", "cwd bos ise guvenli bos string");
+  } finally {
+    fs.rmSync(ctxRoot, { recursive: true, force: true });
+  }
 
   const healthPrompt = "CLI_TEAM_HEALTH_CHECK\nYalnizca HEALTH_OK yaz.";
   const preparedHealth = cliRegistry.preparePromptArgs(["run", "--file", "{PROMPT_FILE}"], healthPrompt);

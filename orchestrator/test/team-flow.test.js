@@ -59,6 +59,10 @@ async function main() {
     base.autonomousConsentAcceptedAt = new Date().toISOString();
     base.workingDir = workspace;
     base.dailyCallBudget = 10000;
+    // Bu takim-akisi testleri orkestrasyonu olcer, proje-context ozelligini degil. Gorev
+    // bitiminde ek operator cagrisi (profil revizyonu) fake-cli'nin icerik-tabanli yanitlarini
+    // ve cagri sayaclarini bozardi; ozelligi kapatiyoruz (ayrica cli.test + canli e2e ile test edilir).
+    base.projectContext = false;
     // Operatör artık uzman agent'lardan bağımsız bir CLI'dır; testte fake CLI'yi cfg.operator.cmd ile veriyoruz.
     base.operator = { cli: "operator", cmd: agent.cmd, args: agent.args, timeoutSeconds: agent.timeoutSeconds, roleFile: "roles/operator.md", maxRounds: 3, maxDelegationsPerRound: 3 };
     base.agents = {
@@ -260,7 +264,7 @@ async function main() {
     engine.stopLiveDiff();
     engine.running = false;
     assert.ok(directError && /JSON/i.test(directError.message), "operator duz metin donunce runTask JSON hatasi firlatmali");
-    assert.equal(engine.salvage(directTask, directError), true, "operatorun dogrudan degisikligi kurtarilmali");
+    assert.equal(await engine.salvage(directTask, directError), true, "operatorun dogrudan degisikligi kurtarilmali");
     const directFound = store.findTask(directTask.id);
     assert.equal(directFound.state, "done");
     assert.ok(directFound.task.final.startsWith("KISMI TESLIMAT"));
@@ -369,6 +373,47 @@ async function main() {
     assert.ok(effectiveOpenCode.args.includes("{PROMPT_FILE}"));
     assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local", "opencode/free-model"]), "opencode/free-model");
     assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local"]), "", "yerel Ollama otomatik olarak erisilebilir varsayilmamali");
+
+    // Ajan hapsi (Claude path-aware): gorev orkestrator disindayken orkestratorun kendi
+    // dizinleri (ROOT/ASSETS/WORK_BASE) Read/Edit/Write icin deny edilmeli; icindeyken ise
+    // koruma uygulanmamali (dev/self-repo isi bozulmasin). codex ile off modu null dondurur.
+    const { claudeSandboxSettings } = engine._internals;
+    const norm = (p) => path.resolve(p).replace(/\\/g, "/");
+    const outsideDir = path.resolve(store.WORK_BASE, "..", "sandbox-test-gorev");
+    const sbOutside = claudeSandboxSettings({ adapter: "claude", cmd: "claude" }, outsideDir, { sandbox: { mode: "workspace" } });
+    assert.ok(sbOutside && Array.isArray(sbOutside.permissions.deny) && sbOutside.permissions.deny.length, "disaridaki gorevde deny kurallari uretilmeli");
+    assert.ok(sbOutside.permissions.deny.some((r) => r.startsWith("Read(") && r.endsWith("/**)")), "Read deny kurali olmali");
+    assert.ok(sbOutside.permissions.deny.some((r) => r.startsWith("Write(")), "Write deny kurali olmali");
+    assert.ok(sbOutside.permissions.deny.every((r) => !r.includes("\\")), "deny yollari ileri-slash olmali (cross-platform)");
+    // calisma klasoru bir korunan dizine denk/icindeyse O dizin deny EDILMEZ (is bozulmasin);
+    // diger korunan dizinler (ayri ROOT/ASSETS/WORK_BASE) korunmaya devam edebilir.
+    const inside = claudeSandboxSettings({ adapter: "claude", cmd: "claude" }, store.ROOT, { sandbox: { mode: "workspace" } });
+    const insideDeny = inside?.permissions?.deny || [];
+    assert.ok(!insideDeny.some((r) => r.includes(`(${norm(store.ROOT)}/`)), "calisma klasorunun kendisi (ROOT) deny edilmemeli");
+    assert.equal(claudeSandboxSettings({ adapter: "codex", cmd: "codex" }, outsideDir, { sandbox: { mode: "workspace" } }), null, "codex path-aware deny almaz (native sandbox kullanir)");
+    assert.equal(claudeSandboxSettings({ adapter: "claude", cmd: "claude" }, outsideDir, { sandbox: { mode: "off" } }), null, "off modunda deny uretilmemeli");
+    // Windows buyuk/kucuk harf duyarsizligi: farkli case yazilmis cwd, kurulum dizinini
+    // yanlislikla "disarida" sanip DENY etmemeli (yoksa ajan kendi calisma agacina yazamaz).
+    // store yollarini gecici override edip gercek npx yerlesimini taklit ediyoruz.
+    {
+      const saved = { ROOT: store.ROOT, ASSETS: store.ASSETS, WORK_BASE: store.WORK_BASE };
+      try {
+        store.ROOT = "C:\\Users\\x\\.crewctl";
+        store.ASSETS = "C:\\npx-cache\\crewctl";
+        store.WORK_BASE = "C:\\test";
+        const wm = { sandbox: { mode: "workspace" } };
+        const cl = { adapter: "claude", cmd: "claude" };
+        const denyIn = (cwd) => (claudeSandboxSettings(cl, cwd, wm)?.permissions?.deny || []).map((r) => r.toLowerCase());
+        // Ayri klasor: kurulum dizini (WORK_BASE) korunur.
+        assert.ok(denyIn("C:\\gorev").some((r) => r.includes("c:/test/**")), "ayri gorev klasorunde kurulum dizini korunmali");
+        // Farkli case ile ALT klasor: WORK_BASE cwd'yi kapsar -> deny EDILMEMELI (case-fold).
+        assert.ok(!denyIn("C:\\TEST\\proje").some((r) => r.includes("c:/test/**")), "farkli-case alt klasorde kurulum dizini deny edilmemeli (Windows case-fold)");
+        // Kardes klasor (C:\test-yedek) ic-ice DEGIL -> kurulum dizini korunur.
+        assert.ok(denyIn("C:\\test-yedek").some((r) => r.includes("c:/test/**")), "kardes klasor (test-yedek) kurulum dizinini deny etmeli");
+      } finally {
+        store.ROOT = saved.ROOT; store.ASSETS = saved.ASSETS; store.WORK_BASE = saved.WORK_BASE;
+      }
+    }
 
     // Uygulama agenti kalmadi guvenligi: tek executor karantinaya alininca implement agenti kalmaz.
     const implCfg = { agents: { p: { roleFile: "roles/planner.md", capabilities: ["planning"] }, r: { roleFile: "roles/reviewer.md", capabilities: ["review"] }, x: { roleFile: "roles/executor.md", capabilities: ["implementation"] } } };
