@@ -8,6 +8,8 @@
   "teamContextCharBudget": 30000,
   "agentTimeoutSeconds": 900,
   "cliSilenceTimeoutSeconds": 300,
+  "_cliFirstOutputTimeoutSeconds_comment": "CLI hic cikti uretmeden gecebilecek sure (sn). Akis ici sessizlikten AYRIDIR: is hic baslamadiysa dakikalarca beklemeyiz. 0 = kapali. Adapter varsayilani (opencode: 60) bos birakildiginda uygulanir.",
+  "cliFirstOutputTimeoutSeconds": 0,
   "autonomousConsentAcceptedAt": null,
   "discoveryIgnoredAdapters": [],
   "liveDiff": true,

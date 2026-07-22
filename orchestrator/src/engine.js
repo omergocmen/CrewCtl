@@ -310,6 +310,14 @@ function classifyCliError(error) {
   if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
     return of("VERSION_INCOMPATIBLE", "CLI sürümü seçilen modeli desteklemiyor.", "CLI aracını güncelleyin veya desteklenen bir model seçin.");
   }
+  // Hic cikti uretmeden olen cagri, akis ortasinda susan cagridan FARKLI teshistir: is
+  // baslamamistir, model/saglayici cozulememistir. CLI_STALLED kuralindan ONCE gelmeli.
+  if (/NO_FIRST_OUTPUT/i.test(raw)) {
+    return of("PROVIDER_UNAVAILABLE", "CLI hiç çıktı üretmeden durduruldu; iş hiç başlamamış görünüyor.",
+      adapter === "opencode"
+        ? "Ayarlar → Agent'lar bölümünde bu agent için açık bir model seçin; model çözümlenemediğinde OpenCode hiç çıktı vermeden bekler."
+        : "Modelin/sağlayıcının erişilebilir olduğunu doğrulayın veya farklı bir agent seçin.");
+  }
   if (/sessiz kaldi|cikti uretmedi|CLI_STALLED/i.test(raw)) {
     return of("CLI_STALLED", "CLI uzun süre yeni çıktı üretmeyince otomatik durduruldu.", "Önceki ilerleme kayıtları korundu; operatör bu oturumda farklı bir agent kullanacak.");
   }
@@ -1110,6 +1118,18 @@ class Engine extends EventEmitter {
 
       const timeoutMs = Math.max(10, agent.timeoutSeconds || cfg.agentTimeoutSeconds || 900) * 1000;
       const silenceTimeoutMs = Math.max(1, agent.silenceTimeoutSeconds || cfg.cliSilenceTimeoutSeconds || 300) * 1000;
+      // ILK CIKTI GOZCUSU — akis ici sessizlikten AYRI bir durumdur ve olculdugu uzere
+      // taban tabana zit esikler ister. Gercek kosum verisi (36 opencode cagrisi):
+      //   calisan kosumlar ilk ciktiyi 2-11 sn'de verdi (medyan 4),
+      //   ama akis basladiktan sonra 122 sn'ye kadar susabildi.
+      //   Olu kosumlar ise HIC cikti uretmedi (0 parca) ve sessizlik esigine kadar bekledi.
+      // Tek esikle bakildiginda bu ikisi ayrilamiyor: esigi dusurmek calisan kosumu kesiyor
+      // (daha once denenip geri alindi), yuksek tutmak ise hic baslamamis bir cagriyi
+      // dakikalarca bekletiyor. Ayri gozcu ikisini de cozer: 60 sn, gozlenen en kotu ilk
+      // cikti suresinin (11 sn) 5 kati oldugu icin calisan bir kosumu kesmesi beklenmez.
+      // 0 = kapali (opencode disindaki CLI'lar icin varsayilan davranis degismez).
+      const firstOutputTimeoutMs = Math.max(0, agent.firstOutputTimeoutSeconds || cfg.cliFirstOutputTimeoutSeconds || 0) * 1000;
+      let sawOutput = false, noOutputTimedOut = false, firstOutputTimer;
       let lastOutputAt = Date.now();
       const terminateTree = () => {
         if (isWin && child.pid) {
@@ -1128,6 +1148,20 @@ class Engine extends EventEmitter {
         }, silenceTimeoutMs);
       };
       armSilenceTimer();
+      if (firstOutputTimeoutMs > 0) {
+        firstOutputTimer = setTimeout(() => {
+          if (settled || sawOutput) return;
+          noOutputTimedOut = true;
+          this.publish("activity", { ...base, kind: "process.no-first-output", firstOutputTimeoutMs, elapsedMs: Date.now() - started });
+          terminateTree();
+        }, firstOutputTimeoutMs);
+      }
+      // Ilk cikti geldiginde gozcu kalkar; bundan sonrasi akis ici sessizligin isidir.
+      const markOutput = () => {
+        if (!sawOutput) { sawOutput = true; clearTimeout(firstOutputTimer); }
+        lastOutputAt = Date.now();
+        armSilenceTimer();
+      };
       progressTimer = setInterval(() => {
         if (settled) return;
         this.publish("activity", { ...base, kind: "process.progress", elapsedMs: Date.now() - started, silentMs: Date.now() - lastOutputAt, silenceTimeoutMs });
@@ -1142,15 +1176,13 @@ class Engine extends EventEmitter {
       child.stdout.on("data", (data) => {
         const text = String(data);
         stdout += text;
-        lastOutputAt = Date.now();
-        armSilenceTimer();
+        markOutput();
         this.publish("activity", { ...base, kind: "stdout", text });
       });
       child.stderr.on("data", (data) => {
         const text = String(data);
         stderr += text;
-        lastOutputAt = Date.now();
-        armSilenceTimer();
+        markOutput();
         this.publish("activity", { ...base, kind: "stderr", text });
       });
       child.on("error", (error) => {
@@ -1158,6 +1190,7 @@ class Engine extends EventEmitter {
         settled = true;
         clearTimeout(timer);
         clearTimeout(silenceTimer);
+        clearTimeout(firstOutputTimer);
         clearInterval(progressTimer);
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
@@ -1169,6 +1202,7 @@ class Engine extends EventEmitter {
         settled = true;
         clearTimeout(timer);
         clearTimeout(silenceTimer);
+        clearTimeout(firstOutputTimer);
         clearInterval(progressTimer);
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
@@ -1176,7 +1210,8 @@ class Engine extends EventEmitter {
         // Cikti tek kez ayristirilir; hem kullanim telemetrisi hem metin ayni sonuctan okunur.
         const normalized = normalizeCliOutput(agent, stdout);
         if (normalized.usage) this.recordUsage(displayName, normalized.usage);
-        this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs, usage: normalized.usage, reason: silenceTimedOut ? "silence-timeout" : (timedOut ? "timeout" : null) });
+        this.publish("activity", { ...base, kind: "process.finished", exitCode: code, signal, durationMs, usage: normalized.usage, reason: noOutputTimedOut ? "no-first-output" : (silenceTimedOut ? "silence-timeout" : (timedOut ? "timeout" : null)) });
+        if (noOutputTimedOut) return reject(new Error(`NO_FIRST_OUTPUT: ${agent.cmd} ${Math.round(firstOutputTimeoutMs / 1000)} saniye icinde hic cikti uretmedi; model/saglayici cozulemiyor olabilir.`));
         if (silenceTimedOut) return reject(new Error(`CLI_STALLED: ${agent.cmd} ${Math.round(silenceTimeoutMs / 1000)} saniye boyunca cikti uretmedi ve otomatik durduruldu.`));
         if (timedOut) return reject(new Error(`${agent.cmd} ${Math.round(timeoutMs / 1000)} saniyede zaman asimina ugradi${signal ? ` (signal=${signal})` : ""}. ${clip(stdout || stderr, 500)}`));
         // Teshis icin HER IKI akis da gerekir: bazi CLI'lar (Gemini dahil) kota/oturum hatasini

@@ -47,6 +47,9 @@ const DEFINITIONS = {
     // akitmayabilir (ozellikle yavas/rate-limitli modeller). 180sn cok agresifti ve calisan bir
     // kosmayi yariyordu; sessizlik payini genis tut. Gercek takilma yine timeoutSeconds ile yakalanir.
     silenceTimeoutSeconds: 300,
+    // Calisan kosumlar ilk ciktiyi 2-11 sn'de veriyor (36 cagrilik olcum, medyan 4);
+    // hic cikti gelmiyorsa is baslamamistir. 60 sn = gozlenen en kotunun 5 kati pay.
+    firstOutputTimeoutSeconds: 60,
     // Bazi eski OpenCode surumleri --auto bayragini tanimaz. Otonom izinler
     // engine tarafinda OPENCODE_CONFIG_CONTENT ile surumden bagimsiz aktarilir.
     defaultArgs: ["run", "--format", "json", "Attached file contains the full task. Follow it exactly, make the changes, and report what you did.", "--file", "{PROMPT_FILE}"],
@@ -279,6 +282,7 @@ function effectiveAgent(agent, cfg) {
   const commandAdapter = adapterId(copy.cmd);
   const settings = (cfg && cfg.cliSettings && cfg.cliSettings[adapter]) || {};
   if (!copy.silenceTimeoutSeconds && DEFINITIONS[adapter]?.silenceTimeoutSeconds) copy.silenceTimeoutSeconds = DEFINITIONS[adapter].silenceTimeoutSeconds;
+  if (!copy.firstOutputTimeoutSeconds && DEFINITIONS[adapter]?.firstOutputTimeoutSeconds) copy.firstOutputTimeoutSeconds = DEFINITIONS[adapter].firstOutputTimeoutSeconds;
   if (commandAdapter === adapter && RESOLVED.has(adapter) && !path.isAbsolute(copy.cmd)) copy.cmd = RESOLVED.get(adapter);
   if (adapter === "codex") {
     const commands = new Set(["exec", "review", "resume", "apply"]);

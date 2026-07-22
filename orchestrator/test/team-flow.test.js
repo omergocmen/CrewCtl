@@ -427,6 +427,20 @@ async function main() {
     assert.equal(cliRegistry.selectOpenCodeModel(catalog, { modelPreferences: ["baska-saglayici/*"] }), "");
     // Desendeki regex ozel karakterleri duz metin sayilmali (kullanici girdisi patlamamali).
     assert.equal(cliRegistry.selectOpenCodeModel(["a+b/model"], { modelPreferences: ["a+b/*"] }), "a+b/model");
+    // Ilk-cikti gozcusu, akis ici sessizlikten AYRI teshis vermeli. Olcum: calisan opencode
+    // kosumlari ilk ciktiyi 2-11 sn'de veriyor ama akis basladiktan sonra 122 sn'ye kadar
+    // susabiliyor; tek esik bu ikisini ayiramadigi icin 180 sn denenip geri alinmisti.
+    const noOutput = classifyCliError(Object.assign(
+      new Error("NO_FIRST_OUTPUT: opencode 60 saniye icinde hic cikti uretmedi; model/saglayici cozulemiyor olabilir."),
+      { adapter: "opencode" }));
+    assert.equal(noOutput.code, "PROVIDER_UNAVAILABLE", "hic baslamamis cagri CLI_STALLED degil PROVIDER_UNAVAILABLE olmali");
+    assert.match(noOutput.action, /model seçin/i);
+    // Akis ici sessizlik kendi teshisinde kalmali (gozcu bunu ezmemeli).
+    assert.equal(code("CLI_STALLED: opencode 300 saniye boyunca cikti uretmedi ve otomatik durduruldu."), "CLI_STALLED");
+    // Gozcu yalnizca opencode'da varsayilan acik; digerlerinde davranis degismemeli.
+    assert.equal(cliRegistry.effectiveAgent({ adapter: "opencode", cmd: "opencode", args: [] }, {}).firstOutputTimeoutSeconds, 60);
+    assert.equal(cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: [] }, {}).firstOutputTimeoutSeconds, undefined);
+
     // Regresyon: "No provider available" 401 ile gelir ama OTURUM sorunu degildir; genel
     // 401/403 kurali bunu yutup kullaniciya bosuna "oturum acin" dedirtiyordu.
     const noProvider = classifyCliError(new Error('{"error":{"data":{"message":"No provider available","statusCode":401}}}'));
