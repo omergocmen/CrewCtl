@@ -9,11 +9,49 @@ const checkpoints = require("./checkpoints");
 
 const isWin = process.platform === "win32";
 
+// Ajan hapsi (path-aware, Claude icin). cfg.sandbox.mode === "workspace" iken orkestratorun
+// kendi dizinlerini (veri koku ROOT = config/memory/state, paket ASSETS, kurulum WORK_BASE)
+// Claude'un gozunden gizler: Read/Edit/Write bu yollara permissions.deny ile kapatilir.
+// Docker/Git GEREKTIRMEZ. Codex ayni korumayi effectiveAgent'ta OS-native sandbox ile alir;
+// gemini/opencode icin path-scoped native kural olmadigindan yalnizca prompt talimati gecerli.
+// Calisma klasoru bu korunan dizinlerden birinin ICINDEYSE (or. gelistirme modunda repo'nun
+// kendisinde calismak) o dizin KORUNMAZ — mevcut is bozulmasin diye.
+function claudeSandboxSettings(agent, cwd, cfg) {
+  if (cfg?.sandbox?.mode !== "workspace") return null;
+  const adapter = agent?.adapter || cliRegistry.adapterId(agent?.cmd);
+  if (adapter !== "claude") return null;
+  const norm = (p) => path.resolve(p).replace(/\\/g, "/");
+  // Windows dosya sistemi buyuk/kucuk harfe duyarsizdir: C:\Test ile c:\test ayni dizindir.
+  // Karsilastirmayi case-fold'la yap; aksi halde farkli case yazilmis bir cwd, kurulum
+  // dizinini yanlislikla "disarida" sanip DENY eder (ajan kendi calisma agacinin ustune
+  // erisemez, hatta cwd==kurulum dizini iken kendi klasorune yazamaz).
+  const fold = (p) => (isWin ? p.toLowerCase() : p);
+  const workDir = norm(cwd);
+  const workCmp = fold(workDir);
+  const overlaps = (dir) => {
+    const d = fold(dir);
+    return d === workCmp || d.startsWith(workCmp + "/") || workCmp.startsWith(d + "/");
+  };
+  const protectedDirs = [store.ROOT, store.ASSETS, store.WORK_BASE]
+    .map(norm)
+    .filter((dir, i, all) => all.findIndex((other) => fold(other) === fold(dir)) === i)
+    .filter((dir) => !overlaps(dir));
+  if (!protectedDirs.length) return null;
+  const deny = [];
+  for (const dir of protectedDirs) {
+    for (const tool of ["Read", "Edit", "Write"]) deny.push(`${tool}(${dir}/**)`);
+  }
+  return { permissions: { deny } };
+}
+
 function snapshotDir(dir) {
   const map = new Map();
   const ignored = (rel) => {
     const r = rel.replace(/\\/g, "/");
+    // .crewctl/ orkestratorun kendi proje-context'ini (CONTEXT.md) tutar; gorev diff'lerinde,
+    // live-diff'te ve teslimat dosya listesinde gozukmesin (kullanicinin isi degil).
     return r.includes("node_modules") || r.includes(".git/") || r.startsWith(".git") ||
+      r === ".crewctl" || r.startsWith(".crewctl/") ||
       r.startsWith("orchestrator/queue") || r.startsWith("orchestrator/state") ||
       r.startsWith("orchestrator/memory") || r.startsWith("orchestrator/node_modules");
   };
@@ -221,6 +259,14 @@ function describeFileDiff(root, file, action, baseline, options = {}) {
 function clip(value, limit = 12000) {
   const text = String(value || "");
   return text.length <= limit ? text : `${text.slice(0, limit)}\n...[kesildi]`;
+}
+
+// Sohbet odakli CLI'lar profili bazen ``` ile sarar; profil dosyasina ham metni yazariz.
+// Yalnizca tum icerigi saran TEK bir dis fence'i soyar; ic kod bloklarina dokunmaz.
+function stripCodeFence(text) {
+  const trimmed = String(text || "").trim();
+  const match = trimmed.match(/^```[a-zA-Z0-9]*\s*\n([\s\S]*?)\n?```$/);
+  return match ? match[1] : trimmed;
 }
 
 // Bas ve sonu koruyarak kirpar. Denetci raporlarinda VERDICT satiri metnin SONUNDadir;
@@ -942,7 +988,7 @@ class Engine extends EventEmitter {
       try {
         await this.runTask(task);
       } catch (error) {
-        if (!this.salvage(task, error)) {
+        if (!(await this.salvage(task, error))) {
           const found = store.findTask(task.id);
           const failure = classifyCliError(error);
           task.status = "failed";
@@ -1025,10 +1071,23 @@ class Engine extends EventEmitter {
         }
         return String(arg);
       });
+      const cwd = this._cwd || path.resolve(store.WORK_BASE, cfg.workingDir || ".");
+      // Path-aware hapis: codex sandbox'i disariyi zaten OS-native kapatir (effectiveAgent).
+      // Claude'un OS sandbox'i her platformda (ozellikle Windows'ta) olmadigi icin en azindan
+      // orkestratorun kendi topragini (config/memory/kurulum dizini) permissions.deny ile gizler.
+      // JSON'u arguman olarak gecmek Windows cmd.exe'de tirnaklari bozar; bu yuzden dosyaya yazip
+      // yolunu veriyoruz (prompt dosyasiyla ayni desen).
+      const sandboxSettings = claudeSandboxSettings(agent, cwd, cfg);
+      if (sandboxSettings) {
+        const sbDir = path.join(store.ROOT, "state", "prompts");
+        fs.mkdirSync(sbDir, { recursive: true });
+        const sbFile = path.join(sbDir, `${callId}.settings.json`);
+        fs.writeFileSync(sbFile, JSON.stringify(sandboxSettings), "utf8");
+        rawArgs.push("--settings", sbFile);
+      }
       const command = cliRegistry.buildCommand(agent.cmd, rawArgs);
       const file = command.file;
       const args = command.args;
-      const cwd = this._cwd || path.resolve(store.WORK_BASE, cfg.workingDir || ".");
       const started = Date.now();
       let stdout = "", stderr = "", settled = false, timedOut = false, silenceTimedOut = false;
       let timer, silenceTimer, progressTimer;
@@ -1280,7 +1339,8 @@ class Engine extends EventEmitter {
       skillSection +
       `## Kullanici gorevi\n${task.prompt}\n` +
       `## Calisma klasoru\n${this._cwd}\n` +
-      `## Proje hafizasi (gecmis baglam — gecmis teslimatlar mevcut gorevi TAMAMLANMIS SAYDIRMAZ; kanit olarak degil ipucu olarak kullan)\n${clip(memory, cfg.memoryCharBudget || 8000)}\n` +
+      `SANDBOX: Butun is YALNIZCA bu klasorde yapilir. Bu klasor disina (ust dizinler, orkestrator/kurulum dizini, sistem dosyalari) dosya YAZMA/DEGISTIRME/SILME ve gerekmedikce disariyi OKUMA. Delegasyon talimatlarini da bu sinira gore yaz.\n` +
+      `## Proje profili (bu klasorun birikmis baglami — tum kodu bastan taramak zorunda kalmayasin diye. IPUCUDUR, kanit degil: kritik kararlarda DOSYADAN dogrula, celiski gorursen profile guvenme. Gecmis teslimatlar mevcut gorevi TAMAMLANMIS SAYDIRMAZ.)\n${clip(memory || "(henuz proje profili yok — ilk gorevde olusturulacak)", cfg.projectContextCharBudget || cfg.memoryCharBudget || 8000)}\n` +
       (phase === "review"
         ? `## Son bagimsiz denetim\n${(() => { const review = this.latestReview(state); return review ? `${review.id} (${review.agent}) → VERDICT: ${review.verdict}` : "Henuz tamamlanmis denetim yok."; })()}\n` +
           `## Takim calisma kaydi\n${this.teamDigest(state, cfg)}\n`
@@ -1309,6 +1369,7 @@ class Engine extends EventEmitter {
     return `${role}\n\n---\n## Takim agenti protokolu\n` +
       `Operator sana asagidaki isi devretti. ${instructionByKind[assignment.kind] || instructionByKind.implement} ` +
       `Planda olmayan riskli bir is gerekiyorsa yapma; BLOCKED olarak bildir. Yalnizca gercekten gozlemledigin veya dogruladigin sonuclari yaz.\n` +
+      `SANDBOX: Butun is YALNIZCA calisma klasorunde (${this._cwd}) yapilir. Bu klasor disina dosya YAZMA/DEGISTIRME/SILME ve gerekmedikce disariyi OKUMA.\n` +
       (skillRefs ? `## Uygulanacak beceriler\nBu is icin asagidaki beceri rehberleri secildi. Her satirda becerinin OZETI ve TAM rehberin DOSYA YOLU var. Ozet yeterliyse dogrudan uygula; daha fazla ayrinti gerekiyorsa ilgili dosyayi OKU ve prosedure uy. Ilgisiz bir sey varsa gormezden gel.\n${skillRefs}\n` : "") +
       `## Ana hedef\n${task.prompt}\n## Delegasyon\nID: ${assignment.id}\n${assignment.instruction}\n` +
       `## Onceki tamamlanan takim isleri\n${clip(JSON.stringify(completed, null, 2), cfg.teamContextCharBudget || 30000)}`;
@@ -1463,7 +1524,12 @@ class Engine extends EventEmitter {
     this.emit("queue");
 
     cfg.runtimeUnavailableAgents = this.quarantinedAgents();
-    const memory = store.getMemory(cfg.memoryCharBudget);
+    // Proje context: varsayilan olarak bu calisma klasorunun .crewctl/CONTEXT.md profilini
+    // yukleriz (path'e ozel, tum kodu bastan taramaya gerek kalmasin). task.freshContext ise
+    // temiz sayfa. projectContext:false ise eski GLOBAL hafiza davranisi korunur.
+    const memory = cfg.projectContext === false
+      ? store.getMemory(cfg.memoryCharBudget)
+      : (task.freshContext ? "" : store.readProjectContext(this._cwd));
     const state = task.teamState || { round: 0, plan: null, criteria: [], results: {}, messages: [], operatorDecisions: [], usedIds: [] };
     const usedIds = new Set(state.usedIds || []);
 
@@ -1657,7 +1723,7 @@ class Engine extends EventEmitter {
   // Gorev beklenmedik bir hatayla kesildiginde (protokol hatasi, butce asimi vb.) somut is
   // uretilmisse gorevi failed yerine uyarili kismi teslimatla kapatir. Basarili olamazsa
   // false doner ve normal hata akisi calisir.
-  salvage(task, error) {
+  async salvage(task, error) {
     try {
       if (task.kind === "operator-chat") return false;
       if (!this._cwd || !this._snapBefore) return false;
@@ -1682,7 +1748,7 @@ class Engine extends EventEmitter {
           changedFiles.slice(0, 40).map((file) => `- ${file}`).join("\n")
         : `KISMI TESLIMAT: Gorev bir altyapi/protokol hatasiyla kesildi fakat tamamlanan is korundu.\n` +
           completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n");
-      this.complete(task, rescueState, "done", final, {
+      await this.complete(task, rescueState, "done", final, {
         warnings: [
           `Gorev su hatayla kesildi: ${failure.summary}`,
           ...(operatorDirect ? [`Operator CLI (${task.operatorCli || "?"}) plan JSON'i yerine isi dogrudan yapti. Daha guvenilir orkestrasyon icin operator olarak JSON planlamaya uygun bir CLI (or. Codex veya Claude) secmeyi dusunun.`] : []),
@@ -1734,7 +1800,7 @@ class Engine extends EventEmitter {
     this.emit("queue");
   }
 
-  complete(task, state, status, finalText, decision = {}) {
+  async complete(task, state, status, finalText, decision = {}) {
     const changes = diffSnapshots(this._snapBefore || new Map(), snapshotDir(this._cwd));
     // Son periyodik taramadan sonra yapilan degisiklikleri de replay kaydina ve dashboard'a
     // aktar; ardindan run --once yolunda da timer'in acik kalmamasini garanti et.
@@ -1779,6 +1845,45 @@ class Engine extends EventEmitter {
     this.notifyOutcome(task, status, { summary: task.summary, rounds: state.round, fileCount: files.length, verification: task.delivery.verification });
     this.emit("queue");
     this._textBefore = null;
+    // Proje profilini guncelle (sonuc zaten kullaniciya iletildi; motor mesgul kaldigindan
+    // sonraki gorevle es zamanli operator cagrisi olmaz). Basarisizsa gorevi ASLA etkilemez.
+    await this.reviseProjectContext(task, status, files);
+  }
+
+  // Gorev bitiminde bu calisma klasorunun .crewctl/CONTEXT.md proje profilini operatore REVIZE
+  // ettirir (append degil): mimari/yapi/konvansiyon/komutlar guncel kalir, bayatlamaz. Yalnizca
+  // basarili ve DOSYA DEGISTIREN gorevlerde calisir (bilgi sorulari profili degistirmez).
+  async reviseProjectContext(task, status, files) {
+    try {
+      const cfg = this.cfg();
+      if (cfg.projectContext === false) return;
+      if (status !== "done" || !this._cwd) return;
+      if (!Array.isArray(files) || !files.length) return;
+      const operatorCli = task.operatorCli || cfg.operator?.cli;
+      if (!operatorCli || !cliRegistry.operatorSpec(operatorCli, cfg)) return;
+      const budget = cfg.projectContextCharBudget || 6000;
+      const current = store.readProjectContext(this._cwd);
+      const changed = files.map((f) => `${f.action}: ${f.path}`).join("\n");
+      const prompt =
+        `Sen bir projenin YASAYAN bilgi tabanini (proje profili) guncelliyorsun. Amac: sonraki gorevlerde ` +
+        `ajan tum kodu bastan taramadan projeyi anlasin.\n` +
+        `Asagida MEVCUT profil ve SON tamamlanan gorevin ozeti + degisen dosyalar var. Guncel, oz ve DOGRU ` +
+        `bir proje profili YAZ (Markdown). Kurallar:\n` +
+        `- Degisen gerceklere gore REVIZE et; silinen/tasinan/degisen seyleri guncelle, bayat bilgi birakma.\n` +
+        `- Dayanikli bilgiyi tut: amac, mimari, klasor/dosya yapisi, giris noktalari, onemli moduller, ` +
+        `konvansiyonlar, kurulum/calistirma/test komutlari, dikkat noktalari.\n` +
+        `- Task-by-task changelog YAZMA; tek bir GUNCEL DURUM profili olsun.\n` +
+        `- En fazla ~${budget} karakter. YALNIZCA profil metnini dondur; aciklama/selamlama/JSON/kod-bloğu isareti YAZMA.\n\n` +
+        `## Mevcut profil\n${current || "(henuz yok — sifirdan olustur)"}\n\n` +
+        `## Son tamamlanan gorev\n${task.prompt}\n\n## Sonuc ozeti\n${task.summary || ""}\n\n## Degisen dosyalar\n${changed}`;
+      const response = await this.invokeOperator(operatorCli, prompt, cfg, { stage: "operator-context" });
+      const profile = stripCodeFence(String(response?.text || "")).trim();
+      if (profile && store.writeProjectContext(this._cwd, clip(profile, budget * 2))) {
+        this.publish("log", { level: "info", msg: "Proje profili (.crewctl/CONTEXT.md) guncellendi." }, task.id);
+      }
+    } catch (error) {
+      this.publish("log", { level: "warn", msg: `Proje profili guncellenemedi: ${error.message}` }, task.id);
+    }
   }
 
   // Dis bildirim icin tek cikis noktasi: server.js bu event'i dinleyip (varsa) webhook'a POST atar.
@@ -1805,5 +1910,5 @@ module.exports._internals = {
   captureTextSnapshot, buildLineDiff, describeFileDiff, isSensitiveDiffPath, taskRequiresDelegation,
   parseJson, conversationalAnswer, classifyCliError, RECOVERABLE_CLI_ERRORS, QUARANTINE_CLI_ERRORS,
   TRANSIENT_CLI_ERRORS, QUARANTINE_COOLDOWN_SECONDS, compatibleAgentsForKind,
-  normalizeCliOutput, addUsage, usageTotal,
+  normalizeCliOutput, addUsage, usageTotal, claudeSandboxSettings,
 };

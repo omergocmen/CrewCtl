@@ -258,6 +258,18 @@ function normalizeAgentAdapters(cfg) {
   return changed;
 }
 
+// Ajan hapsi acik mi? cfg.sandbox.mode === "workspace" ise CLI'lar calisma klasoru DISINA
+// yazamaz/aga cikamaz. cfg verilmeyen (test/edge) cagrilar hapissiz kalir; boylece mevcut
+// arguman-esitlik testleri aynen gecer. Gercek calistirmada normalizeConfig mode'u daima
+// doldurur (varsayilan "workspace").
+function confineWorkspace(cfg) {
+  return cfg?.sandbox?.mode === "workspace";
+}
+function sandboxWritableRoots(cfg) {
+  const roots = cfg?.sandbox?.extraWritableDirs;
+  return Array.isArray(roots) ? roots.filter((x) => typeof x === "string" && x.trim()).map(String) : [];
+}
+
 // cfg verilirse cfg.cliSettings[adapter] o CLI'nin varsayilan model ayari olarak uygulanir.
 // Oncelik: agent.model (profil bazli) > cliSettings[adapter].model (global) > CLI varsayilani.
 function effectiveAgent(agent, cfg) {
@@ -272,12 +284,23 @@ function effectiveAgent(agent, cfg) {
     const commands = new Set(["exec", "review", "resume", "apply"]);
     if (!copy.args.some((arg) => commands.has(arg))) copy.args.unshift("exec", "--skip-git-repo-check");
     else if (copy.args.includes("exec") && !copy.args.includes("--skip-git-repo-check")) copy.args.splice(copy.args.indexOf("exec") + 1, 0, "--skip-git-repo-check");
-    // `codex exec` varsayilan olarak read-only sandbox'ta calisir: yazma reddedilir ama surec 0
-    // ile biter, motor delegasyonu "tamamlandi" sayar ve hicbir dosya uretmeden turlar yanar.
-    // Kullanicinin kendi sandbox/onay bayragi varsa ona dokunulmaz.
-    const sandboxChosen = copy.args.some((arg) => /^(--sandbox|-s|--full-auto|--dangerously-bypass-approvals-and-sandbox)$/.test(String(arg))
-      || String(arg).startsWith("sandbox_mode="));
-    if (copy.args.includes("exec") && !sandboxChosen) copy.args.splice(copy.args.indexOf("exec") + 1, 0, "--sandbox", "workspace-write");
+    // Hapis: calisma klasoru (spawn cwd = codex "workspace") disina yazma ve ag engellenir.
+    // AYRICA: `codex exec` bayraksiz calistiginda read-only sandbox'a duser; yazma reddedilir
+    // ama surec 0 doner, motor delegasyonu "tamamlandi" sayar ve hicbir dosya uretmeden turlar
+    // yanar. Yani bu bayrak yalnizca hapis degil, otonom kosumun calismasi icin de sarttir.
+    // Native sandbox — mac Seatbelt / Linux Landlock+seccomp / Windows restricted-token+ACL —
+    // Docker/Git GEREKTIRMEZ. Kullanici acikca kendi -s/--sandbox veya bypass bayragini
+    // koyduysa ona dokunmayiz. Bayrak, model/effort/tier PUSH'undan ONCE ve exec/skip-git'ten
+    // HEMEN SONRA eklenir; testlerin args.slice(0,2) ve slice(-6) beklentileri korunur.
+    const alreadySandboxed = copy.args.some((arg) => arg === "-s" || arg === "--sandbox" || arg === "--dangerously-bypass-approvals-and-sandbox" || arg === "--full-auto");
+    if (confineWorkspace(cfg) && !alreadySandboxed) {
+      const anchor = copy.args.indexOf("--skip-git-repo-check");
+      const at = anchor >= 0 ? anchor + 1 : Math.max(copy.args.indexOf("exec") + 1, 0);
+      const flags = ["-s", "workspace-write"];
+      const roots = sandboxWritableRoots(cfg);
+      if (roots.length) flags.push("-c", `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`);
+      copy.args.splice(at, 0, ...flags);
+    }
     const model = String(copy.model || settings.model || "").trim();
     const effort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(settings.reasoningEffort)) ? String(settings.reasoningEffort) : "";
     const serviceTier = /^[A-Za-z0-9._-]{1,64}$/.test(String(settings.serviceTier || "")) ? String(settings.serviceTier) : "";
@@ -444,9 +467,32 @@ function cachedProbeUsable(entry) {
   return Boolean(entry && entry.installed && entry.resolvedCommand && resolvesOnPath(entry.resolvedCommand));
 }
 
+// OpenCode model listesi persist EDILMEZ; her acilista `opencode models` ile bellekten
+// uretilir. O cagri acilista gecici olarak yavas/basarisiz olursa (soguk ilk cagri, auth
+// oturmamis, ag) liste bos kalir ve panel model dropdown'i o process boyunca bos gorunur.
+// codex icin codexModelCache ile cozulen bu kirilganligi opencode icin de kapatiriz: prob
+// bos donerse son basarili liste (config'te saklanan) fallback olarak kullanilir. Fallback
+// ayni zamanda OPEN_CODE_MODELS'i doldurur ki otomatik model secimi de calissin.
+// settings: fallback yolunda da kullanicinin acik modeli / modelPreferences desenleri gecerli
+// olmali; aksi halde bayat listeden varsayilan kurallarla secim yapilirdi.
+function applyOpenCodeFallback(entry, fallback, settings = {}) {
+  if (!entry || entry.id !== "opencode" || !entry.installed) return entry;
+  if ((entry.models && entry.models.length) || !Array.isArray(fallback) || !fallback.length) return entry;
+  const models = fallback.map(String).filter(Boolean);
+  if (!models.length) return entry;
+  OPEN_CODE_MODELS = models.slice();
+  entry.models = models.slice();
+  entry.recommendedModel = String(settings.model || "").trim() || selectOpenCodeModel(models, settings);
+  entry.ready = Boolean(entry.recommendedModel);
+  entry.modelsFromCache = true;
+  if (entry.ready) entry.readinessError = "";
+  return entry;
+}
+
 function discoverInstalled(options = {}) {
   const cache = options.cache?.version === DISCOVERY_CACHE_VERSION ? options.cache.results || {} : {};
   const force = options.force === true;
+  const openCodeFallback = Array.isArray(options.openCodeModels) ? options.openCodeModels : [];
   return Object.entries(DEFINITIONS).map(([id, definition]) => {
     const cached = cache[id];
     if (!force && !ALWAYS_PROBE.has(id) && cachedProbeUsable(cached)) {
@@ -460,7 +506,12 @@ function discoverInstalled(options = {}) {
       }
       return { id, ...definition, installed: true, version: cached.version || "kurulu", error: "", resolvedCommand: cached.resolvedCommand, fromCache: true, supportedFlags: supportedFlags || [] };
     }
-    return { id, ...definition, ...probe(id, definition, options.cfg) };
+    // cfg: model onerisi kullanicinin modelPreferences desenlerine gore uretilir.
+    // fallback: prob bos donerse son bilinen model listesi korunur.
+    const result = { id, ...definition, ...probe(id, definition, options.cfg) };
+    return id === "opencode"
+      ? applyOpenCodeFallback(result, openCodeFallback, (options.cfg && options.cfg.cliSettings && options.cfg.cliSettings.opencode) || {})
+      : result;
   });
 }
 
@@ -483,7 +534,17 @@ function discoveryCacheFrom(discovered) {
 function buildCommand(command, args) {
   if (!isWin) return { file: command, args, shell: false };
   const bare = !path.isAbsolute(command) && !/[\\/]/.test(command);
-  if (bare) return { file: command, args, shell: true };
+  if (bare) {
+    // shell:true iken Node argumanlari birlestirip cmd.exe'ye verir ve OTOMATIK TIRNAK KOYMAZ.
+    // Bosluk iceren yol argumanlari (or. "C:\Users\John Doe\...\x.settings.json" veya
+    // {PROMPT_FILE}) ikiye bolunurdu; bu da --settings/--file yolunu bozardi. Bosluk veya
+    // kabuk metakarakteri iceren argumanlari tirnakla; sade bayrak/model adlari dokunulmaz.
+    const shellQuote = (value) => {
+      const v = String(value);
+      return /[\s"^&|<>()%!]/.test(v) ? `"${v.replace(/"/g, '\\"')}"` : v;
+    };
+    return { file: command, args: args.map(shellQuote), shell: true };
+  }
   if (!/\.(cmd|bat)$/i.test(command)) return { file: command, args, shell: false };
   const quote = (value) => `"${String(value).replace(/"/g, '""')}"`;
   return { file: process.env.ComSpec || "cmd.exe", args: ["/d", "/s", "/c", `"${[command, ...args].map(quote).join(" ")}"`], shell: false, verbatim: true };
@@ -784,4 +845,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

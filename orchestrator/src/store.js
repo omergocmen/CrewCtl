@@ -125,6 +125,13 @@ const FALLBACK_CONFIG = {
   discoveryIgnoredAdapters: [],
   liveDiff: true, liveDiffIntervalMs: 2500,
   versioning: true, versioningRetention: 20,
+  // Ajan hapsi: "workspace" = her CLI'nin native sandbox'i ile calisma klasoru DISINA yazma/ag
+  // engellenir (Docker/Git gerektirmez; codex mac/Linux/Windows'ta OS-native zorlar). "off" =
+  // eski davranis. extraWritableDirs: calisma klasoru disinda ek yazilabilir mutlak yollar.
+  sandbox: { mode: "workspace", extraWritableDirs: [] },
+  // Proje context: her calisma klasorunun .crewctl/CONTEXT.md profili gorev acilisinda yuklenir,
+  // bitiminde operator revize eder. false = eski global hafiza davranisi.
+  projectContext: true, projectContextCharBudget: 6000,
   notify: { webhookUrl: "", onComplete: true, onFailed: true },
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
   resilience: { transientRetries: 2, retryBaseSeconds: 3, maxFailoverAgents: 1 },
@@ -147,6 +154,14 @@ function normalizeConfig(cfg) {
     ...cfg,
     skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200, ...(cfg.skills || {}) },
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
+    // Her yuklemede hapis semasini garanti et; boylece eski config.json'lar yukseltilince
+    // varsayilan olarak "workspace" hapsini kazanir. Gecersiz mode "workspace"e duser.
+    sandbox: {
+      mode: ["off", "workspace"].includes(cfg.sandbox?.mode) ? cfg.sandbox.mode : "workspace",
+      extraWritableDirs: Array.isArray(cfg.sandbox?.extraWritableDirs)
+        ? cfg.sandbox.extraWritableDirs.filter((x) => typeof x === "string" && x.trim()).map(String)
+        : [],
+    },
     cliSettings: {
       codex: { model: "", reasoningEffort: "medium", serviceTier: "fast", ...legacyCodex, ...(current.codex || {}) },
       // Desenler mevcut config'lere de eklenir ki kullanici bunlari Ayarlar'da gorup
@@ -359,6 +374,31 @@ function appendMemory(title, body) {
   fs.appendFileSync(path.join(MEM, "log.md"), `\n## ${stamp} — ${title}\n${body}\n`);
 }
 
+// ---- Proje context (path'e ozel) ----
+// Global log.md'nin aksine, her calisma klasorunun KENDI birikmis proje profili vardir:
+// <cwd>/.crewctl/CONTEXT.md. Gorev acilisinda operatore yuklenir (tum kodu bastan taramaya
+// gerek kalmasin), gorev bitiminde operator tarafindan REVIZE edilir (append degil). Calisma
+// klasorunde durdugu icin seffaf, elle duzenlenebilir ve git'e girebilir.
+function projectContextPath(cwd) {
+  return path.join(cwd, ".crewctl", "CONTEXT.md");
+}
+function readProjectContext(cwd) {
+  if (!cwd) return "";
+  try { return fs.readFileSync(projectContextPath(cwd), "utf8"); } catch { return ""; }
+}
+function writeProjectContext(cwd, content) {
+  if (!cwd) return false;
+  try {
+    fs.mkdirSync(path.join(cwd, ".crewctl"), { recursive: true });
+    atomicWrite(projectContextPath(cwd), String(content == null ? "" : content));
+    return true;
+  } catch { return false; }
+}
+function clearProjectContext(cwd) {
+  if (!cwd) return false;
+  try { fs.rmSync(projectContextPath(cwd), { force: true }); return true; } catch { return false; }
+}
+
 // ---- Gunluk cagri butcesi ----
 function callFile() {
   return path.join(STATE, `calls-${new Date().toISOString().slice(0, 10)}.txt`);
@@ -424,6 +464,10 @@ module.exports = {
   rejectTask,
   getMemory,
   appendMemory,
+  readProjectContext,
+  writeProjectContext,
+  clearProjectContext,
+  projectContextPath,
   getCallCount,
   bumpCallCount,
   getDailyUsage,
