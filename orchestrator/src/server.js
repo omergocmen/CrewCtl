@@ -45,9 +45,12 @@ store.ensureDirs();
 // Acilis maliyetini dusurmek icin onceki kesfin sonucu kullanilir; ayrintili kurallar
 // cli-registry.discoverInstalled icinde. Onbellek gecersiz/eksikse tam yoklama yapilir.
 // OpenCode modelleri persist EDILMEDIGI icin son bilinen listeyi fallback olarak veririz.
+// cfg ayrica model onerisinin kullanicinin modelPreferences desenlerine gore uretilmesini saglar.
+const bootCfg = store.loadConfig();
 let cliStatus = cliRegistry.discoverInstalled({
-  cache: store.loadConfig().cliDiscoveryCache,
-  openCodeModels: store.loadConfig().openCodeModelCache?.models,
+  cache: bootCfg.cliDiscoveryCache,
+  openCodeModels: bootCfg.openCodeModelCache?.models,
+  cfg: bootCfg,
 });
 {
   const cfg = store.loadConfig();
@@ -237,7 +240,6 @@ async function refreshCliHealth(force = false) {
   }
 }
 
-// ---- yardimcilar ----
 function send(res, code, obj) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
@@ -377,7 +379,6 @@ async function browseDir(p, warning = "") {
 const server = http.createServer(async (req, res) => {
   const { pathname } = url.parse(req.url, true);
 
-  // SSE
   if (pathname === "/api/events") {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -391,7 +392,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // API
   if (pathname.startsWith("/api/")) {
     try {
       if (pathname === "/api/state" && req.method === "GET") {
@@ -504,10 +504,10 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         // "Yeniden Tara" kullanicinin acik talebidir: onbellegi tumden atla, her CLI'yi yokla.
         // OpenCode modelleri persist edilmedigi icin son bilinen listeyi fallback ver; taze
-        // liste gelirse persistOpenCodeModels ile guncellenir.
-        const prevCfg = store.loadConfig();
-        cliStatus = cliRegistry.discoverInstalled({ force: true, openCodeModels: prevCfg.openCodeModelCache?.models });
+        // liste gelirse persistOpenCodeModels ile guncellenir. cfg ise model onerisini
+        // kullanicinin modelPreferences desenlerine gore urettirir.
         const cfg = store.loadConfig();
+        cliStatus = cliRegistry.discoverInstalled({ force: true, cfg, openCodeModels: cfg.openCodeModelCache?.models });
         cfg.cliDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
         const body = await readBody(req);
         if (Array.isArray(body.ignoredAdapters)) {
@@ -721,7 +721,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Statik
   serveStatic(res, pathname === "/" ? "index.html" : pathname.slice(1));
 });
 

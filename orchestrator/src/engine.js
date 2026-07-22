@@ -303,20 +303,30 @@ function meaningfulErrorLine(raw) {
 // daraltildi ve kimlik kontrollerinin arkasina alindi.
 function classifyCliError(error) {
   const raw = String(error?.message || error || "Bilinmeyen CLI hatasi");
-  const of = (code, summary, action) => ({ code, summary, action, raw: clip(raw, 5000) });
+  // Hatanin geldigi CLI biliniyorsa tavsiye ona gore uretilir (runCli her hatayi etiketler).
+  const adapter = error?.adapter || "";
+  const agentName = error?.agentName || "";
+  const of = (code, summary, action) => ({ code, summary, action, agent: agentName, adapter, raw: clip(raw, 5000) });
   if (/requires a newer version|upgrade to the latest|model metadata.*not found|unsupported.*model|model.*unsupported/i.test(raw)) {
     return of("VERSION_INCOMPATIBLE", "CLI sürümü seçilen modeli desteklemiyor.", "CLI aracını güncelleyin veya desteklenen bir model seçin.");
   }
   if (/sessiz kaldi|cikti uretmedi|CLI_STALLED/i.test(raw)) {
     return of("CLI_STALLED", "CLI uzun süre yeni çıktı üretmeyince otomatik durduruldu.", "Önceki ilerleme kayıtları korundu; operatör bu oturumda farklı bir agent kullanacak.");
   }
+  // "No provider available" 401 ile gelir ama OTURUM sorunu degildir: secili model hicbir
+  // saglayiciya cozulemiyordur. Genel 401/403 kuralindan ONCE gelmeli, yoksa zaten girisli
+  // kullaniciya bosuna "oturum acin" denir.
+  if (/no provider available/i.test(raw)) {
+    return of("PROVIDER_UNAVAILABLE", "Seçili model hiçbir yapılandırılmış sağlayıcıya çözümlenemedi (oturum sorunu değil).",
+      "Ayarlar → Agent'lar bölümünde bu agent için açık bir model seçin. Model boşken OpenCode kendi son kullandığı modele düşer; o model erişilemezse görev bu hatayla durur.");
+  }
   if (/API key not valid|API_KEY_INVALID|invalid[_ ]api[_ ]key|incorrect api key/i.test(raw)) {
-    return of("AUTH_INVALID", "API anahtarı geçersiz veya reddedildi.", "Agent ayarlarındaki API anahtarını yenileyin (Gemini için GEMINI_API_KEY / GOOGLE_API_KEY).");
+    return of("AUTH_INVALID", "API anahtarı geçersiz veya reddedildi.", `Bu agent'ın API anahtarını yenileyin. ${cliRegistry.authHint(adapter)}`);
   }
   // Gemini CLI oturum acilmadiginda "Please set an Auth method" / "GEMINI_API_KEY environment
   // variable not found" yazar; her ikisi de kurulum degil OTURUM sorunudur.
   if (/set an auth method|GEMINI_API_KEY|GOOGLE_API_KEY|unauthorized|unauthenticated|authentication|login required|not logged in|please (run )?login|credentials? (not found|missing|expired)|PERMISSION_DENIED|\b40[13]\b/i.test(raw)) {
-    return of("AUTH_REQUIRED", "CLI oturum açmamış; kimlik doğrulaması gerekiyor.", "Terminalde ilgili CLI ile oturum açın (Gemini: `gemini` çalıştırıp 'Login with Google' veya GEMINI_API_KEY tanımlayın), sonra görevi tekrar deneyin.");
+    return of("AUTH_REQUIRED", "CLI oturum açmamış; kimlik doğrulaması gerekiyor.", `${cliRegistry.authHint(adapter)} Sonra görevi tekrar deneyin.`);
   }
   // Kota (gunluk/aylik hak bitti) ile hiz siniri (kisa sureli) AYRI teshislerdir: ilki
   // beklemekle gecmez, ikincisi gecer. Kullanicinin sordugu "limitim mi bitti" ayrimi budur.
@@ -333,13 +343,16 @@ function classifyCliError(error) {
     return of("REGION_BLOCKED", "Model bulunduğunuz bölgede kullanıma kapalı.", "Desteklenen bir bölge/hesap kullanın veya başka bir sağlayıcının agent'ını seçin.");
   }
   if (/ConnectionRefused|Unable to connect|provider hatasi|provider error|ECONNREFUSED/i.test(raw)) {
-    return of("PROVIDER_UNAVAILABLE", "Seçilen model sağlayıcısına bağlanılamadı.", "Sağlayıcı bağlantısını kontrol edin veya başka bir model seçin.");
+    return of("PROVIDER_UNAVAILABLE", "Seçilen model sağlayıcısına bağlanılamadı veya model çözümlenemedi.",
+      adapter === "opencode"
+        ? "Ayarlar → Agent'lar bölümünde bu agent için açık bir model seçin (`opencode models` listesinden). Model seçili değilken OpenCode kendi son kullandığı modele düşer ve bu model erişilemez olabilir."
+        : "Sağlayıcı bağlantısını kontrol edin veya başka bir model seçin.");
   }
   if (/ENOTFOUND|EAI_AGAIN|ECONNRESET|ETIMEDOUT|getaddrinfo|fetch failed|socket hang up|network (error|unreachable)|proxy/i.test(raw)) {
     return of("NETWORK_ERROR", "Ağ bağlantısı kurulamadı (DNS/proxy/internet).", "İnternet veya kurumsal proxy ayarlarınızı kontrol edip görevi tekrar çalıştırın.");
   }
   if (/not recognized as an internal|is not recognized|command not found|spawn .*ENOENT|\bENOENT\b|no such file or directory/i.test(raw)) {
-    return of("CLI_NOT_FOUND", "CLI komutu bulunamadı; kurulu değil veya PATH üzerinde görünmüyor.", "CLI'yi kurun (Gemini: `npm install -g @google/gemini-cli`) ve Ayarlar → Agent'lar bölümünde komut adını doğrulayın.");
+    return of("CLI_NOT_FOUND", "CLI komutu bulunamadı; kurulu değil veya PATH üzerinde görünmüyor.", `${adapter && adapter !== "custom" ? `${adapter} CLI'sini kurun` : "CLI'yi kurun"} ve Ayarlar → Agent'lar bölümünde komut adını doğrulayın (kurulum komutları için Doctor ekranına bakın).`);
   }
   if (/timeout|timed out|zaman asim|zaman aşım/i.test(raw)) {
     return of("TIMEOUT", "CLI ayrılan süre içinde tamamlanamadı.", "Agent ayarlarından timeout değerini artırın veya görevi daha küçük parçalara bölün.");
@@ -351,6 +364,21 @@ const RECOVERABLE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "RATE_L
 // Karantina = bu oturumda tekrar denemek anlamsiz. Kota/bolge kisiti beklemekle gecmez;
 // hiz siniri (RATE_LIMIT) ve gecici saglayici hatasi (MODEL_OVERLOADED) gecer, karantinaya alinmaz.
 const QUARANTINE_CLI_ERRORS = new Set(["AUTH_INVALID", "AUTH_REQUIRED", "QUOTA_EXCEEDED", "REGION_BLOCKED", "PROVIDER_UNAVAILABLE", "CLI_NOT_FOUND", "CLI_STALLED", "VERSION_INCOMPATIBLE"]);
+// Birkac saniyede kendiliginden gecer; operatore geri tasiyip planlama turu harcamak yerine
+// ayni agent ustel bekleme ile yeniden denenir.
+const TRANSIENT_CLI_ERRORS = new Set(["RATE_LIMIT", "MODEL_OVERLOADED", "NETWORK_ERROR"]);
+// Karantina suresi (sn). 0 = beklemekle duzelmez, kalici. Digerleri sure dolunca yeniden
+// denenir (half-open); tekrar duserse sure katlanir (bkz. quarantineAgent).
+const QUARANTINE_COOLDOWN_SECONDS = {
+  AUTH_REQUIRED: 180,
+  AUTH_INVALID: 180,
+  PROVIDER_UNAVAILABLE: 180,
+  CLI_STALLED: 300,
+  QUOTA_EXCEEDED: 0,
+  REGION_BLOCKED: 0,
+  CLI_NOT_FOUND: 0,
+  VERSION_INCOMPATIBLE: 0,
+};
 
 function resolveExecutionMode(task) {
   if (["fast", "balanced", "deep"].includes(task.executionMode)) return task.executionMode;
@@ -425,7 +453,6 @@ function normalizeCliOutput(agent, stdout) {
       const event = JSON.parse(line);
       if (event.type === "text" && event.part?.text) texts.push(String(event.part.text));
       if (event.type === "error") errors.push(String(event.error?.message || event.error || "OpenCode model/provider hatasi"));
-      // Bir kosumda birden fazla adim olabilir; hepsi toplanir.
       if (event.type === "step_finish") {
         const step = readStepUsage(event);
         if (step) usage = addUsage(usage, step);
@@ -638,6 +665,15 @@ function compatibleAgentForKind(cfg, operatorName, kind) {
   )?.[0] || "";
 }
 
+// Devretme adaylari. Karantina filtresi cagirana birakilir: sureli oldugu icin karar canli
+// durumdan (isQuarantined) okunmalidir.
+function compatibleAgentsForKind(cfg, operatorName, kind) {
+  return Object.entries(cfg.agents || {})
+    .filter(([name, agent]) =>
+      name !== operatorName && agent.enabled !== false && agentUsable(agent) && supportsKind(agent, kind))
+    .map(([name]) => name);
+}
+
 function nextAssignmentId(base, usedIds) {
   let id = base;
   let suffix = 2;
@@ -718,6 +754,7 @@ class Engine extends EventEmitter {
     // Kalici config'i degistirmeyiz; kullanici kimlik bilgisini duzeltip motoru yeniden
     // baslattiginda agent tekrar denenebilir.
     this.unhealthyAgents = new Map();
+    this._retrySleepers = new Set();
     // Canli kodlama akisi: gorev calisirken calisma klasorunu periyodik tarayan zamanlayici
     // ve son yayinlanan degisiklik imzasi (ayni durum tekrar tekrar yayinlanmasin diye).
     this._liveTimer = null;
@@ -864,6 +901,7 @@ class Engine extends EventEmitter {
   stop() {
     this.running = false;
     this.wake();
+    this.cancelRetrySleeps();
     this.stopLiveDiff();
     if (this.activeChild) {
       try { this.activeChild.kill(); } catch {}
@@ -886,6 +924,58 @@ class Engine extends EventEmitter {
       this._wakeResolve = resolve;
       this._wakeTimer = setTimeout(() => { this._wakeResolve = null; resolve(); }, ms);
     });
+  }
+
+  // sleepWake'ten AYRIDIR: o bos donguye aittir ve yeni gorev eklendiginde uyanir. Bu bekleme
+  // yalnizca motor durdurulunca kesilmeli.
+  sleepRetry(ms) {
+    return new Promise((resolve) => {
+      const sleeper = { resolve, timer: null };
+      sleeper.timer = setTimeout(() => { this._retrySleepers.delete(sleeper); resolve(); }, ms);
+      this._retrySleepers.add(sleeper);
+    });
+  }
+
+  cancelRetrySleeps() {
+    for (const sleeper of this._retrySleepers) {
+      clearTimeout(sleeper.timer);
+      sleeper.resolve();
+    }
+    this._retrySleepers.clear();
+  }
+
+  // Sureli karantina: kullanici oturum acar veya saglayici toparlanirsa agent kendiliginden
+  // doner. Tekrar duserse ceza katlanir (en fazla 15 dk); suresi 0 olanlar kalici kalir.
+  quarantineAgent(name, code, cfg) {
+    const strikes = (this.unhealthyAgents.get(name)?.strikes || 0) + 1;
+    const baseSeconds = QUARANTINE_COOLDOWN_SECONDS[code] ?? 120;
+    const cooldownMs = baseSeconds > 0 ? Math.min(900, baseSeconds * strikes) * 1000 : 0;
+    this.unhealthyAgents.set(name, {
+      code, strikes, at: new Date().toISOString(),
+      until: cooldownMs ? Date.now() + cooldownMs : 0,
+    });
+    if (cfg) cfg.runtimeUnavailableAgents = this.quarantinedAgents();
+    this.publish("log", {
+      level: "warn",
+      msg: cooldownMs
+        ? `${name} [${code}] nedeniyle ${Math.round(cooldownMs / 1000)} sn karantinada; sure dolunca otomatik yeniden denenecek.`
+        : `${name} [${code}] nedeniyle bu oturumda kullanim disi (beklemekle duzelmez).`,
+    });
+  }
+
+  isQuarantined(name) {
+    const entry = this.unhealthyAgents.get(name);
+    if (!entry) return false;
+    if (entry.until && Date.now() >= entry.until) {
+      this.unhealthyAgents.delete(name);
+      this.publish("log", { level: "info", msg: `${name} karantina suresi doldu; yeniden deneme hakki verildi.` });
+      return false;
+    }
+    return true;
+  }
+
+  quarantinedAgents() {
+    return [...this.unhealthyAgents.keys()].filter((name) => this.isQuarantined(name));
   }
 
   async loop() {
@@ -929,7 +1019,6 @@ class Engine extends EventEmitter {
     }
   }
 
-  // Uzman agent'i (operatorun altindaki ekip) cfg.agents'ten cozup calistirir.
   invokeAgent(agentName, prompt, cfg, meta = {}) {
     const configuredAgent = cfg.agents[agentName];
     const agent = configuredAgent && cliRegistry.effectiveAgent(configuredAgent, cfg);
@@ -946,7 +1035,15 @@ class Engine extends EventEmitter {
   }
 
   runCli(displayName, agent, prompt, cfg, meta = {}) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, rawReject) => {
+      // Her hata hangi CLI'dan geldigini tasir; tavsiye metni buna gore uretilir. Etiket yokken
+      // opencode hatasinda kullaniciya gemini komutu oneriliyordu. Bkz. classifyCliError.
+      const reject = (cause) => {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        if (!error.agentName) error.agentName = displayName;
+        if (!error.adapter) error.adapter = agent.adapter || cliRegistry.adapterId(agent.cmd);
+        rawReject(error);
+      };
       const count = store.bumpCallCount();
       if (count > (cfg.dailyCallBudget || Number.MAX_SAFE_INTEGER)) {
         return reject(new Error(`Gunluk cagri butcesi asildi (${cfg.dailyCallBudget}).`));
@@ -1106,12 +1203,27 @@ class Engine extends EventEmitter {
   hasUsableImplementAgent(cfg, operatorName) {
     return Object.entries(cfg.agents || {}).some(([name, agent]) =>
       name !== operatorName && agent.enabled !== false && agentUsable(agent)
-      && !this.unhealthyAgents.has(name) && supportsKind(agent, "implement"));
+      && !this.isQuarantined(name) && supportsKind(agent, "implement"));
+  }
+
+  // Sureli karantinadaki implement agentinin donusune kalan sure (ms). Geri donen yoksa ya da
+  // bekleme makul siniri asiyorsa null; cagiran bunu "gorevi durdur" olarak yorumlar.
+  msUntilImplementAgentReturns(cfg, operatorName, maxWaitMs = 5 * 60 * 1000) {
+    const now = Date.now();
+    const returns = Object.entries(cfg.agents || {})
+      .filter(([name, agent]) => name !== operatorName && agent.enabled !== false
+        && agentUsable(agent) && supportsKind(agent, "implement"))
+      .map(([name]) => this.unhealthyAgents.get(name)?.until || 0)
+      .filter((until) => until > now)
+      .sort((a, b) => a - b);
+    if (!returns.length) return null;
+    const waitMs = returns[0] - now;
+    return waitMs <= maxWaitMs ? waitMs : null;
   }
 
   agentCatalog(cfg, operatorName) {
     return Object.entries(cfg.agents)
-      .filter(([name, agent]) => name !== operatorName && agent.enabled !== false && agentUsable(agent) && !this.unhealthyAgents.has(name))
+      .filter(([name, agent]) => name !== operatorName && agent.enabled !== false && agentUsable(agent) && !this.isQuarantined(name))
       .map(([name, a]) => ({
         name,
         description: a.description || "",
@@ -1263,6 +1375,58 @@ class Engine extends EventEmitter {
       `## Onceki tamamlanan takim isleri\n${clip(JSON.stringify(completed, null, 2), cfg.teamContextCharBudget || 30000)}`;
   }
 
+  // Iki kademeli kurtarma: (1) gecici hata -> ayni agent, ustel bekleme; (2) kalici hata ->
+  // ayni turu yapabilen saglikli baska agente devret. Ikisi de tukenirse firlatir ve operator
+  // yeniden planlar. Amac, saniyelik bir 429 icin tam bir operator turu harcamamak.
+  async runAssignmentWithRecovery(task, cfg, assignment, state) {
+    const retries = Math.max(0, cfg.resilience?.transientRetries ?? 2);
+    const maxFailovers = Math.max(0, cfg.resilience?.maxFailoverAgents ?? 1);
+    const baseDelayMs = Math.max(250, (cfg.resilience?.retryBaseSeconds ?? 3) * 1000);
+    const tried = new Set();
+    let agentName = assignment.agent;
+    let failure = null;
+
+    for (let failover = 0; ; failover++) {
+      tried.add(agentName);
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const response = await this.invokeAgent(
+            agentName,
+            this.specialistPrompt(task, cfg, { ...assignment, agent: agentName }, state),
+            cfg,
+            { stage: "delegate", assignmentId: assignment.id }
+          );
+          return { response, agent: agentName };
+        } catch (error) {
+          if (!this.running) throw error;
+          failure = classifyCliError(error);
+          if (!TRANSIENT_CLI_ERRORS.has(failure.code) || attempt >= retries) break;
+          // Jitter: ayni anda dusen birden fazla delegasyon saglayiciya es zamanli geri donmesin.
+          const waitMs = Math.min(30000, baseDelayMs * 2 ** attempt) + Math.floor(Math.random() * 750);
+          this.publish("log", { level: "warn", msg: `${agentName} gecici hata verdi [${failure.code}]; ${Math.round(waitMs / 1000)} sn sonra yeniden deneniyor (${attempt + 2}/${retries + 1}).` }, task.id);
+          this.publish("activity", { kind: "delegation.retry", assignmentId: assignment.id, agent: agentName, code: failure.code, attempt: attempt + 1, waitMs });
+          await this.sleepRetry(waitMs);
+          if (!this.running) throw error;
+        }
+      }
+      if (QUARANTINE_CLI_ERRORS.has(failure.code)) this.quarantineAgent(agentName, failure.code, cfg);
+      if (failover >= maxFailovers) break;
+      const next = compatibleAgentsForKind(cfg, task.operatorCli, assignment.kind)
+        .find((name) => !tried.has(name) && !this.isQuarantined(name));
+      if (!next) break;
+      this.publish("log", { level: "warn", msg: `${agentName} basarisiz [${failure.code}]; ayni is ${next} agentine devrediliyor (operator turu harcanmadan).` }, task.id);
+      this.publish("activity", { kind: "delegation.failover", assignmentId: assignment.id, from: agentName, to: next, code: failure.code });
+      agentName = next;
+    }
+    // Siniflandirici disaridaki catch'te ayni sonucu uretsin diye ham metinle firlatiyoruz.
+    // CLI etiketi de tasinmali; yoksa oturum/kurulum tavsiyesi jenerige duser.
+    const error = new Error(failure?.raw || "Delegasyon calistirilamadi.");
+    error.agentName = failure?.agent || agentName;
+    error.adapter = failure?.adapter || "";
+    error.triedAgents = [...tried];
+    throw error;
+  }
+
   async runAssignments(task, cfg, assignments, state) {
     const pending = assignments.slice();
     while (pending.length) {
@@ -1290,32 +1454,30 @@ class Engine extends EventEmitter {
       this.publish("log", { level: "stage", msg: `DELEGE ${assignment.id} -> ${assignment.agent}` }, task.id);
       if (assignment.skills?.length) this.publish("log", { level: "info", msg: `Beceriler: ${assignment.skills.join(", ")}` }, task.id);
       try {
-        const response = await this.invokeAgent(
-          assignment.agent,
-          this.specialistPrompt(task, cfg, assignment, state),
-          cfg,
-          { stage: "delegate", assignmentId: assignment.id }
-        );
-        const result = { ...assignment, status: "completed", result: response.text, durationMs: response.durationMs, callId: response.callId };
+        const { response, agent: usedAgent } = await this.runAssignmentWithRecovery(task, cfg, assignment, state);
+        const result = { ...assignment, agent: usedAgent, status: "completed", result: response.text, durationMs: response.durationMs, callId: response.callId };
+        if (usedAgent !== assignment.agent) {
+          result.failoverFrom = assignment.agent;
+          this.publish("log", { level: "info", msg: `${assignment.id} devralan agent tarafindan tamamlandi: ${assignment.agent} -> ${usedAgent}.` }, task.id);
+        }
         if (assignment.kind === "review") {
           result.verdict = extractVerdict(response.text);
           this.publish("log", { level: "info", msg: `Denetim ${assignment.id}: VERDICT ${result.verdict || "BELIRSIZ"}` }, task.id);
         }
         state.results[assignment.id] = result;
-        const message = { from: assignment.agent, to: task.operatorCli, messageType: "result", assignmentId: assignment.id, body: response.text, at: new Date().toISOString() };
+        const message = { from: usedAgent, to: task.operatorCli, messageType: "result", assignmentId: assignment.id, body: response.text, at: new Date().toISOString() };
         state.messages.push(message);
         this.publish("message", message, task.id);
       } catch (error) {
+        // Karantina ve devretme runAssignmentWithRecovery'de tuketildi; buraya dusen gercekten
+        // kurtarilamayandir.
         const failure = classifyCliError(error);
-        if (QUARANTINE_CLI_ERRORS.has(failure.code)) {
-          this.unhealthyAgents.set(assignment.agent, { code: failure.code, at: new Date().toISOString() });
-          cfg.runtimeUnavailableAgents = [...this.unhealthyAgents.keys()];
-        }
-        state.results[assignment.id] = { ...assignment, status: "failed", result: failure.summary, error: failure };
-        const message = { from: assignment.agent, to: task.operatorCli, messageType: "failure", assignmentId: assignment.id, body: `${failure.summary}\n${failure.action}`, errorCode: failure.code, at: new Date().toISOString() };
+        const tried = error.triedAgents?.length ? error.triedAgents : [assignment.agent];
+        state.results[assignment.id] = { ...assignment, status: "failed", result: failure.summary, error: failure, triedAgents: tried };
+        const message = { from: tried[tried.length - 1], to: task.operatorCli, messageType: "failure", assignmentId: assignment.id, body: `${failure.summary}\n${failure.action}`, errorCode: failure.code, at: new Date().toISOString() };
         state.messages.push(message);
         this.publish("message", message, task.id);
-        this.publish("log", { level: "warn", msg: `${assignment.agent} kullanilamadi [${failure.code}]. Operator alternatif agent sececek.` }, task.id);
+        this.publish("log", { level: "warn", msg: `${tried.join(" > ")} kullanilamadi [${failure.code}]. Operator alternatif plan uretecek.` }, task.id);
       }
       task.teamState = state;
       store.saveTask("pending", task);
@@ -1361,7 +1523,7 @@ class Engine extends EventEmitter {
     this.emit("status", this.status());
     this.emit("queue");
 
-    cfg.runtimeUnavailableAgents = [...this.unhealthyAgents.keys()];
+    cfg.runtimeUnavailableAgents = this.quarantinedAgents();
     // Proje context: varsayilan olarak bu calisma klasorunun .crewctl/CONTEXT.md profilini
     // yukleriz (path'e ozel, tum kodu bastan taramaya gerek kalmasin). task.freshContext ise
     // temiz sayfa. projectContext:false ise eski GLOBAL hafiza davranisi korunur.
@@ -1461,8 +1623,24 @@ class Engine extends EventEmitter {
       if (taskRequiresDelegation(task.prompt)
           && !this.hasUsableImplementAgent(cfg, operatorCli)
           && !Object.values(state.results).some((result) => result.kind === "implement" && result.status === "completed")) {
-        const dead = [...this.unhealthyAgents.keys()];
-        throw new Error(
+        // Implement agenti yalnizca SURELI karantinadaysa gorevi oldurmek yerine bekleriz.
+        // Kalici kisitlarda (kota bitti, CLI yok) null doner.
+        const waitMs = this.msUntilImplementAgentReturns(cfg, operatorCli);
+        let recovered = false;
+        if (waitMs !== null) {
+          this.publish("log", { level: "warn", msg: `Kullanilabilir implement agenti gecici olarak yok; karantina bitene kadar ${Math.ceil(waitMs / 1000)} sn bekleniyor.` }, task.id);
+          await this.sleepRetry(waitMs + 250);
+          // Bekleme sirasinda motor durdurulduysa gorevi "implement agenti yok" hatasiyla
+          // basarisiz isaretlemek yaniltici olur; dongu kosulu zaten temiz cikisi saglar.
+          if (!this.running) break;
+          recovered = this.hasUsableImplementAgent(cfg, operatorCli);
+          if (recovered) {
+            cfg.runtimeUnavailableAgents = this.quarantinedAgents();
+            this.publish("log", { level: "info", msg: "Implement agenti karantinadan dondu; gorev surduruluyor." }, task.id);
+          }
+        }
+        const dead = this.quarantinedAgents();
+        if (!recovered) throw new Error(
           "Bu gorev dosya olusturma/degistirme gerektiriyor fakat kullanilabilir bir uygulama (implement) agenti yok" +
           (dead.length ? ` (${dead.join(", ")} bu oturumda kullanim disi kaldi)` : "") +
           ". Ayarlar > Agent'lar'dan 'implementation' yetenekli bir agent (Codex/Claude/Gemini/OpenCode) ekleyip etkinlestirin veya opencode'un oturum/model durumunu kontrol edin, sonra gorevi tekrar calistirin."
@@ -1731,5 +1909,6 @@ module.exports._internals = {
   normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, snapshotDir, diffSnapshots,
   captureTextSnapshot, buildLineDiff, describeFileDiff, isSensitiveDiffPath, taskRequiresDelegation,
   parseJson, conversationalAnswer, classifyCliError, RECOVERABLE_CLI_ERRORS, QUARANTINE_CLI_ERRORS,
+  TRANSIENT_CLI_ERRORS, QUARANTINE_COOLDOWN_SECONDS, compatibleAgentsForKind,
   normalizeCliOutput, addUsage, usageTotal, claudeSandboxSettings,
 };

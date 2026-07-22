@@ -28,6 +28,7 @@ async function main() {
   const workspace = path.join(__dirname, ".tmp-team-workspace");
   const approvalWorkspace = path.join(__dirname, ".tmp-approval-workspace");
   const recoveryWorkspace = path.join(__dirname, ".tmp-recovery-workspace");
+  const failoverWorkspace = path.join(__dirname, ".tmp-failover-workspace");
   const routingWorkspace = path.join(__dirname, ".tmp-routing-workspace");
   const reviewLoopWorkspace = path.join(__dirname, ".tmp-review-loop-workspace");
   const reviewGovernorWorkspace = path.join(__dirname, ".tmp-review-governor-workspace");
@@ -44,7 +45,7 @@ async function main() {
   // sayarak snapshot diff'ini bozar ve YANLIS bir basarisizlik uretir. Best-effort ve
   // asla firlatmayan bu yardimci hem baslangicta hem teardown'da kullanilir.
   const removeWorkspace = (dir) => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } catch {} };
-  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, shortcutWorkspace, operatorDirectWorkspace, openCodeWorkspace];
+  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, failoverWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, shortcutWorkspace, operatorDirectWorkspace, openCodeWorkspace];
   for (const dir of workspaces) { removeWorkspace(dir); fs.mkdirSync(dir, { recursive: true }); }
   const tasks = [];
   try {
@@ -136,8 +137,35 @@ async function main() {
     assert.equal(approvalEvents.filter((event) => event.type === "activity" && event.kind === "process.started" && event.stage === "operator-plan").length, 1);
     assert.ok(approvalEvents.some((event) => event.type === "log" && event.msg.includes("zorunlu rol zinciri")));
 
+    // Delegasyon seviyesinde devretme: ilk agent kalici hata verince is, operatore hic
+    // donulmeden ayni yetenekteki saglikli agente devredilmeli ve AYNI turda tamamlanmalidir.
     base.approvalMode = "auto";
+    base.workingDir = failoverWorkspace;
+    base.resilience = { transientRetries: 0, retryBaseSeconds: 1, maxFailoverAgents: 1 };
+    store.saveConfig(base);
+    const failoverTask = store.addTask("Hata toleransi ile takim dosyasi olustur.", failoverWorkspace, "operator", "fast");
+    tasks.push(failoverTask);
+    engine.running = true;
+    await engine.runTask(failoverTask);
+    engine.running = false;
+    const failoverFound = store.findTask(failoverTask.id);
+    assert.equal(failoverFound.state, "done");
+    assert.equal(failoverFound.task.teamState.round, 1, "devretme ayni turda cozulmeli; yeni operator turu harcanmamali");
+    const failedOver = failoverFound.task.teamState.results["broken-attempt"];
+    assert.equal(failedOver.status, "completed");
+    assert.equal(failedOver.failoverFrom, "broken");
+    assert.notEqual(failedOver.agent, "broken");
+    assert.ok(fs.existsSync(path.join(failoverWorkspace, "team-output.txt")));
+    assert.ok(store.listRunEvents(failoverTask.id).some((event) => event.type === "activity" && event.kind === "delegation.failover"));
+    // Karantina sureli: AUTH_INVALID cooldown'i dolmadan agent katalogda gorunmemeli.
+    assert.ok(engine.isQuarantined("broken"));
+    assert.ok(engine.quarantinedAgents().includes("broken"));
+    engine.unhealthyAgents.clear();
+
+    // Devretme kapaliyken (maxFailoverAgents=0) kurtarma yine operator turuna duser: eski
+    // davranisin korundugunu dogrular.
     base.workingDir = recoveryWorkspace;
+    base.resilience = { transientRetries: 0, retryBaseSeconds: 1, maxFailoverAgents: 0 };
     store.saveConfig(base);
     const recoveryTask = store.addTask("Hata toleransi ile takim dosyasi olustur.", recoveryWorkspace, "operator", "fast");
     tasks.push(recoveryTask);
@@ -161,6 +189,7 @@ async function main() {
 
     const effectiveCodex = cliRegistry.effectiveAgent({ cmd: "codex", args: [] });
     assert.deepEqual(effectiveCodex.args.slice(0, 2), ["exec", "--skip-git-repo-check"]);
+    // Sandbox bayragi (yazma izni) cfg.sandbox.mode'a bagli; kapsamli testi cli.test.js'te.
     base.workingDir = routingWorkspace;
     store.saveConfig(base);
     const routingTask = store.addTask("Yanlis rol secilse bile uygulama yap.", routingWorkspace, "operator");
@@ -332,6 +361,17 @@ async function main() {
     // Kota/bolge beklemekle gecmez -> karantina; hiz siniri ve gecici yuk gecer -> karantina yok.
     assert.ok(QUARANTINE_CLI_ERRORS.has("QUOTA_EXCEEDED") && QUARANTINE_CLI_ERRORS.has("REGION_BLOCKED"));
     assert.ok(!QUARANTINE_CLI_ERRORS.has("RATE_LIMIT") && !QUARANTINE_CLI_ERRORS.has("MODEL_OVERLOADED"));
+    // Oturum tavsiyesi hatanin geldigi CLI'ya gore uretilmeli. Regresyon: opencode'un
+    // "401 No provider available" hatasinda kullaniciya Gemini komutu oneriliyordu.
+    const tagged = (message, adapter) => { const error = new Error(message); error.adapter = adapter; error.agentName = `${adapter}-auto`; return classifyCliError(error); };
+    const openCodeAuth = tagged('{"error":{"name":"APIError","data":{"message":"unauthenticated","statusCode":401}}}', "opencode");
+    assert.equal(openCodeAuth.code, "AUTH_REQUIRED");
+    assert.match(openCodeAuth.action, /opencode auth login/);
+    assert.ok(!/gemini/i.test(openCodeAuth.action), "opencode hatasinda gemini talimati gosterilmemeli");
+    assert.equal(openCodeAuth.adapter, "opencode");
+    assert.match(tagged("Please set an Auth method", "gemini").action, /Login with Google/);
+    assert.match(tagged("401 unauthorized", "codex").action, /codex login/);
+    assert.match(tagged("spawn opencode ENOENT", "opencode").action, /opencode CLI/);
     // Siniflandirilamayan hatada bilgisiz ilk satir yerine gercek hata cumlesi ozetlenmeli.
     const opaque = classifyCliError(new Error("gemini cikis kodu 1.\n    at run (node:internal/x)\nSomething unexpected went wrong while contacting the service"));
     assert.equal(opaque.code, "CLI_FAILED");
@@ -373,6 +413,27 @@ async function main() {
     assert.ok(effectiveOpenCode.args.includes("{PROMPT_FILE}"));
     assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local", "opencode/free-model"]), "opencode/free-model");
     assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local"]), "", "yerel Ollama otomatik olarak erisilebilir varsayilmamali");
+    // Varsayilan tercih: ucretsiz deepseek > herhangi bir ucretsiz > kalan her sey.
+    const catalog = ["opencode-go/kimi-k3", "opencode/big-pickle", "opencode/laguna-free", "opencode/deepseek-v4-flash-free"];
+    assert.equal(cliRegistry.selectOpenCodeModel(catalog), "opencode/deepseek-v4-flash-free");
+    assert.equal(cliRegistry.selectOpenCodeModel(["opencode-go/kimi-k3", "opencode/laguna-free"]), "opencode/laguna-free");
+    assert.equal(cliRegistry.selectOpenCodeModel(["opencode-go/kimi-k3"]), "opencode-go/kimi-k3", "ucretsiz model yoksa kalan kullanilabilir model secilmeli");
+    // Secim kodda sabit degil: kullanici kendi aboneligini one alabilir.
+    assert.equal(cliRegistry.selectOpenCodeModel(catalog, { modelPreferences: ["opencode-go/*", "*"] }), "opencode-go/kimi-k3");
+    assert.equal(cliRegistry.selectOpenCodeModel(catalog, { modelPreferences: ["*big-pickle*"] }), "opencode/big-pickle");
+    // Kullanici yerel sunucusunu kullanmak isterse dislama listesini bosaltabilir.
+    assert.equal(cliRegistry.selectOpenCodeModel(["ollama/local"], { modelExclude: ["yok/*"] }), "ollama/local");
+    // Hicbir desen tutmazsa model secilmez; opencode kendi varsayilanina birakilir.
+    assert.equal(cliRegistry.selectOpenCodeModel(catalog, { modelPreferences: ["baska-saglayici/*"] }), "");
+    // Desendeki regex ozel karakterleri duz metin sayilmali (kullanici girdisi patlamamali).
+    assert.equal(cliRegistry.selectOpenCodeModel(["a+b/model"], { modelPreferences: ["a+b/*"] }), "a+b/model");
+    // Regresyon: "No provider available" 401 ile gelir ama OTURUM sorunu degildir; genel
+    // 401/403 kurali bunu yutup kullaniciya bosuna "oturum acin" dedirtiyordu.
+    const noProvider = classifyCliError(new Error('{"error":{"data":{"message":"No provider available","statusCode":401}}}'));
+    assert.equal(noProvider.code, "PROVIDER_UNAVAILABLE");
+    assert.match(noProvider.action, /model seçin/i);
+    assert.ok(!/oturum aç/i.test(noProvider.summary), "model cozumleme hatasi oturum sorunu gibi sunulmamali");
+    assert.equal(code("Error: Unable to connect. Is the computer able to access the url?"), "PROVIDER_UNAVAILABLE");
 
     // Ajan hapsi (Claude path-aware): gorev orkestrator disindayken orkestratorun kendi
     // dizinleri (ROOT/ASSETS/WORK_BASE) Read/Edit/Write icin deny edilmeli; icindeyken ise

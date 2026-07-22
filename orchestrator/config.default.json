@@ -36,9 +36,20 @@
     "protocolRetries": 2,
     "passFastPath": true
   },
+  "resilience": {
+    "_comment": "Gecici saglayici hatalarinda (rate limit / asiri yuk / ag) delegasyon ayni agent ile ustel bekleyerek yeniden denenir; kalici hatada is ayni yetenekteki saglikli bir agente devredilir. Operatore geri donup yeni plan turu harcamak son caredir.",
+    "transientRetries": 2,
+    "retryBaseSeconds": 3,
+    "maxFailoverAgents": 1
+  },
   "cliSettings": {
     "codex": { "model": "", "reasoningEffort": "medium", "serviceTier": "fast" },
-    "opencode": { "model": "" }
+    "opencode": {
+      "_comment": "model: acikca bir model yazarsaniz otomatik secim tumden atlanir (en guvenilir yol; `opencode models` ciktisindan bir satir). Bos birakilirsa modelPreferences desenleri sirayla denenir ve ILK eslesen kullanilir; `*` joker karakterdir. Saglayici adlari kisiden kisiye degisir (kendi aboneliginiz opencode-go, minimax, openrouter, kendi sunucunuz olabilir), bu yuzden burada saglayici adi sabitlenmez — kendi tercihinizi one almak icin listeyi duzenleyin, or. \"opencode-go/*\" en basa. modelExclude: erisilebilir varsayilmayacak saglayicilar; kendi yerel sunucunuzu kullanmak istiyorsaniz ilgili satiri silin.",
+      "model": "",
+      "modelPreferences": ["*deepseek*free*", "*free*", "*"],
+      "modelExclude": ["ollama/*", "lmstudio/*", "llamacpp/*", "local/*", "localhost/*"]
+    }
   },
   "skills": {
     "_comment": "Yalnizca enabled listesindeki beceriler taranir. Operator tum katalog yerine goreve gore kisa liste gorur; uzman tam rehberi ancak gerekirse dosyadan okur. ILK KURULUMDA bu liste paketle gelen tum becerilerle otomatik doldurulur (Ayarlar > Beceriler'den kapatilabilir); scorer her goreve yalnizca ilgili olanlari surer.",
