@@ -31,6 +31,8 @@ const DEFINITIONS = {
     defaultArgs: ["--approval-mode", "yolo"],
     // Gemini de akis halinde cikti verir; uzun sessizlik takilma isaretidir.
     silenceTimeoutSeconds: 180,
+    // --skip-trust her Gemini surumunde yok; kesifte yoklanip destekleniyorsa eklenir.
+    optionalFlags: ["--skip-trust"],
     description: "Gemini CLI analiz, uygulama ve web arastirma agenti",
     capabilities: ["implementation", "planning", "analysis", "research", "web"],
     roleFile: "roles/executor.md",
@@ -100,18 +102,29 @@ function abortActiveProbes() {
   return count;
 }
 
-function selectOpenCodeModel(models) {
+// Saglayici adlari koda gomulmez: kullanicinin aboneligi farkli olabilir ve katalog degisir.
+// Sirali joker desenler; ilk eslesen kazanir. cliSettings.opencode uzerinden degistirilebilir.
+const DEFAULT_OPENCODE_MODEL_PREFERENCES = ["*deepseek*free*", "*free*", "*"];
+// Yerel/LAN saglayicilar erisilebilir varsayilamaz: kapali bir Ollama "Unable to connect" verir.
+const DEFAULT_OPENCODE_MODEL_EXCLUDE = ["ollama/*", "lmstudio/*", "llamacpp/*", "local/*", "localhost/*"];
+
+// Kullanici deseni regex ozel karakteri icerse bile duz metin sayilmali.
+function globToRegExp(pattern) {
+  const escaped = String(pattern).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`, "i");
+}
+function patternList(value, fallback) {
+  const list = Array.isArray(value) ? value.map(String).map((x) => x.trim()).filter(Boolean) : [];
+  return (list.length ? list : fallback).map(globToRegExp);
+}
+
+function selectOpenCodeModel(models, settings = {}) {
   const list = Array.isArray(models) ? models.map(String).filter(Boolean) : [];
-  const priorities = [
-    (x) => x === "opencode/big-pickle",
-    (x) => /^opencode\/.+free$/i.test(x),
-    (x) => x.startsWith("opencode/"),
-    (x) => x.startsWith("opencode-go/"),
-    (x) => x.startsWith("minimax-coding-plan/"),
-    (x) => !x.startsWith("ollama/"),
-  ];
-  for (const match of priorities) {
-    const found = list.find(match);
+  const exclude = patternList(settings.modelExclude, DEFAULT_OPENCODE_MODEL_EXCLUDE);
+  const preferences = patternList(settings.modelPreferences, DEFAULT_OPENCODE_MODEL_PREFERENCES);
+  const usable = list.filter((model) => !exclude.some((rule) => rule.test(model)));
+  for (const rule of preferences) {
+    const found = usable.find((model) => rule.test(model));
     if (found) return found;
   }
   return "";
@@ -141,6 +154,31 @@ function listOpenCodeModels(command) {
     if (result.status !== 0) return [];
     return parseOpenCodeModels(result.stdout);
   } catch { return []; }
+}
+
+// Liste bos kalirsa --model eklenmez ve opencode kendi "son kullanilan" modeline duser; o model
+// erisilemezse gorev "No provider available"/"Unable to connect" ile olur. Bu yuzden tembel doldurulur.
+let openCodeModelsAttempted = false;
+function ensureOpenCodeModels(command) {
+  // Negatif sonuc da onbelleklenir: aksi halde bos donduren bir kurulumda her effectiveAgent
+  // cagrisi yeniden spawn eder ve istek yolunda event loop'u kilitlerdi.
+  if (OPEN_CODE_MODELS.length || openCodeModelsAttempted) return OPEN_CODE_MODELS;
+  openCodeModelsAttempted = true;
+  OPEN_CODE_MODELS = listOpenCodeModels(RESOLVED.get("opencode") || command || "opencode");
+  return OPEN_CODE_MODELS;
+}
+
+// Oturum acma talimati CLI'ya gore degisir; tek bir sabit metin opencode hatasinda kullaniciya
+// gemini komutu onerdiriyordu. Adapter adi ya da komut yolu kabul eder.
+const AUTH_HINTS = {
+  codex: "Terminalde `codex login` calistirin (veya OPENAI_API_KEY tanimlayin).",
+  claude: "Terminalde `claude` calistirip oturum acin (veya ANTHROPIC_API_KEY tanimlayin).",
+  gemini: "Terminalde `gemini` calistirip 'Login with Google' secin (veya GEMINI_API_KEY tanimlayin).",
+  opencode: "Terminalde `opencode auth login` calistirip saglayiciyi secin; '401 No provider available' hatasi secili modelin saglayicisinda gecerli kimlik olmadigi anlamina gelir.",
+};
+function authHint(adapterOrCommand) {
+  const id = AUTH_HINTS[adapterOrCommand] ? adapterOrCommand : adapterId(adapterOrCommand);
+  return AUTH_HINTS[id] || "Bu CLI'nin kendi oturum acma komutunu terminalde calistirin.";
 }
 
 function adapterId(command) {
@@ -234,6 +272,12 @@ function effectiveAgent(agent, cfg) {
     const commands = new Set(["exec", "review", "resume", "apply"]);
     if (!copy.args.some((arg) => commands.has(arg))) copy.args.unshift("exec", "--skip-git-repo-check");
     else if (copy.args.includes("exec") && !copy.args.includes("--skip-git-repo-check")) copy.args.splice(copy.args.indexOf("exec") + 1, 0, "--skip-git-repo-check");
+    // `codex exec` varsayilan olarak read-only sandbox'ta calisir: yazma reddedilir ama surec 0
+    // ile biter, motor delegasyonu "tamamlandi" sayar ve hicbir dosya uretmeden turlar yanar.
+    // Kullanicinin kendi sandbox/onay bayragi varsa ona dokunulmaz.
+    const sandboxChosen = copy.args.some((arg) => /^(--sandbox|-s|--full-auto|--dangerously-bypass-approvals-and-sandbox)$/.test(String(arg))
+      || String(arg).startsWith("sandbox_mode="));
+    if (copy.args.includes("exec") && !sandboxChosen) copy.args.splice(copy.args.indexOf("exec") + 1, 0, "--sandbox", "workspace-write");
     const model = String(copy.model || settings.model || "").trim();
     const effort = ["low", "medium", "high", "xhigh", "max", "ultra"].includes(String(settings.reasoningEffort)) ? String(settings.reasoningEffort) : "";
     const serviceTier = /^[A-Za-z0-9._-]{1,64}$/.test(String(settings.serviceTier || "")) ? String(settings.serviceTier) : "";
@@ -248,6 +292,10 @@ function effectiveAgent(agent, cfg) {
   if (adapter === "gemini") {
     // Otonom, non-interaktif calisma icin onay modu sart; yoksa izin bekleyip takilir.
     if (!copy.args.includes("--approval-mode") && !copy.args.includes("-y") && !copy.args.includes("--yolo")) copy.args.push("--approval-mode", "yolo");
+    // Gemini "guvenilmeyen" klasorde yolo'yu SESSIZCE default'a dusurur ve onay bekler; otonom
+    // kosumda onaylayan olmadigi icin sessizlik zaman asimina dusup karantinaya girer.
+    // --skip-trust yalnizca o oturum icindir, kalici ayarlara dokunmaz.
+    if (!copy.args.includes("--skip-trust") && cliSupportsFlag(copy.cmd, "--skip-trust")) copy.args.push("--skip-trust");
   }
   if (adapter === "opencode") {
     if (!copy.args.includes("run")) copy.args.unshift("run");
@@ -257,7 +305,9 @@ function effectiveAgent(agent, cfg) {
     if (formatAt >= 0) copy.args.splice(formatAt, 2);
     copy.args.splice(copy.args.indexOf("run") + 1, 0, "--format", "json");
     const hasModel = copy.args.includes("--model") || copy.args.includes("-m");
-    const model = copy.model || String(settings.model || "").trim() || selectOpenCodeModel(OPEN_CODE_MODELS);
+    // Sira: agent modeli > global CLI ayari > otomatik secim (bkz. ensureOpenCodeModels).
+    const model = copy.model || String(settings.model || "").trim()
+      || selectOpenCodeModel(OPEN_CODE_MODELS.length ? OPEN_CODE_MODELS : ensureOpenCodeModels(copy.cmd), settings);
     if (!hasModel && model) copy.args.splice(copy.args.indexOf("run") + 3, 0, "--model", model);
     if (model) copy.model = model;
     if (!copy.args.includes("{PROMPT}") && !copy.args.includes("{PROMPT_FILE}")) {
@@ -265,6 +315,44 @@ function effectiveAgent(agent, cfg) {
     }
   }
   return copy;
+}
+
+// Bayrak destegi --help'ten okunur: kosulsuz eklemek eski surumlerde "unknown argument" ile her
+// calistirmayi kirar.
+//
+// SENKRON SPAWN YALNIZCA KESIF SIRASINDA. effectiveAgent HTTP istek yolunda cagriliyor ve
+// oradaki spawnSync event loop'u kilitleyip baglantiyi ECONNRESET ile dusuruyor (sunucu-akis
+// testi bunu yakaladi); effectiveAgent yalnizca hazir sonucu okur, bilinmiyorsa bayrak eklenmez.
+// Anahtar komuttur: ayni adapteri farkli binary/surumle kullanan agentler karismamali.
+const FLAG_SUPPORT = new Map();
+function flagSupportKey(command, flag) {
+  return `${command} ${flag}`;
+}
+function probeFlagSupport(command, flags) {
+  let help = "";
+  try {
+    const result = spawnSync(command, ["--help"], {
+      encoding: "utf8", timeout: 15000, windowsHide: true,
+      shell: isWin && (!path.isAbsolute(command) || /\.(cmd|bat)$/i.test(command)),
+    });
+    help = `${result.stdout || ""}\n${result.stderr || ""}`;
+  } catch {}
+  const supported = [];
+  for (const flag of flags) {
+    const ok = Boolean(help) && help.includes(flag);
+    FLAG_SUPPORT.set(flagSupportKey(command, flag), ok);
+    if (ok) supported.push(flag);
+  }
+  return supported;
+}
+// Desteklenmeyenler DE isaretlenir; yoksa "bilinmiyor" kalir ve sonraki probe (saglik testi
+// sirasinda) yeniden yoklar — kacinmak istedigimiz spawnSync tam olarak budur.
+function restoreFlagSupport(command, allFlags, supportedFlags) {
+  const supported = new Set(supportedFlags || []);
+  for (const flag of allFlags || []) FLAG_SUPPORT.set(flagSupportKey(command, flag), supported.has(flag));
+}
+function cliSupportsFlag(command, flag) {
+  return FLAG_SUPPORT.get(flagSupportKey(command, flag)) === true;
 }
 
 function probeCommand(command, definition) {
@@ -282,7 +370,7 @@ function probeCommand(command, definition) {
   }
 }
 
-function probe(id, definition) {
+function probe(id, definition, cfg) {
   let result = probeCommand(definition.command, definition);
   let installedPath = "";
   if (!result.installed) {
@@ -300,13 +388,22 @@ function probe(id, definition) {
     }
   }
   if (result.installed) RESOLVED.set(id, result.resolvedCommand);
+  // Bilinen bayrak tekrar yoklanmaz: probe() saglik testinden de cagriliyor ve o sirada
+  // sunucu istek servis ediyor olabilir (bkz. probeFlagSupport'taki ECONNRESET notu).
+  if (result.installed && definition.optionalFlags?.length) {
+    const command = result.resolvedCommand || definition.command;
+    const unknown = definition.optionalFlags.filter((flag) => !FLAG_SUPPORT.has(flagSupportKey(command, flag)));
+    if (unknown.length) probeFlagSupport(command, unknown);
+    result.supportedFlags = definition.optionalFlags.filter((flag) => cliSupportsFlag(command, flag));
+  }
   if (result.installed && id === "opencode") {
+    const settings = (cfg && cfg.cliSettings && cfg.cliSettings.opencode) || {};
     OPEN_CODE_MODELS = listOpenCodeModels(result.resolvedCommand || definition.command);
     result.models = OPEN_CODE_MODELS.slice();
-    result.recommendedModel = selectOpenCodeModel(OPEN_CODE_MODELS);
+    result.recommendedModel = String(settings.model || "").trim() || selectOpenCodeModel(OPEN_CODE_MODELS, settings);
     result.ready = Boolean(result.recommendedModel);
     result.readinessError = result.ready ? "" : (OPEN_CODE_MODELS.length
-      ? "Kullanilabilir otomatik OpenCode modeli bulunamadi. Ayarlardan erisilebilir bir model secin."
+      ? "Otomatik secim kurallarina uyan bir OpenCode modeli bulunamadi. Ayarlardan bir model secin veya cliSettings.opencode.modelPreferences desenlerini duzenleyin."
       : "OpenCode kurulu, ancak model listesi okunamadi. Once saglayici girisini tamamlayin.");
   }
   return result;
@@ -354,9 +451,16 @@ function discoverInstalled(options = {}) {
     const cached = cache[id];
     if (!force && !ALWAYS_PROBE.has(id) && cachedProbeUsable(cached)) {
       RESOLVED.set(id, cached.resolvedCommand);
-      return { id, ...definition, installed: true, version: cached.version || "kurulu", error: "", resolvedCommand: cached.resolvedCommand, fromCache: true };
+      // Eski sema onbelleginde supportedFlags yok. Yoklama burada, HTTP dinleme baslamadan yapilir.
+      let supportedFlags = cached.supportedFlags;
+      if (!Array.isArray(supportedFlags) && definition.optionalFlags?.length) {
+        supportedFlags = probeFlagSupport(cached.resolvedCommand, definition.optionalFlags);
+      } else {
+        restoreFlagSupport(cached.resolvedCommand, definition.optionalFlags, supportedFlags);
+      }
+      return { id, ...definition, installed: true, version: cached.version || "kurulu", error: "", resolvedCommand: cached.resolvedCommand, fromCache: true, supportedFlags: supportedFlags || [] };
     }
-    return { id, ...definition, ...probe(id, definition) };
+    return { id, ...definition, ...probe(id, definition, options.cfg) };
   });
 }
 
@@ -366,7 +470,8 @@ function discoveryCacheFrom(discovered) {
   const results = {};
   for (const cli of discovered || []) {
     if (cli.installed && cli.resolvedCommand && !ALWAYS_PROBE.has(cli.id)) {
-      results[cli.id] = { installed: true, version: cli.version || "kurulu", resolvedCommand: cli.resolvedCommand };
+      // supportedFlags saklanmazsa onbellekli acilista Gemini --skip-trust sessizce duserdi.
+      results[cli.id] = { installed: true, version: cli.version || "kurulu", resolvedCommand: cli.resolvedCommand, supportedFlags: cli.supportedFlags || [] };
     }
   }
   return { version: DISCOVERY_CACHE_VERSION, checkedAt: new Date().toISOString(), results };
@@ -447,7 +552,7 @@ function classifyHealthFailure(text) {
 function testInstalledCli(id, options = {}) {
   const definition = DEFINITIONS[id];
   if (!definition) return Promise.resolve({ id, installed: false, health: { status: "unknown", label: "Bilinmiyor", detail: "Tanımsız CLI" } });
-  const found = probe(id, definition);
+  const found = probe(id, definition, options.cfg);
   if (!found.installed) return Promise.resolve({ id, installed: false, version: found.version, error: found.error, health: { status: "not-installed", label: "Kurulu değil", detail: found.error || "CLI bulunamadı" } });
   const agent = effectiveAgent({ adapter: id, cmd: definition.command, args: definition.defaultArgs.slice() }, options.cfg);
   const prompt = healthPrompt(id);
@@ -679,4 +784,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

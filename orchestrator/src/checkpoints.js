@@ -67,7 +67,6 @@ function walkFileList(cwd) {
   return out;
 }
 
-// Yedeklenecek dosya listesi (calisma klasorune GORE goreli yollar).
 function fileList(cwd) {
   if (isGitRepo(cwd)) {
     const git = gitFileList(cwd);
@@ -155,7 +154,6 @@ function restoreCheckpoint(id, opts = {}) {
   }
   const filesDir = path.join(CP_ROOT, path.basename(String(id)), "files");
   const keep = new Set(manifest.files);
-  // (1) Surumden sonra olusturulmus (surumde olmayan) dosyalari sil.
   let deleted = 0;
   for (const rel of fileList(cwd).files) {
     if (keep.has(rel)) continue;
@@ -163,7 +161,6 @@ function restoreCheckpoint(id, opts = {}) {
     if (!target) continue;
     try { if (fs.existsSync(target)) { fs.rmSync(target, { force: true }); deleted++; } } catch {}
   }
-  // (2) Surumdeki dosyalari birebir geri yaz.
   let restored = 0;
   for (const rel of manifest.files) {
     const src = path.join(filesDir, rel);
@@ -174,7 +171,6 @@ function restoreCheckpoint(id, opts = {}) {
   return { ok: true, id: manifest.id, cwd, restored, deleted, redoId };
 }
 
-// Listeleme: dosya listesini disari vermeden ozet meta doner (istege bagli cwd filtresi).
 function listCheckpoints(cwd) {
   try {
     ensureRoot();

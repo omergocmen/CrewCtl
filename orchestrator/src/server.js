@@ -32,7 +32,8 @@ let codexModelCache = { checkedAt: 0, models: [] };
 store.ensureDirs();
 // Acilis maliyetini dusurmek icin onceki kesfin sonucu kullanilir; ayrintili kurallar
 // cli-registry.discoverInstalled icinde. Onbellek gecersiz/eksikse tam yoklama yapilir.
-let cliStatus = cliRegistry.discoverInstalled({ cache: store.loadConfig().cliDiscoveryCache });
+const bootCfg = store.loadConfig();
+let cliStatus = cliRegistry.discoverInstalled({ cache: bootCfg.cliDiscoveryCache, cfg: bootCfg });
 {
   const cfg = store.loadConfig();
   const nextDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
@@ -220,7 +221,6 @@ async function refreshCliHealth(force = false) {
   }
 }
 
-// ---- yardimcilar ----
 function send(res, code, obj) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(obj));
@@ -360,7 +360,6 @@ async function browseDir(p, warning = "") {
 const server = http.createServer(async (req, res) => {
   const { pathname } = url.parse(req.url, true);
 
-  // SSE
   if (pathname === "/api/events") {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -374,7 +373,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // API
   if (pathname.startsWith("/api/")) {
     try {
       if (pathname === "/api/state" && req.method === "GET") {
@@ -484,8 +482,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === "/api/cli/discover" && req.method === "POST") {
         // "Yeniden Tara" kullanicinin acik talebidir: onbellegi tumden atla, her CLI'yi yokla.
-        cliStatus = cliRegistry.discoverInstalled({ force: true });
         const cfg = store.loadConfig();
+        // cfg gecilir: OpenCode model onerisi kullanicinin modelPreferences desenlerine gore uretilir.
+        cliStatus = cliRegistry.discoverInstalled({ force: true, cfg });
         cfg.cliDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
         const body = await readBody(req);
         if (Array.isArray(body.ignoredAdapters)) {
@@ -698,7 +697,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Statik
   serveStatic(res, pathname === "/" ? "index.html" : pathname.slice(1));
 });
 

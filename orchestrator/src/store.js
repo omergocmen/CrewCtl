@@ -127,9 +127,10 @@ const FALLBACK_CONFIG = {
   versioning: true, versioningRetention: 20,
   notify: { webhookUrl: "", onComplete: true, onFailed: true },
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
+  resilience: { transientRetries: 2, retryBaseSeconds: 3, maxFailoverAgents: 1 },
   cliSettings: {
     codex: { model: "", reasoningEffort: "medium", serviceTier: "fast" },
-    opencode: { model: "" },
+    opencode: { model: "", modelPreferences: ["*deepseek*free*", "*free*", "*"], modelExclude: ["ollama/*", "lmstudio/*", "llamacpp/*", "local/*", "localhost/*"] },
   },
   skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200 },
   agents: {}, riskyPatterns: [], schedules: [],
@@ -148,7 +149,14 @@ function normalizeConfig(cfg) {
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
     cliSettings: {
       codex: { model: "", reasoningEffort: "medium", serviceTier: "fast", ...legacyCodex, ...(current.codex || {}) },
-      opencode: { model: legacyOpenCodeModel, ...(current.opencode || {}) },
+      // Desenler mevcut config'lere de eklenir ki kullanici bunlari Ayarlar'da gorup
+      // kendi aboneligine gore duzenleyebilsin. Kendi degerini yazan kullanicininki korunur.
+      opencode: {
+        model: legacyOpenCodeModel,
+        modelPreferences: ["*deepseek*free*", "*free*", "*"],
+        modelExclude: ["ollama/*", "lmstudio/*", "llamacpp/*", "local/*", "localhost/*"],
+        ...(current.opencode || {}),
+      },
     },
   };
   if (cfg.operator && typeof cfg.operator === "object") {

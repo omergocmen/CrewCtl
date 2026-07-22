@@ -47,6 +47,13 @@ function main() {
   ].join("\n")), ["opencode/free-model", "opencode-go/paid-model", "ollama/qwen2"]);
   assert.equal(cliRegistry.selectOpenCodeModel(["opencode-go/paid-model"]), "opencode-go/paid-model");
 
+  // Gemini "guvenilmeyen klasor"de --approval-mode yolo'yu sessizce default'a dusurur ve
+  // otonom kosumda onay bekleyip sessizlik zaman asimina duser. --skip-trust bunu keser,
+  // AMA yalnizca CLI bayragi destekliyorsa eklenmeli: eski surumlerde bilinmeyen bayrak her
+  // calistirmayi kirar. Var olmayan bir binary --help veremez, yani bayrak eklenmemeli.
+  const geminiUnknown = cliRegistry.effectiveAgent({ adapter: "gemini", cmd: "gemini-bulunmayan-binary", args: [] });
+  assert.deepEqual(geminiUnknown.args, ["--approval-mode", "yolo"], "destegi dogrulanamayan bayrak eklenmemeli");
+
   const healthPrompt = "CLI_TEAM_HEALTH_CHECK\nYalnizca HEALTH_OK yaz.";
   const preparedHealth = cliRegistry.preparePromptArgs(["run", "--file", "{PROMPT_FILE}"], healthPrompt);
   try {
@@ -171,6 +178,16 @@ function main() {
   assert.equal(byId.codex.version, "onbellek-surumu");
   assert.ok(!byId.claude.fromCache, "yolu bulunamayan onbellek girdisi yeniden yoklanmali");
   assert.ok(!byId.opencode.fromCache, "opencode asla onbellekten gelmemeli");
+  // Onbellekli acilista bayrak destegi de geri yuklenmeli. Aksi halde Gemini --skip-trust
+  // yalnizca "Yeniden Tara" sonrasi eklenir, normal aciliste sessizce duserdi.
+  const flagCache = {
+    version: 1,
+    checkedAt: new Date().toISOString(),
+    results: { gemini: { installed: true, version: "x", resolvedCommand: process.execPath, supportedFlags: ["--skip-trust"] } },
+  };
+  cliRegistry.discoverInstalled({ cache: flagCache });
+  const geminiCached = cliRegistry.effectiveAgent({ adapter: "gemini", cmd: process.execPath, args: [] });
+  assert.ok(geminiCached.args.includes("--skip-trust"), "onbellekten gelen bayrak destegi uygulanmali");
   // force=true onbellegi tumden atlamali ("Yeniden Tara" dugmesi bu yolu kullanir).
   assert.ok(!cliRegistry.discoverInstalled({ cache: fakeCache, force: true }).some((c) => c.fromCache),
     "force=true iken hicbir sonuc onbellekten gelmemeli");
