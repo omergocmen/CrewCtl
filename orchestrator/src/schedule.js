@@ -27,7 +27,6 @@ function pad2(n) {
   return String(n).padStart(2, "0");
 }
 
-// Ham girdiyi dogrulanmis bir tetik nesnesine cevir; gecersizse Error at.
 function normalizeTrigger(raw) {
   if (!isPlainObject(raw)) throw new Error("trigger nesnesi gerekli.");
   const type = String(raw.type || "").toLowerCase();
@@ -42,7 +41,6 @@ function normalizeTrigger(raw) {
   if (!time) throw new Error('trigger.at "HH:MM" (00:00–23:59) olmali.');
   const at = `${pad2(time.hours)}:${pad2(time.minutes)}`;
   if (type === "daily") return { type, at };
-  // weekly
   const days = Array.isArray(raw.days) ? [...new Set(raw.days.map(Number))].filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort((a, b) => a - b) : [];
   if (!days.length) throw new Error("trigger.days en az bir gun (0=Pazar .. 6=Cumartesi) icermeli.");
   return { type, at, days };
