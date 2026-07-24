@@ -28,6 +28,7 @@ const HEALTH_CACHE_VERSION = 2;
 const CODEX_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 let codexModelRefreshDue = false;
 let codexModelCache = { checkedAt: 0, models: [] };
+let claudeModelCache = { checkedAt: 0, models: [] };
 
 // OpenCode model listesini config'e yaz: prob taze (cache-disi) liste dondurdugunde saklariz
 // ki bir sonraki acilista `opencode models` gecici olarak yavas/basarisiz olsa bile dropdown
@@ -199,6 +200,13 @@ async function getCodexModels(force = false) {
   const cfg = store.loadConfig();
   cfg.codexModelCache = { ...(cfg.codexModelCache || {}), checkedAt: new Date().toISOString(), models };
   store.saveConfig(cfg);
+  return models;
+}
+async function getClaudeModels(force = false) {
+  if (!force && claudeModelCache.models.length && Date.now() - claudeModelCache.checkedAt < CODEX_MODEL_CACHE_TTL_MS) return claudeModelCache.models;
+  if (engineBusy()) return claudeModelCache.models;
+  const models = await cliRegistry.listClaudeModels({ timeoutMs: 20000 });
+  claudeModelCache = { checkedAt: Date.now(), models };
   return models;
 }
 async function refreshCliHealth(force = false) {
@@ -594,6 +602,7 @@ const server = http.createServer(async (req, res) => {
         // liste gelirse persistOpenCodeModels ile guncellenir. cfg ise model onerisini
         // kullanicinin modelPreferences desenlerine gore urettirir.
         const cfg = store.loadConfig();
+        claudeModelCache = { checkedAt: 0, models: [] };
         cliStatus = cliRegistry.discoverInstalled({ force: true, cfg, openCodeModels: cfg.openCodeModelCache?.models });
         cfg.cliDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
         const body = await readBody(req);
@@ -614,6 +623,10 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/codex/models" && req.method === "GET") {
         try { return send(res, 200, { models: await getCodexModels(false) }); }
         catch (error) { return send(res, 502, { error: `Codex modelleri alınamadı: ${error.message}` }); }
+      }
+      if (pathname === "/api/claude/models" && req.method === "GET") {
+        try { return send(res, 200, { models: await getClaudeModels(false) }); }
+        catch (error) { return send(res, 502, { error: `Claude Code modelleri alınamadı: ${error.message}` }); }
       }
       if (pathname === "/api/projects" && req.method === "GET") {
         return send(res, 200, { projects: store.listProjects() });
@@ -759,7 +772,7 @@ const server = http.createServer(async (req, res) => {
         cliRegistry.normalizeAgentAdapters(cfg);
         if (cfg.cliSettings.codex.reasoningEffort && !["low", "medium", "high", "xhigh", "max", "ultra"].includes(cfg.cliSettings.codex.reasoningEffort)) return send(res, 400, { error: "cliSettings.codex.reasoningEffort gecersiz" });
         if (cfg.cliSettings.codex.serviceTier && !/^[A-Za-z0-9._-]{1,64}$/.test(cfg.cliSettings.codex.serviceTier)) return send(res, 400, { error: "cliSettings.codex.serviceTier gecersiz" });
-        for (const id of ["codex", "opencode"]) {
+        for (const id of ["codex", "claude", "opencode"]) {
           if (cfg.cliSettings[id].model != null && typeof cfg.cliSettings[id].model !== "string") return send(res, 400, { error: `cliSettings.${id}.model metin olmali` });
         }
         if (cfg.skills !== undefined) {

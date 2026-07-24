@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/server.js`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-07-24
 
 ## Purpose
 
@@ -18,7 +18,7 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 - `GET /api/fs`: güvenli klasör gezinme verisi.
 - `POST /api/tasks`; `GET|PUT|DELETE /api/tasks/:id`: görev oluşturma ve yönetimi.
 - `POST /api/tasks/:id/approve|reject`, `POST /api/tasks/:id/chat`, `GET /api/tasks/:id/events`.
-- `POST /api/cli/discover`, `POST /api/cli/health`, `GET /api/codex/models`.
+- `POST /api/cli/discover`, `POST /api/cli/health`, `GET /api/codex/models`, `GET /api/claude/models`.
 - `POST /api/engine`; `GET|PUT /api/config`; `GET|PUT|DELETE /api/roles/:file`.
 
 ## Contracts and invariants
@@ -26,7 +26,7 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 - API gövdeleri JSON'dur; hata yanıtları en az `error` alanı taşır.
 - Görev için seçilen operatör kurulu ve sağlıklı olmalıdır; OpenCode model hazırlığı ayrıca dikkate alınır.
 - CLI health cache sürümlüdür; health yürütme sözleşmesi değiştiğinde eski sonuçlar startup'ta agent profillerinden temizlenir ve otomatik yeniden test edilir.
-- `PUT /api/config`, eski model alanlarını `cliSettings` şemasına normalize eder; dört model alanını, Codex effort değerini ve service tier biçimini doğrular.
+- `PUT /api/config`, eski model alanlarını `cliSettings` şemasına normalize eder; Codex/Claude/OpenCode model alanlarını, Codex effort değerini ve service tier biçimini doğrular.
 - Yalnızca pending görev düzenlenebilir; aktif görev düzenlenemez veya silinemez.
 - Görev hedefi düzenlenince eski plan, approval ve team state geçersizleştirilir.
 - Rol dosyası yolları `path.basename` ile `roles/` altına sınırlanır.
@@ -42,6 +42,24 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 - Endpoint değişikliklerinde dashboard/flow tüketicilerini ve hata kodlarını birlikte kontrol et.
 
 ## Major Changes
+
+### 2026-07-24 — Claude Code model kataloğu API'si
+
+- **Change:** `GET /api/claude/models`, Claude Code Agent SDK initialize metadata'sından alınan kullanıcıya özel model listesini beş dakika bellekte tutarak döndürüyor.
+- **Reason:** UI'nın sabit ve belirli bir makineye göre hazırlanmış model listesi yerine mevcut hesabın gerçekten desteklediği seçenekleri göstermesi.
+- **Impact:** Sağlayıcı, abonelik veya kurum politikası farklı olan kullanıcılar farklı ve doğru katalog görür; hesap metadata'sı yanıta eklenmez.
+- **Compatibility:** Yeniden CLI taraması bellek önbelleğini temizler; katalog alınamazsa endpoint 502 ve açıklayıcı `error` döndürür.
+- **Verification:** `node orchestrator/test/cli.test.js`, gerçek prompt içermeyen initialize metadata sorgusu ve `npm test`.
+- **Files:** `orchestrator/src/server.js`, `orchestrator/src/cli-registry.js`
+
+### 2026-07-24 — Claude model alanı config API doğrulamasına eklendi
+
+- **Change:** `PUT /api/config`, normalize edilen `cliSettings.claude.model` değerinin string olmasını Codex ve OpenCode ile birlikte doğruluyor.
+- **Reason:** Claude model seçimini kalıcı config sözleşmesinin doğrulanmış bir parçası yapmak.
+- **Impact:** Hatalı tipte Claude model ayarı 400 yanıtıyla reddedilir.
+- **Compatibility:** Eksik alan normalizasyonda boş string olur; mevcut istemciler değişmeden çalışır.
+- **Verification:** `node orchestrator/test/cli.test.js`, `node orchestrator/test/ui-smoke.test.js`.
+- **Files:** `orchestrator/src/server.js`, `orchestrator/src/store.js`
 
 ### 2026-07-17 — Filechange SSE sözleşmesi
 

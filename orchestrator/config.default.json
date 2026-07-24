@@ -46,6 +46,10 @@
   },
   "cliSettings": {
     "codex": { "model": "", "reasoningEffort": "medium", "serviceTier": "fast" },
+    "claude": {
+      "_comment": "Bos model Claude Code hesap varsayilanini kullanir. Arayuz guncel modelleri tam surum kimlikleriyle sunar ve secilen degeri `claude --model <name>` olarak uygular.",
+      "model": ""
+    },
     "opencode": {
       "_comment": "model: acikca bir model yazarsaniz otomatik secim tumden atlanir (en guvenilir yol; `opencode models` ciktisindan bir satir). Bos birakilirsa modelPreferences desenleri sirayla denenir ve ILK eslesen kullanilir; `*` joker karakterdir. Saglayici adlari kisiden kisiye degisir (kendi aboneliginiz opencode-go, minimax, openrouter, kendi sunucunuz olabilir), bu yuzden burada saglayici adi sabitlenmez — kendi tercihinizi one almak icin listeyi duzenleyin, or. \"opencode-go/*\" en basa. modelExclude: erisilebilir varsayilmayacak saglayicilar; kendi yerel sunucunuzu kullanmak istiyorsaniz ilgili satiri silin.",
       "model": "",

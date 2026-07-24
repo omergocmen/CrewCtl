@@ -137,6 +137,7 @@ const FALLBACK_CONFIG = {
   resilience: { transientRetries: 2, retryBaseSeconds: 3, maxFailoverAgents: 1 },
   cliSettings: {
     codex: { model: "", reasoningEffort: "medium", serviceTier: "fast" },
+    claude: { model: "" },
     opencode: { model: "", modelPreferences: ["*deepseek*free*", "*free*", "*"], modelExclude: ["ollama/*", "lmstudio/*", "llamacpp/*", "local/*", "localhost/*"] },
   },
   skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200 },
@@ -167,6 +168,7 @@ function normalizeConfig(cfg) {
     },
     cliSettings: {
       codex: { model: "", reasoningEffort: "medium", serviceTier: "fast", ...legacyCodex, ...(current.codex || {}) },
+      claude: { model: "", ...(current.claude || {}) },
       // Desenler mevcut config'lere de eklenir ki kullanici bunlari Ayarlar'da gorup
       // kendi aboneligine gore duzenleyebilsin. Kendi degerini yazan kullanicininki korunur.
       opencode: {

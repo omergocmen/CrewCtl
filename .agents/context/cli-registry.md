@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/cli-registry.js`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-24
 
 ## Purpose
 
@@ -12,10 +12,11 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 
 - Her CLI için komut, sürüm argümanı, varsayılan otonom argümanlar, yetenekler, rol ve timeout metadata'sı tanımlar.
 - PATH yanında npm, pnpm, Yarn, Bun, Volta, Scoop, WinGet, Chocolatey, Homebrew ve yaygı Unix konumlarını tarar.
-- `effectiveAgent()` ile katalog destekli Codex/OpenCode config model ayarlarını adapter'a özgü CLI argümanlarına dönüştürür; Claude/Gemini modelini CLI varsayılanına bırakır.
+- `effectiveAgent()` ile Codex, Claude Code ve OpenCode config model ayarlarını adapter'a özgü CLI argümanlarına dönüştürür; Gemini modelini CLI varsayılanına bırakır.
 - OpenCode'un tüm sağlayıcı model listesini parse eder; erişilebilir modele öncelik verir ve keşfedilmiş ya da elle seçilmiş modeli olmayan OpenCode'u hazır saymaz.
 - CLI sağlık promptlarını çalıştırır; auth, model, timeout ve genel hata durumlarını sınıflandırır.
 - Codex app-server initialize çağrısında istemci kimliğini `crewctl` / `CrewCtl` olarak bildirir.
+- Claude Code Agent SDK `initialize` kontrol yanıtından oturuma özel model kataloğunu alır; hesap bilgisini dışarı aktarmadan yalnızca model görüntüleme/yetenek alanlarını normalize eder.
 - Health check, normal runtime ile aynı `{PROMPT}`/`{PROMPT_FILE}` materyalizasyonunu ve OpenCode otonom izin ortamını kullanır; geçici prompt dosyasını her çıkış yolunda temizler.
 - Otomatik keşfedilen uzmanları config'e ekler; kullanıcının gizlediği adapter'ları geri eklemez ve geçersiz operatörü uygun CLI'a taşır.
 
@@ -28,7 +29,7 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 - Otomatik keşfedilmiş OpenCode profillerindeki eski sistem-önerisi `model`, `modelOverride: true` değilse temizlenir ve global CLI ayarını ezemez.
 - CLI çağrıları non-interactive ve otonom olmalı; desteklenmeyen/eski bayraklar temizlenmelidir.
 - Windows Unicode kullanıcı yolları ve `.cmd/.bat` çalıştırma davranışı korunmalıdır.
-- Codex ve Gemini için adapter sessizlik sınırı 180 saniyedir; genel 300 saniyelik varsayılan Claude'un tamponlanan çıktı davranışı nedeniyle korunur.
+- Codex ve Gemini için adapter sessizlik sınırı 180, Claude için stream-json akışıyla 240, OpenCode için 300 saniyedir.
 
 ## Interactions
 
@@ -41,6 +42,24 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 - Platforma özgü komut değişikliklerinde Windows ve Unix argüman davranışını ayrı kontrol et.
 
 ## Major Changes
+
+### 2026-07-24 — Claude modeli kullanıcı oturumundan dinamik keşfediliyor
+
+- **Change:** `listClaudeModels()`, Claude Code'u stream-json kontrol protokolüyle başlatıp `initialize` yanıtındaki `models` alanını okuyor; statik Fable/Opus/Sonnet/Haiku listesi kullanılmıyor.
+- **Reason:** Model kullanılabilirliği CLI sürümünün yanında hesap türü, API sağlayıcısı ve kurum politikasına göre değişir.
+- **Impact:** Her kurulum yalnızca kendi Claude Code oturumunun bildirdiği Default/Fable/Opus/Sonnet/Haiku seçeneklerini ve güncel sürüm açıklamalarını görür.
+- **Compatibility:** Katalog protokolünü desteklemeyen veya giriş yapılmamış kurulumlarda hata güvenli biçimde UI'ya döner; varsayılan ve önceden kayıtlı değer korunur.
+- **Verification:** Normalize regresyon testi ve prompt göndermeyen gerçek `initialize` metadata sorgusu.
+- **Files:** `orchestrator/src/cli-registry.js`, `orchestrator/test/cli.test.js`
+
+### 2026-07-24 — Claude Code modeli etkin çağrıya uygulanıyor
+
+- **Change:** Claude profilleri agent override'ı veya `cliSettings.claude.model` değerini tek bir `--model` argümanına dönüştürüyor; profilde açık `--model`/`-m` varsa korunuyor.
+- **Reason:** Claude Code için Codex/OpenCode ile aynı global ve agent-bazlı model önceliğini sağlamak.
+- **Impact:** Claude operatör ve uzman süreçleri seçilen resmi alias ya da tam model adıyla başlar.
+- **Compatibility:** Boş modelde argüman eklenmez; mevcut açık CLI argümanları yinelenmez.
+- **Verification:** `node orchestrator/test/cli.test.js`.
+- **Files:** `orchestrator/src/cli-registry.js`, `orchestrator/test/cli.test.js`
 
 ### 2026-07-14 — OpenCode health check gerçek prompt dosyası kullanıyor
 

@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/web/index.html`, `orchestrator/src/server.js`, `orchestrator/src/cli-registry.js`, `orchestrator/config.default.json`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-24
 
 ## Purpose
 
@@ -11,7 +11,7 @@ Agent profillerini, rol dosyalarını, CLI-geneli model politikalarını, operat
 ## Current tabs
 
 - **Agent'lar & Roller:** kurulu CLI durumları, yeniden keşif, gizlenen otomatik adapter'lar, uzman agent ekleme/silme/düzenleme ve role Markdown CRUD.
-- **CLI'lar ve Modeller:** kurulu CLI kartları; Codex model/effort/service tier ve sağlayıcı gruplu OpenCode modeli. Claude/Gemini katalog sağlanana kadar yalnızca CLI varsayılanını kullanır.
+- **CLI'lar ve Modeller:** kurulu CLI kartları; Codex model/effort/service tier, kullanıcının Claude Code oturumundan gelen model kataloğu ve sağlayıcı gruplu OpenCode modeli. Gemini CLI varsayılanını kullanır.
 - **Operatör:** operatör CLI, tur/delegasyon/protokol limitleri ve `operator.md` editörü.
 - **Genel:** varsayılan çalışma klasörü, approval modu, günlük bütçe, timeout, memory/team context bütçeleri ve gelişmiş ham JSON.
 
@@ -24,7 +24,8 @@ Agent profillerini, rol dosyalarını, CLI-geneli model politikalarını, operat
 - Uzman rolü yalnızca prompt metni değil, izin verilen görev türüdür: executor uygulama, reviewer inceleme, planner planlama yapar.
 - Config kaydı server tarafı doğrulamasından geçer; en az bir uzman gerekir.
 - Global model, aynı adapter'ın operatör ve tüm uzman çağrılarına uygulanır; agent profilindeki model daha yüksek önceliklidir.
-- OpenCode agent'ının boş override seçeneği, miras aldığı global modelin adını açıkça gösterir; otomatik profillerde yalnızca kullanıcı seçimi `modelOverride` sayılır.
+- Codex, Claude Code ve OpenCode agent'larının boş override seçeneği, miras aldığı global modelin adını açıkça gösterir; otomatik profillerde kullanıcı seçimi `modelOverride` sayılır.
+- Claude Code seçenekleri statik değildir: Agent SDK initialize yanıtındaki `value`, `displayName`, `description` ve yetenek alanlarından üretilir. Böylece yalnızca mevcut hesap/sağlayıcı/kurum politikasının bildirdiği modeller görünür; boş seçim dinamik `Default` açıklamasını gösterir.
 - OpenCode seçenekleri sağlayıcı sırasıyla `opencode`, `opencode-go`, `minimax-coding-plan`, diğerleri ve en sonda `ollama` gruplarına ayrılır; katalogsuz CLI için model girdisi gösterilmez.
 
 ## Interactions
@@ -37,6 +38,15 @@ Config şeması için `configuration.md`, CLI keşfi için `cli-registry.md`, ro
 - Ayar değişikliklerinde `/api/config` validasyonunu ve yeniden açıldığında değerlerin korunmasını kontrol et.
 
 ## Major Changes
+
+### 2026-07-24 — Claude Code model seçimi eklendi
+
+- **Change:** CLI'lar ve Modeller sekmesine kullanıcı oturumunun desteklediği modelleri ad, güncel sürüm açıklaması ve CLI kimliğiyle gösteren global Claude Code dropdown'ı; her Claude uzman kartına da global ayarı miras alan model override dropdown'ı eklendi.
+- **Reason:** Claude Code kullanıcılarının modeli Codex ve OpenCode ile aynı ayar akışından seçebilmesi.
+- **Impact:** Seçim operatör ve tüm Claude uzmanlarına uygulanır; agent seçimi global değerden önceliklidir.
+- **Compatibility:** Boş seçim önceki Claude Code hesap/kurum varsayılanı davranışını korur; katalog alınamazsa eski alias veya kayıtlı özel model adı kaybolmadan “kayıtlı” seçeneği olarak gösterilir. Eski CLI için sabit sürüm tablosu uygulanmaz.
+- **Verification:** `node orchestrator/test/ui-smoke.test.js`, `node orchestrator/test/cli.test.js`.
+- **Files:** `orchestrator/web/index.html`, `orchestrator/test/ui-smoke.test.js`
 
 ### 2026-07-14 — Balanced çalışma sırası agent ekranında görünür
 
