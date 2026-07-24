@@ -323,6 +323,10 @@ function effectiveAgent(agent, cfg) {
     else copy.args.push("--output-format", "stream-json");
     // stream-json, -p (print) modunda --verbose ZORUNLU kilar; yoksa claude hata verir.
     if (!copy.args.includes("--verbose")) copy.args.push("--verbose");
+    // Claude Code model secimini oturum baslangicinda --model ile kabul eder. Alias kullanmak
+    // (sonnet/opus/haiku vb.) sağlayiciya gore guncel, erisilebilir surume cozumlenmesini saglar.
+    const model = String(copy.model || settings.model || "").trim();
+    if (model && !copy.args.includes("--model") && !copy.args.includes("-m")) copy.args.push("--model", model);
   }
   if (adapter === "gemini") {
     // Otonom, non-interaktif calisma icin onay modu sart; yoksa izin bekleyip takilir.
@@ -745,6 +749,112 @@ function listCodexModels(options = {}) {
   });
 }
 
+// Claude Code'un Agent SDK kontrol protokolu, oturum acilisinda o kullanicinin
+// hesabina/saglayicisina/kurum politikasina gore gercekten secilebilir modelleri dondurur.
+// Statik model kimlikleri tutmak hem hizla eskir hem de baska bir kullanicida gorunmeyen
+// bir modeli secilebilir gosterir. Bu normalizer yalnizca UI'nin ihtiyaci olan alanlari
+// alir; initialize yanitindaki hesap bilgilerini disari sizdirmaz.
+function normalizeClaudeModels(models) {
+  const seen = new Set();
+  const normalized = [];
+  for (const model of Array.isArray(models) ? models : []) {
+    const id = String(model?.value || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    normalized.push({
+      id,
+      resolvedModel: String(model.resolvedModel || "").trim(),
+      displayName: String(model.displayName || id).trim(),
+      description: String(model.description || "").trim(),
+      supportsEffort: model.supportsEffort === true,
+      supportedEffortLevels: Array.isArray(model.supportedEffortLevels)
+        ? model.supportedEffortLevels.map(String).filter(Boolean)
+        : [],
+      supportsAdaptiveThinking: model.supportsAdaptiveThinking === true,
+      supportsFastMode: model.supportsFastMode === true,
+      supportsAutoMode: model.supportsAutoMode === true,
+    });
+  }
+  return normalized;
+}
+
+function listClaudeModels(options = {}) {
+  const args = ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json", "--no-session-persistence"];
+  const command = buildCommand(options.command || RESOLVED.get("claude") || DEFINITIONS.claude.command, args);
+  const timeoutMs = Math.max(5000, Number(options.timeoutMs || 20000));
+  const requestId = "crewctl-claude-models";
+  return new Promise((resolve, reject) => {
+    let buffer = "", stderr = "", settled = false;
+    let child, unregister = () => {};
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      unregister();
+      terminateProbeTree(child);
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(
+      () => finish(new Error(`Claude Code model listesi ${Math.round(timeoutMs / 1000)} saniyede alinamadi.`)),
+      timeoutMs,
+    );
+    try {
+      child = spawn(command.file, command.args, {
+        shell: command.shell,
+        windowsHide: true,
+        windowsVerbatimArguments: !!command.verbatim,
+        stdio: ["pipe", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          CLAUDE_CODE_ENTRYPOINT: "sdk-ts",
+          CLAUDE_AGENT_SDK_CLIENT_APP: "crewctl",
+        },
+      });
+    } catch (error) {
+      finish(error);
+      return;
+    }
+    unregister = registerProbe(child);
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      buffer += String(chunk);
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        let message;
+        try { message = JSON.parse(line); } catch { continue; }
+        if (message.type !== "control_response" || message.response?.request_id !== requestId) continue;
+        if (message.response?.subtype !== "success") {
+          finish(new Error(message.response?.error || "Claude Code model listesi alinamadi."));
+          return;
+        }
+        const models = message.response?.response?.models;
+        if (!Array.isArray(models)) {
+          finish(new Error("Bu Claude Code surumu dinamik model katalogunu desteklemiyor."));
+          return;
+        }
+        finish(null, normalizeClaudeModels(models));
+        return;
+      }
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderr = `${stderr}${String(chunk)}`.slice(-2048);
+    });
+    child.on("error", (error) => finish(error));
+    child.on("close", (code) => {
+      if (settled) return;
+      finish(new Error(stderr.trim() || `Claude Code model katalogu okunamadan cikti (kod ${code}).`));
+    });
+    child.stdin?.on("error", () => {});
+    child.stdin?.write(`${JSON.stringify({
+      type: "control_request",
+      request_id: requestId,
+      request: { subtype: "initialize" },
+    })}\n`);
+  });
+}
+
 function addMissingAgents(cfg, discovered) {
   cfg.agents ||= {};
   const ignored = new Set(Array.isArray(cfg.discoveryIgnoredAdapters) ? cfg.discoveryIgnoredAdapters.map(String) : []);
@@ -857,4 +967,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthCheckAll, listCodexModels, listClaudeModels, normalizeClaudeModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

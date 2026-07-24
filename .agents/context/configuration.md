@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/config.default.json`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/web/index.html`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-07-24
 
 ## Purpose
 
@@ -17,7 +17,7 @@ Paylaşılabilir varsayılan yapılandırmayı, kişiye özel `config.json` yaş
   (=cwd) çalışma/hedef klasör çözümleme tabanıdır. `ensureDirs`, ROOT≠ASSETS iken boş `roles/`+`skills/`'i
   ASSETS varsayılanlarından bir kez seed eder.
 - `store.loadConfig()`, `config.json` yoksa `ASSETS/config.default.json`'ı kopyalar ve sonra saf/idempotent `normalizeConfig()` uygular.
-- `cliSettings` doğrulanmış model kataloğu bulunan Codex ve OpenCode için CLI bazlı model ayarlarını tutar; Claude/Gemini CLI varsayılanını kullanır.
+- `cliSettings` Codex, Claude Code ve OpenCode için CLI bazlı model ayarlarını tutar; Claude boş modelde hesap varsayılanını, seçili modelde kullanıcının Claude Code oturum kataloğundan gelen kimliği `--model` ile kullanır. Gemini CLI varsayılanını kullanır.
 - Eski `operator.codexSettings` ve `operator.model` alanları `cliSettings` altına taşınır ve operatör nesnesinden silinir.
 - `operator` tur/delegasyon/protokol/kurtarma politikalarını; `agents` uzman profillerini; `riskyPatterns` insan onayı gerektirebilecek metinleri tanımlar.
 - Genel ayarlar UI'ı çalışma dizini, onay modu, günlük bütçe, timeout ve context/hafıza bütçelerini düzenler.
@@ -41,6 +41,15 @@ Paylaşılabilir varsayılan yapılandırmayı, kişiye özel `config.json` yaş
 - Settings kaydetme için `/api/config` doğrulamasını ve eski şema normalizasyonunu kontrol et.
 
 ## Major Changes
+
+### 2026-07-24 — Claude Code model ayarı şemaya eklendi
+
+- **Change:** `cliSettings.claude.model` paylaşılabilir, fallback ve normalize edilmiş config şemasına eklendi; arayüz kullanılabilir modelleri Claude Code oturumundan dinamik alıyor, config API alanın string olmasını doğruluyor.
+- **Reason:** Claude Code operatör ve uzman çağrılarında arayüzden seçilen ortak modeli güvenli biçimde saklamak.
+- **Impact:** Mevcut `cliSettings.claude.model` değerleri artık temizlenmek yerine korunur ve runtime'a uygulanır.
+- **Compatibility:** Alan yoksa boş değer eklenir ve Claude Code hesap varsayılanı değişmeden kalır.
+- **Verification:** `node orchestrator/test/cli.test.js`, `node orchestrator/test/ui-smoke.test.js`.
+- **Files:** `orchestrator/config.default.json`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/web/index.html`
 
 ### 2026-07-17 — Canlı diff çalışma ayarları
 

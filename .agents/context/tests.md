@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/test/**`, `package.json`
 
-**Last verified:** 2026-07-18
+**Last verified:** 2026-07-24
 
 ## Purpose
 
@@ -35,6 +35,15 @@ Test sahipliği kaynak modül context'leriyle ortaktır. Engine/registry/role de
 - `npm test`
 
 ## Major Changes
+
+### 2026-07-24 — Claude Code model seçimi regresyon kapsamı
+
+- **Change:** CLI suite Claude config korumasını, global model kimliğinin argümana aktarımını, açık argümanın yinelenmemesini ve SDK model metadata normalizasyonunu; UI smoke suite global/agent dropdown'larını, dinamik `/api/claude/models` kaynağını ve statik katalog/sürüm kapısı bulunmamasını doğruluyor.
+- **Reason:** Claude model seçiminin şema, runtime ve iki ayar yüzeyinden birinde sessizce kaybolmasını önlemek.
+- **Impact:** Otomatik testler gerçek CLI veya ağ çağrısı yapmadan dinamik katalog sözleşmesini korur; manuel metadata doğrulaması model prompt'u çalıştırmadan yapılabilir.
+- **Compatibility:** Harici test bağımlılığı eklenmedi.
+- **Verification:** `node orchestrator/test/cli.test.js`, `node orchestrator/test/ui-smoke.test.js`.
+- **Files:** `orchestrator/test/cli.test.js`, `orchestrator/test/ui-smoke.test.js`
 
 ### 2026-07-17 — Dashboard otomatik replay regresyonu
 

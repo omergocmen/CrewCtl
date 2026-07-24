@@ -22,20 +22,33 @@ function main() {
   const normalized = store.normalizeConfig(legacy);
   assert.deepEqual(legacy, legacySnapshot, "normalizeConfig girdi nesnesini degistirmemeli");
   assert.equal(normalized.cliSettings.codex.model, "gpt-legacy");
+  assert.equal(normalized.cliSettings.claude.model, "sonnet");
   assert.equal(normalized.cliSettings.opencode.model, "opencode-go/legacy");
-  assert.ok(!normalized.cliSettings.claude && !normalized.cliSettings.gemini, "katalogsuz model ayarlari semadan kaldirilmali");
+  assert.ok(!normalized.cliSettings.gemini, "model katalogu olmayan Gemini ayari semadan kaldirilmali");
   assert.ok(!("codexSettings" in normalized.operator));
   assert.ok(!("model" in normalized.operator));
   assert.deepEqual(store.normalizeConfig(normalized), normalized, "normalizeConfig idempotent olmali");
 
   const modelCfg = { cliSettings: {
     codex: { model: "gpt-global", reasoningEffort: "high", serviceTier: "priority" },
-    claude: { model: "sonnet" }, gemini: { model: "gemini-2.5-pro" }, opencode: { model: "opencode-go/global" },
+    claude: { model: "claude-sonnet-5" }, gemini: { model: "gemini-2.5-pro" }, opencode: { model: "opencode-go/global" },
   } };
   const codex = cliRegistry.effectiveAgent({ adapter: "codex", cmd: "codex", args: [], model: "gpt-agent" }, modelCfg);
   assert.deepEqual(codex.args.slice(-6), ["--model", "gpt-agent", "-c", 'model_reasoning_effort="high"', "-c", 'service_tier="priority"']);
   const claude = cliRegistry.effectiveAgent({ adapter: "claude", cmd: "claude", args: [] }, modelCfg);
-  assert.ok(!claude.args.includes("--model"), "katalogsuz Claude serbest model ayari uygulanmamali");
+  assert.equal(claude.args[claude.args.indexOf("--model") + 1], "claude-sonnet-5", "Claude tam global model kimligi --model ile uygulanmali");
+  const claudeOverride = cliRegistry.effectiveAgent({ adapter: "claude", cmd: "claude", args: ["--model", "claude-opus-4-8"], model: "claude-fable-5" }, modelCfg);
+  assert.equal(claudeOverride.args.filter((arg) => arg === "--model").length, 1, "Claude acik CLI model argumani yinelenmemeli");
+  assert.equal(claudeOverride.args[claudeOverride.args.indexOf("--model") + 1], "claude-opus-4-8", "Claude acik CLI model argumani korunmali");
+  assert.deepEqual(cliRegistry.normalizeClaudeModels([
+    { value: "default", displayName: "Default", description: "Sonnet 5", supportsEffort: true, supportedEffortLevels: ["low", "high"] },
+    { value: "haiku", displayName: "Haiku", description: "Haiku 4.5" },
+    { value: "haiku", displayName: "duplicate" },
+    { value: "" },
+  ]), [
+    { id: "default", resolvedModel: "", displayName: "Default", description: "Sonnet 5", supportsEffort: true, supportedEffortLevels: ["low", "high"], supportsAdaptiveThinking: false, supportsFastMode: false, supportsAutoMode: false },
+    { id: "haiku", resolvedModel: "", displayName: "Haiku", description: "Haiku 4.5", supportsEffort: false, supportedEffortLevels: [], supportsAdaptiveThinking: false, supportsFastMode: false, supportsAutoMode: false },
+  ], "Claude katalogu SDK initialize yanitindan normalize edilmeli ve yinelenenler atilmali");
   const gemini = cliRegistry.effectiveAgent({ adapter: "gemini", cmd: "gemini", args: ["--model", "agent-model"] }, modelCfg);
   assert.equal(gemini.args.filter((arg) => arg === "--model").length, 1, "elle verilen acik CLI argumani korunmali");
   assert.equal(gemini.args[gemini.args.indexOf("--model") + 1], "agent-model");

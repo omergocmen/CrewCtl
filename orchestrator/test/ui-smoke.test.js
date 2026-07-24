@@ -117,7 +117,14 @@ assert.match(html, /OpenCode modeli/, "OpenCode agenti icin kesfedilen model sec
 assert.match(html, /data-tab="clis"/, "CLI ve model ayarlari ayri sekmede olmali");
 assert.match(html, /function renderClis\(/, "CLI ayarlari ayri renderer kullanmali");
 assert.match(html, /id="codexModel"/, "Codex global model secimi bulunmali");
+assert.match(html, /id="claudeModel"/, "Claude Code global model secimi bulunmali");
 assert.match(html, /id="opencodeModel"/, "OpenCode global model secimi bulunmali");
+assert.match(html, /Claude Code modeli/, "Claude Code agenti icin model override secimi sunulmali");
+assert.match(html, /api\/claude\/models/, "Claude modelleri kullanicinin Claude Code oturumundan dinamik alinmali");
+assert.match(html, /hesabı, sağlayıcısı ve kurum politikası/, "Claude katalog kapsamı kullaniciya aciklanmali");
+assert.match(html, /model\.description/, "Claude modelinin guncel surumu CLI aciklamasindan gosterilmeli");
+assert.doesNotMatch(html, /CLAUDE_MODEL_CATALOG/, "tum kullanicilar icin gecersizlesebilen statik Claude katalogu bulunmamali");
+assert.doesNotMatch(html, /minVersion:/, "yerel surume gore gomulu model kapisi bulunmamali");
 assert.doesNotMatch(html, /id="operatorModel"/, "operator sekmesi model ayari icermemeli");
 assert.match(html, /CLI ayarını kullan \(/, "agent model secimi miras alinan CLI modelini gostermeli");
 assert.doesNotMatch(html, /serbest model adı/, "Claude ve Gemini icin serbest metin model alani olmamali");
