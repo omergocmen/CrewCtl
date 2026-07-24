@@ -153,6 +153,9 @@ function normalizeConfig(cfg) {
     ...cfg,
     skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200, ...(cfg.skills || {}) },
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
+    // Proje = kaydedilmis, isimli calisma klasoru. Gorevler projectId ile bir projeye baglanabilir;
+    // targetDir geriye-uyum icin kalir (projesiz/eski gorevler aynen calisir).
+    projects: Array.isArray(cfg.projects) ? cfg.projects : [],
     // Her yuklemede hapis semasini garanti et; boylece eski config.json'lar yukseltilince
     // varsayilan olarak "workspace" hapsini kazanir. Gecersiz mode "workspace"e duser.
     sandbox: {
@@ -272,6 +275,96 @@ function addTask(prompt, targetDir, operatorCli, executionMode) {
   if (executionMode) task.executionMode = executionMode;
   atomicWrite(taskPath("pending", id), JSON.stringify(task, null, 2));
   return task;
+}
+// Yuklenen ekli dosyalarin staging kokudur: ROOT/state/attachments/<taskId>/. Icerik KUYRUK
+// JSON'una degil diske yazilir (kuyruk dosyasi base64 ile sismesin); motor gorev calisirken
+// bunlari calisma klasorunun .crewctl/attachments/'ina kopyalar.
+function attachmentStagingDir(taskId) {
+  return path.join(STATE, "attachments", String(taskId));
+}
+// UI'dan gelen [{name, dataBase64}] eklerini staging'e yazar. Ad guvenlik icin basename'e
+// indirgenir ve tehlikeli karakterler temizlenir. Diske yazilan [{name,size}] listesini doner.
+function saveAttachments(taskId, files) {
+  const out = [];
+  if (!Array.isArray(files) || !files.length) return out;
+  const dir = attachmentStagingDir(taskId);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const f of files) {
+    if (!f || typeof f.name !== "string" || typeof f.dataBase64 !== "string") continue;
+    const safe = path.basename(f.name).replace(/[\\/:*?"<>|]/g, "_").slice(0, 200).trim();
+    if (!safe || safe === "." || safe === "..") continue;
+    let buf;
+    try { buf = Buffer.from(f.dataBase64, "base64"); } catch { continue; }
+    try { fs.writeFileSync(path.join(dir, safe), buf); } catch { continue; }
+    out.push({ name: safe, size: buf.length });
+  }
+  return out;
+}
+// ---- Projeler (kaydedilmis calisma klasorleri) ----
+function newProjectId() {
+  return "proj-" + Date.now().toString(36) + "-" + Math.floor(Math.random() * 46656).toString(36).padStart(3, "0");
+}
+// UI'dan gelen proje verisini dogrular ve normalize eder. name + path zorunlu; path mutlak yola
+// cozulur (gorev bu yolda calisir). operatorCli/defaultMode opsiyonel proje varsayilanlaridir.
+function normalizeProject(input) {
+  if (!input || typeof input !== "object") throw new Error("Proje verisi gecersiz.");
+  const name = String(input.name || "").trim();
+  if (!name) throw new Error("Proje adi gerekli.");
+  const rawPath = String(input.path || "").trim();
+  if (!rawPath) throw new Error("Proje klasoru gerekli.");
+  const out = { name: name.slice(0, 120), path: path.resolve(rawPath) };
+  if (input.operatorCli && typeof input.operatorCli === "string") out.operatorCli = input.operatorCli;
+  if (["auto", "fast", "balanced", "deep"].includes(input.defaultMode)) out.defaultMode = input.defaultMode;
+  return out;
+}
+function listProjects() {
+  const list = loadConfig().projects;
+  return Array.isArray(list) ? list : [];
+}
+function getProject(id) {
+  return listProjects().find((p) => p.id === id) || null;
+}
+function addProject(input) {
+  const project = normalizeProject(input);
+  project.id = newProjectId();
+  project.createdAt = new Date().toISOString();
+  project.lastUsedAt = project.createdAt;
+  const cfg = loadConfig();
+  cfg.projects = [...(cfg.projects || []), project];
+  saveConfig(cfg);
+  return project;
+}
+function updateProject(id, patch) {
+  const cfg = loadConfig();
+  const list = cfg.projects || [];
+  const index = list.findIndex((p) => p.id === id);
+  if (index < 0) return null;
+  const merged = normalizeProject({ ...list[index], ...patch });
+  merged.id = list[index].id;
+  merged.createdAt = list[index].createdAt;
+  merged.lastUsedAt = new Date().toISOString();
+  list[index] = merged;
+  cfg.projects = list;
+  saveConfig(cfg);
+  return merged;
+}
+function touchProject(id) {
+  const cfg = loadConfig();
+  const list = cfg.projects || [];
+  const project = list.find((p) => p.id === id);
+  if (!project) return null;
+  project.lastUsedAt = new Date().toISOString();
+  cfg.projects = list;
+  saveConfig(cfg);
+  return project;
+}
+function deleteProject(id) {
+  const cfg = loadConfig();
+  const list = cfg.projects || [];
+  if (!list.some((p) => p.id === id)) return false;
+  cfg.projects = list.filter((p) => p.id !== id);
+  saveConfig(cfg);
+  return true;
 }
 function addChatTask(parentTask, question) {
   const task = addTask(question, parentTask.targetDir, parentTask.operatorCli, "chat");
@@ -446,6 +539,16 @@ module.exports = {
   listRecentTasks,
   nextPending,
   addTask,
+  attachmentStagingDir,
+  saveAttachments,
+  newProjectId,
+  normalizeProject,
+  listProjects,
+  getProject,
+  addProject,
+  updateProject,
+  touchProject,
+  deleteProject,
   addChatTask,
   addScheduledTask,
   saveTask,

@@ -6,6 +6,8 @@
   "pollSeconds": 15,
   "memoryCharBudget": 8000,
   "teamContextCharBudget": 30000,
+  "_taskPromptCharBudget_comment": "Kullanici gorev metni bu karakter sayisini asarsa (or. 1000+ satirlik spec) tam metin calisma klasorunun .crewctl/TASK-<id>.md dosyasina yazilir; operator/uzman prompt'una yalnizca bas+son ozeti + 'tam metni dosyadan oku' isareti gomulur. Boylece kati JSON operator protokolu buyuk metinde bozulmaz ve baglam sessizce kesilmez.",
+  "taskPromptCharBudget": 6000,
   "agentTimeoutSeconds": 900,
   "cliSilenceTimeoutSeconds": 300,
   "autonomousConsentAcceptedAt": null,

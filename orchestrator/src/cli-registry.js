@@ -19,7 +19,13 @@ const DEFINITIONS = {
   claude: {
     command: "claude",
     versionArgs: ["--version"],
-    defaultArgs: ["-p", "--permission-mode", "acceptEdits", "--output-format", "text"],
+    // stream-json + --verbose: claude 'text'/'json' modunda uzun isi TOPLU (tek seferde) doker;
+    // ara adimlarda stdout sessiz kalir ve motorun sessizlik sayaci calisan kosmayi yanlislikla
+    // oldururdu. stream-json her adimda (assistant mesaji, tool cagrisi/sonucu) olay akitir; boylece
+    // sessizlik sifirlanir. Nihai metin + kullanim son "result" olayindan ayiklanir.
+    defaultArgs: ["-p", "--permission-mode", "acceptEdits", "--output-format", "stream-json", "--verbose"],
+    // Claude artik akitiyor; kisa sessizlik esigi guvenli. (sizeFactor buyuk gorevde yine acar.)
+    silenceTimeoutSeconds: 240,
     description: "Claude Code uygulama, analiz ve test agenti",
     capabilities: ["implementation", "debugging", "testing", "review", "web"],
     roleFile: "roles/executor.md",
@@ -269,7 +275,13 @@ function effectiveAgent(agent, cfg) {
   }
   if (adapter === "claude") {
     if (!copy.args.includes("-p") && !copy.args.includes("--print")) copy.args.unshift("-p");
-    if (!copy.args.includes("--output-format")) copy.args.push("--output-format", "text");
+    // Cikti formatini DAIMA stream-json'a normalize et (eski config.json'lar 'text'/'json' tutuyor
+    // olabilir). Boylece claude akitir ve sessizlik-timeout yanlis-pozitifi ortadan kalkar.
+    const ofIdx = copy.args.indexOf("--output-format");
+    if (ofIdx >= 0) copy.args[ofIdx + 1] = "stream-json";
+    else copy.args.push("--output-format", "stream-json");
+    // stream-json, -p (print) modunda --verbose ZORUNLU kilar; yoksa claude hata verir.
+    if (!copy.args.includes("--verbose")) copy.args.push("--verbose");
   }
   if (adapter === "gemini") {
     // Otonom, non-interaktif calisma icin onay modu sart; yoksa izin bekleyip takilir.
