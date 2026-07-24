@@ -340,21 +340,21 @@ async function rootBrowse(message) {
   }
   return browseDir("/", message);
 }
-async function browseDir(p, warning = "") {
+async function browseDir(p, warning = "", includeFiles = false) {
   try {
     if (!p) return await rootBrowse(warning);
     const abs = path.resolve(p);
     const rootStat = await statSafe(abs, 2000);
     if (!rootStat || !rootStat.isDirectory()) throw new Error("Klasör değil");
     const dirents = await fs.promises.readdir(abs, { withFileTypes: true });
-    const wanted = dirents.filter((e) => {
+    const folders = dirents.filter((e) => {
       let isDir = false;
       try { isDir = e.isDirectory(); } catch { isDir = false; }
       return isDir && !e.name.startsWith("$") && e.name !== "System Volume Information";
     });
     // mtime'lari PARALEL topla; donuk bir alt klasor 400ms sonra tarihsiz gecer.
-    const entries = await Promise.all(
-      wanted.map(async (e) => {
+    const folderEntries = await Promise.all(
+      folders.map(async (e) => {
         const entryPath = path.join(abs, e.name);
         const st = await statSafe(entryPath, 400);
         let modifiedAt = null;
@@ -362,8 +362,24 @@ async function browseDir(p, warning = "") {
         return { name: e.name, path: entryPath, type: "folder", modifiedAt };
       })
     );
-    entries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-    const dirs = entries.map((entry) => entry.name);
+    folderEntries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    // includeFiles: dosya secici/goruntuleyici modu. Klasor secici (varsayilan) yalnizca klasor gosterir.
+    let fileEntries = [];
+    if (includeFiles) {
+      const files = dirents.filter((e) => { let f = false; try { f = e.isFile(); } catch { f = false; } return f && !e.name.startsWith("$"); });
+      fileEntries = await Promise.all(
+        files.map(async (e) => {
+          const entryPath = path.join(abs, e.name);
+          const st = await statSafe(entryPath, 400);
+          let modifiedAt = null, size = null;
+          if (st) { try { modifiedAt = st.mtime.toISOString(); } catch {} try { size = st.size; } catch {} }
+          return { name: e.name, path: entryPath, type: "file", modifiedAt, size };
+        })
+      );
+      fileEntries.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    }
+    const entries = [...folderEntries, ...fileEntries];
+    const dirs = folderEntries.map((entry) => entry.name);
     const isDriveRoot = /^[A-Za-z]:\\?$/.test(abs);
     const up = path.dirname(abs);
     const parent = isDriveRoot ? "" : up === abs ? null : up;
@@ -373,6 +389,40 @@ async function browseDir(p, warning = "") {
     const requested = p ? String(p) : "";
     return rootBrowse(requested ? `"${requested}" açılamadı; bu bilgisayar gösteriliyor.` : e.message);
   }
+}
+
+// @-bahsi (mention) icin proje ici dosya arama: dir altinda ozyinelemeli, q ile suzulmus, sinirli.
+// Agir/gurultulu klasorleri atlar; tarama ve sonuc sayisi tavanli (buyuk repolarda her tus vurusunda
+// makul kalsin diye). rel = dir'e goreli POSIX yol, path = mutlak.
+async function listProjectFiles(dir, q = "", limit = 40) {
+  const abs = path.resolve(dir);
+  const st = await statSafe(abs, 2000);
+  if (!st || !st.isDirectory()) return { files: [], truncated: false };
+  const query = String(q || "").toLowerCase();
+  const ignore = new Set(["node_modules", ".git", ".crewctl", ".hg", ".svn", "dist", "build", ".next", ".nuxt", ".cache", "coverage", "vendor", "__pycache__", ".venv", "venv"]);
+  const subseq = (s, qy) => { if (!qy) return true; let i = 0; for (const c of s) { if (c === qy[i]) i++; if (i === qy.length) return true; } return false; };
+  const out = [];
+  let scanned = 0, truncated = false;
+  const walk = async (cur, rel, depth) => {
+    if (out.length >= limit || scanned > 20000 || depth > 12) { if (out.length >= limit) truncated = true; return; }
+    let ents; try { ents = await fs.promises.readdir(cur, { withFileTypes: true }); } catch { return; }
+    for (const e of ents) {
+      if (out.length >= limit) { truncated = true; return; }
+      scanned++;
+      let isDir = false, isFile = false;
+      try { isDir = e.isDirectory(); } catch {} try { isFile = e.isFile(); } catch {}
+      const childRel = rel ? rel + "/" + e.name : e.name;
+      if (isDir) { if (ignore.has(e.name) || e.name.startsWith("$")) continue; await walk(path.join(cur, e.name), childRel, depth + 1); }
+      else if (isFile) {
+        const low = childRel.toLowerCase();
+        if (!query || low.includes(query) || subseq(e.name.toLowerCase(), query)) out.push({ name: e.name, rel: childRel, path: path.join(cur, e.name) });
+      }
+    }
+  };
+  await walk(abs, "", 0);
+  // Isim tam eslesme > kisa yol onceligi ile sirala.
+  out.sort((a, b) => (a.name.toLowerCase().startsWith(query) === b.name.toLowerCase().startsWith(query) ? a.rel.length - b.rel.length : a.name.toLowerCase().startsWith(query) ? -1 : 1));
+  return { files: out.slice(0, limit), truncated };
 }
 
 // ---- HTTP ----
@@ -404,6 +454,7 @@ const server = http.createServer(async (req, res) => {
           skills: skillRegistry.allSkills().map((s) => ({ name: s.name, file: s.file, description: s.description, category: s.category, appliesTo: s.appliesTo, match: s.match })),
           cliStatus,
           schedules: cfg.schedules || [],
+          projects: cfg.projects || [],
           platform: process.platform,
           workingDirAbs: path.resolve(store.WORK_BASE, cfg.workingDir || "."),
         });
@@ -417,12 +468,23 @@ const server = http.createServer(async (req, res) => {
         return send(res, 200, { accepted: true, acceptedAt: cfg.autonomousConsentAcceptedAt });
       }
       if (pathname === "/api/fs" && req.method === "GET") {
-        return send(res, 200, await browseDir(url.parse(req.url, true).query.path));
+        const q = url.parse(req.url, true).query;
+        return send(res, 200, await browseDir(q.path, "", q.files === "1"));
+      }
+      if (pathname === "/api/files" && req.method === "GET") {
+        const q = url.parse(req.url, true).query;
+        if (!q.dir) return send(res, 400, { error: "dir gerekli" });
+        return send(res, 200, await listProjectFiles(q.dir, q.q || "", Math.min(Number(q.limit) || 40, 100)));
       }
       if (pathname === "/api/tasks" && req.method === "POST") {
-        const { prompt, targetDir, operatorCli, executionMode, freshContext } = await readBody(req);
+        const { prompt, targetDir, operatorCli, executionMode, freshContext, attachments, projectId } = await readBody(req);
         if (!prompt || !prompt.trim()) return send(res, 400, { error: "prompt gerekli" });
         const cfg = store.loadConfig();
+        // Proje secildiyse calisma klasoru/operator/mod varsayilanlari projeden gelir. Acikca
+        // gonderilen targetDir/operatorCli/executionMode her zaman onceliklidir (geriye uyum).
+        const project = projectId ? store.getProject(projectId) : null;
+        if (projectId && !project) return send(res, 404, { error: "proje bulunamadi" });
+        const effectiveTargetDir = (typeof targetDir === "string" && targetDir.trim()) ? targetDir.trim() : (project ? project.path : targetDir);
         // Operatör, uzman agent'lardan bağımsız bir CLI'dır (claude/codex/gemini/opencode);
         // operator.md rolüyle ekibi yönetir. Belirtilmemiş/geçersizse kurulu bir CLI'ye geçilir.
         const cliEntry = (name) => cliStatus.find((c) => c.id === name);
@@ -432,15 +494,18 @@ const server = http.createServer(async (req, res) => {
         // "ready" kabul ediliyordu; bu yuzden acilistaki saglik testi suresince (olculen: 13.3 sn)
         // HER gorev 409 ile reddediliyor ve kullaniciya "CLI kullanilabilir degil" deniyordu.
         // Bu kume kasitli olarak eski davranisin UST KUMESIDIR: bugun kabul edilen hicbir
-        // gorev reddedilemez, yalnizca iki gecici durum artik engellemiyor. Gercekten arizali
-        // CLI'lar (auth-required/quota/failed/timeout/version-incompatible) aynen engellenir.
-        const TRANSIENT_HEALTH = new Set(["testing", "unknown"]);
+        // gorev reddedilemez, yalnizca gecici durumlar artik engellemiyor. Gercek arizalar
+        // (auth-required/quota/version-incompatible) aynen engellenir.
+        // "timeout": acilistaki saglik probe'u makine yuk altindayken 45sn'de bitmeyince damgalanir
+        // ve gorev gonderimini 6 saat blokelardi (yanlis-pozitif). Gercek gorev calismasinin kendi
+        // timeout + operator fallback'i var; bu yuzden timeout'u da GECICI sayip engellemyoruz.
+        const TRANSIENT_HEALTH = new Set(["testing", "unknown", "timeout"]);
         const usableCli = (name) => {
           if (!installedCli(name)) return false;
           const status = cliEntry(name)?.health?.status;
           return !status || status === "ready" || TRANSIENT_HEALTH.has(status);
         };
-        let selectedCli = operatorCli || cfg.operator?.cli;
+        let selectedCli = operatorCli || project?.operatorCli || cfg.operator?.cli;
         if (!installedCli(selectedCli)) {
           if (cliRegistry.ensureValidOperator(cfg, cliStatus)) store.saveConfig(cfg);
           selectedCli = cfg.operator?.cli;
@@ -452,10 +517,32 @@ const server = http.createServer(async (req, res) => {
           const health = cliEntry(selectedCli)?.health;
           return send(res, 409, { error: `${cliRegistry.DEFINITIONS[selectedCli].description} şu anda kullanılabilir değil: ${health?.label || "sağlık testi bekleniyor"}. ${health?.detail || "Önce model sağlık testini tamamlayın."}` });
         }
-        const mode = ["auto", "fast", "balanced", "deep"].includes(executionMode) ? executionMode : "auto";
-        const t = store.addTask(prompt.trim(), targetDir, selectedCli, mode);
+        const mode = ["auto", "fast", "balanced", "deep"].includes(executionMode) ? executionMode
+          : (["auto", "fast", "balanced", "deep"].includes(project?.defaultMode) ? project.defaultMode : "auto");
+        // Ekli dosyalar iki turdur: (1) cihazdan base64 yukleme -> staging'e yazilir; (2) sunucu
+        // tarafi dosya secimi (projeden/klasorden) -> yalnizca srcPath tutulur, motor calisirken
+        // cozer (path cwd icindeyse KOPYA YOK, sadece goreli yol; disindaysa .crewctl'e kopyalanir).
+        // Limit: 12 dosya / base64 toplami ~24 MB. Asilirsa gorev olusur, ekler alinmaz + uyari.
+        let attachErr = "";
+        const rawAtt = Array.isArray(attachments) ? attachments.slice(0, 12) : [];
+        const b64Items = rawAtt.filter((a) => a && typeof a.dataBase64 === "string");
+        const pathItems = rawAtt.filter((a) => a && typeof a.srcPath === "string" && a.srcPath.trim());
+        const b64Ok = b64Items.reduce((n, a) => n + a.dataBase64.length, 0) <= 32 * 1024 * 1024;
+        if (!b64Ok) attachErr = "Yuklenen dosyalar cok buyuk (toplam ~24 MB siniri); ekler alinmadi.";
+        const t = store.addTask(prompt.trim(), effectiveTargetDir, selectedCli, mode);
+        // Proje baglama: gorevi projeye iliştir ve projenin son-kullanim zamanini guncelle.
+        if (project) { t.projectId = project.id; store.saveTask("pending", t); store.touchProject(project.id); }
         // --fresh esdegeri: bu gorevde proje profili (.crewctl/CONTEXT.md) yuklenmez.
         if (freshContext === true) { t.freshContext = true; store.saveTask("pending", t); }
+        const built = [];
+        if (b64Ok && b64Items.length) { for (const s of store.saveAttachments(t.id, b64Items)) built.push({ ...s, kind: "staged" }); }
+        for (const a of pathItems) {
+          const abs = path.resolve(String(a.srcPath));
+          let st = null; try { st = fs.statSync(abs); } catch {}
+          if (st && st.isFile()) built.push({ name: path.basename(abs), srcPath: abs, kind: "path" });
+        }
+        if (built.length) { t.attachments = built.slice(0, 12); store.saveTask("pending", t); }
+        if (attachErr) t.attachmentWarning = attachErr;
         engine.wake();
         broadcast("queue", snapshot());
         return send(res, 200, t);
@@ -527,6 +614,31 @@ const server = http.createServer(async (req, res) => {
       if (pathname === "/api/codex/models" && req.method === "GET") {
         try { return send(res, 200, { models: await getCodexModels(false) }); }
         catch (error) { return send(res, 502, { error: `Codex modelleri alınamadı: ${error.message}` }); }
+      }
+      if (pathname === "/api/projects" && req.method === "GET") {
+        return send(res, 200, { projects: store.listProjects() });
+      }
+      if (pathname === "/api/projects" && req.method === "POST") {
+        const body = await readBody(req);
+        let project;
+        try { project = store.addProject(body); }
+        catch (error) { return send(res, 400, { error: error.message }); }
+        broadcast("queue", snapshot());
+        return send(res, 200, project);
+      }
+      if ((m = pathname.match(/^\/api\/projects\/([^/]+)$/)) && (req.method === "PUT" || req.method === "DELETE")) {
+        if (req.method === "DELETE") {
+          if (!store.deleteProject(m[1])) return send(res, 404, { error: "proje yok" });
+          broadcast("queue", snapshot());
+          return send(res, 200, { ok: true });
+        }
+        const body = await readBody(req);
+        let updated;
+        try { updated = store.updateProject(m[1], body); }
+        catch (error) { return send(res, 400, { error: error.message }); }
+        if (!updated) return send(res, 404, { error: "proje yok" });
+        broadcast("queue", snapshot());
+        return send(res, 200, updated);
       }
       if (pathname === "/api/schedules" && req.method === "GET") {
         return send(res, 200, { schedules: store.loadConfig().schedules || [] });

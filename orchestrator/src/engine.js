@@ -44,6 +44,18 @@ function claudeSandboxSettings(agent, cwd, cfg) {
   return { permissions: { deny } };
 }
 
+// Windows, ASCII-disi veya uzun adli klasorler icin 8.3 KISA AD uretir (or. kullanici "Ömer" ->
+// "MER~1"). CLI'nin calisma klasoru bu kisa formda gecerse (path.resolve bazen kisa form dondurur)
+// claude gibi ajanlarin izin motoru kisa-ad path'ini "supheli/olasi kacis" sayip her YAZMAYI manuel
+// onaya alir; headless (-p) modda onay gelmedigi icin ajan "duzenlemek istiyor ama yapamiyor" diye
+// takilir ve kullanici path secmesine ragmen "baska yere yazma yetkisi istiyor" gorunur. realpath
+// kisa formu gercek uzun forma cozer; boylece ajan guvenilen tam yolu gorur. Cozemezse (dizin yok
+// vb.) mevcut yolu aynen birakiriz.
+function canonicalDir(dir) {
+  try { return fs.realpathSync.native(dir); }
+  catch { try { return fs.realpathSync(dir); } catch { return dir; } }
+}
+
 function snapshotDir(dir) {
   const map = new Map();
   const ignored = (rel) => {
@@ -441,7 +453,74 @@ function readStepUsage(event) {
 
 // DIKKAT: text/error sozlesmesi degismemeli — operatorun JSON protokolu bu metni okuyor.
 // usage yalnizca EK bir alandir; cikarilamadiginda null kalir ve hicbir akisi etkilemez.
+// Claude stream-json ciktisini ayiklar: satir-satir JSON olaylar; nihai metin ve kullanim son
+// "result" olayindadir. result yoksa (surec yarida kesildiyse) toplanan assistant metnine duseriz.
+function parseClaudeStream(stdout) {
+  let text = "", usage = null;
+  const assistant = [];
+  for (const line of String(stdout || "").split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t[0] !== "{") continue;
+    let ev; try { ev = JSON.parse(t); } catch { continue; }
+    if (ev.type === "assistant" && Array.isArray(ev.message?.content)) {
+      for (const c of ev.message.content) if (c.type === "text" && c.text) assistant.push(String(c.text));
+    } else if (ev.type === "result") {
+      if (typeof ev.result === "string") text = ev.result;
+      const u = ev.usage || {};
+      usage = {
+        input: Number(u.input_tokens) || 0,
+        output: Number(u.output_tokens) || 0,
+        reasoning: 0,
+        cacheRead: Number(u.cache_read_input_tokens) || 0,
+        cacheWrite: Number(u.cache_creation_input_tokens) || 0,
+        cost: Number(ev.total_cost_usd) || 0,
+      };
+    }
+  }
+  if (!text && assistant.length) text = assistant.join("\n");
+  return { text: String(text).trim(), error: "", usage };
+}
+
+// Tek bir claude stream-json satirini canli terminal icin okunabilir metne cevirir. Assistant
+// metnini oldugu gibi, tool cagrilarini kisa bir eylem satiri olarak gosterir; sistem/sonuc/tool
+// -sonuc olaylarini atlar. Cevrilecek bir sey yoksa "" doner (o satir icin cikti yayimlanmaz).
+function claudeToolBrief(c) {
+  const i = c.input || {};
+  const p = i.file_path || i.path || i.command || i.pattern || i.url || i.prompt || "";
+  const s = String(p).replace(/\s+/g, " ").trim();
+  return s ? ` ${s.length > 60 ? s.slice(0, 60) + "…" : s}` : "";
+}
+function claudeEventText(line) {
+  const t = String(line).trim();
+  if (!t || t[0] !== "{") return "";
+  let ev; try { ev = JSON.parse(t); } catch { return ""; }
+  if (ev.type === "assistant" && Array.isArray(ev.message?.content)) {
+    const out = [];
+    for (const c of ev.message.content) {
+      if (c.type === "text" && c.text) out.push(String(c.text));
+      else if (c.type === "tool_use") out.push(`\n  ⏵ ${c.name}${claudeToolBrief(c)}`);
+    }
+    return out.join("");
+  }
+  if (ev.type === "result" && ev.is_error) return `\n✕ ${String(ev.result || ev.subtype || "hata")}`;
+  return "";
+}
+// Rate-limit olayi her adimda tekrar gelir; canli terminale her seferinde basmak gurultu olur.
+// runCli bunu KOSMA BASINA BIR KEZ, net bir uyari log'una cevirir. "allowed" (sorun yok) atlanir;
+// "allowed_warning" (kotaya yaklasiliyor) ve daha kotusu bir kez bildirilir.
+function claudeRateLimitWarning(line) {
+  let ev; try { ev = JSON.parse(String(line).trim()); } catch { return ""; }
+  const r = ev.rate_limit_info || {};
+  if (!r.status || r.status === "allowed") return "";
+  const pct = Number.isFinite(+r.utilization) ? ` (~%${Math.round(r.utilization * 100)})` : "";
+  const win = r.rateLimitType ? ` [${r.rateLimitType}]` : "";
+  return `Claude kullanim limitine yaklasiliyor${win}${pct}; is kesintisiz devam ediyor.`;
+}
+
 function normalizeCliOutput(agent, stdout) {
+  if (agent.adapter === "claude" && (agent.args || []).includes("stream-json")) {
+    return parseClaudeStream(stdout);
+  }
   if (agent.adapter !== "opencode" || !(agent.args || []).includes("json")) {
     return { text: String(stdout || "").trim(), error: "", usage: null };
   }
@@ -1108,8 +1187,20 @@ class Engine extends EventEmitter {
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
 
-      const timeoutMs = Math.max(10, agent.timeoutSeconds || cfg.agentTimeoutSeconds || 900) * 1000;
-      const silenceTimeoutMs = Math.max(1, agent.silenceTimeoutSeconds || cfg.cliSilenceTimeoutSeconds || 300) * 1000;
+      // BOYUT FAKTORU: buyuk gorevlerde model daha uzun sure sessiz kalabilir (dev spec'i okuma +
+      // buyuk diff uretme). Sabit sessizlik penceresi bu durumda SAGLIKLI bir kosmayi SIGKILL'liyor
+      // ("opencode terminated"). Orijinal gorev boyutunu (this._taskChars, taskBrief ile ayni esik)
+      // vekil alip sessizlik VE sert timeout'u 1x..3x arasi kirpilmis bir katsayiyla acariz. Tavan
+      // 3x: sonsuz asilmis gercek bir takilma yine yakalanir. Girdi kucukse (<=budget) katsayi 1x,
+      // yani mevcut davranis ve testler AYNEN korunur. Not: gercek byte akisi (stdout/stderr) zaten
+      // sessizlik sayacini sifirliyor (liveness); katsayi yalnizca HIC cikti gelmeyen sessiz dusunme
+      // penceresini genisletir. Kendi ilerleme kalp atisimizi liveness saymayiz — o, takilmayi gizlerdi.
+      const taskChars = Number(this._taskChars) || String(prompt || "").length;
+      const promptBudget = Math.max(1200, Number(cfg.taskPromptCharBudget) || 6000);
+      const sizeFactor = Math.min(3, Math.max(1, taskChars / promptBudget));
+      const timeoutMs = Math.round(Math.max(10, agent.timeoutSeconds || cfg.agentTimeoutSeconds || 900) * 1000 * sizeFactor);
+      const silenceTimeoutMs = Math.round(Math.max(1, agent.silenceTimeoutSeconds || cfg.cliSilenceTimeoutSeconds || 300) * 1000 * sizeFactor);
+      if (sizeFactor > 1) this.publish("log", { level: "info", msg: `Buyuk gorev (${taskChars} karakter): zaman asimi ${sizeFactor.toFixed(1)}x acildi (sessizlik ${Math.round(silenceTimeoutMs / 1000)}s / sert ${Math.round(timeoutMs / 1000)}s).` }, this.current?.id);
       let lastOutputAt = Date.now();
       const terminateTree = () => {
         if (isWin && child.pid) {
@@ -1139,12 +1230,29 @@ class Engine extends EventEmitter {
         terminateTree();
       }, timeoutMs);
 
+      // Claude stream-json ham JSON akitir; canli "CLI calisma kaydi" terminaline JSON dokmek
+      // yerine her tam satiri OKUNABILIR metne cevirir (assistant metni + tool eylemleri). Boylece
+      // gorunum eski 'text' modu gibi okunur kalir; ham JSON yine `stdout`da birikip sonda
+      // normalizeCliOutput ile ayiklanir. Silence timer her veri parcasinda zaten sifirlanir.
+      const isClaudeStream = agent.adapter === "claude" && (agent.args || []).includes("stream-json");
+      let claudeLineBuf = "";
       child.stdout.on("data", (data) => {
         const text = String(data);
         stdout += text;
         lastOutputAt = Date.now();
         armSilenceTimer();
-        this.publish("activity", { ...base, kind: "stdout", text });
+        if (isClaudeStream) {
+          claudeLineBuf += text;
+          let nl;
+          while ((nl = claudeLineBuf.indexOf("\n")) >= 0) {
+            const line = claudeLineBuf.slice(0, nl);
+            claudeLineBuf = claudeLineBuf.slice(nl + 1);
+            const disp = claudeEventText(line);
+            if (disp) this.publish("activity", { ...base, kind: "stdout", text: disp });
+          }
+        } else {
+          this.publish("activity", { ...base, kind: "stdout", text });
+        }
       });
       child.stderr.on("data", (data) => {
         const text = String(data);
@@ -1286,6 +1394,83 @@ class Engine extends EventEmitter {
     return clipMiddle(JSON.stringify(digest, null, 2), budget);
   }
 
+  // Cok uzun kullanici spec'leri (1000+ satir) operatore/uzmana OLDUGU GIBI gomulunce iki sorun
+  // cikar: (1) kati JSON-only operator protokolu dev metinde bozulur — model prose/markdown dokup
+  // gecersiz JSON uretir, delegasyon acilmaz, ongorulemez sonuc cikar; (2) ayni dev metin her
+  // operator turunda ve her uzman cagrisinda tekrar baglama yigilir, model baglami tasar veya
+  // sessizce kesilir. Cozum: spec'i BIR KEZ calisma klasorunun .crewctl/TASK-<id>.md dosyasina
+  // yaz, prompta yalnizca bas+son OZETINI + "tam metni bu dosyadan OKU" isaretini goм. Butun
+  // CLI'lar cwd altindaki dosyayi kendileri okur; hicbir sey sessizce kesilmez. Kisa promptlar
+  // (butcenin altinda) aynen dondurulur; mevcut davranis ve testler degismez.
+  taskBrief(task, cfg) {
+    const full = String(task.prompt || "");
+    const budget = Math.max(1200, Number(cfg.taskPromptCharBudget) || 6000);
+    if (full.length <= budget) return full;
+    let ref = "";
+    try {
+      const dir = path.join(this._cwd, ".crewctl");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, `TASK-${task.id}.md`), full, "utf8");
+      ref = `.crewctl/TASK-${task.id}.md`;
+    } catch {}
+    const head = Math.ceil(budget * 0.7);
+    const tail = budget - head;
+    const excerpt = `${full.slice(0, head)}\n\n...[GOREV METNI KIRPILDI — ${full.length} karakterlik tam spec ${ref ? `\`${ref}\` dosyasinda` : "yukarida"}]...\n\n${full.slice(-tail)}`;
+    const pointer = ref
+      ? `\nNOT: Bu gorevin tam metni cok uzun oldugu icin calisma klasorundeki \`${ref}\` dosyasina yazildi. Yukaridaki yalnizca bas/son ozetidir; PLANLAMADAN/UYGULAMADAN ONCE tam spec icin bu dosyayi OKU ve tamamina uy.`
+      : "";
+    return `${excerpt}${pointer}`;
+  }
+
+  // Kullanicinin goreve ekledigi dosyalari (server ROOT/state/attachments/<id>/ altina yazdi)
+  // calisma klasorunun .crewctl/attachments/<id>/ icine kopyalar; boylece dosyalar hapsin ICINDE
+  // olur ve ajanlar (claude/codex/gemini/opencode) YOLU verildiginde kendileri okuyabilir. .crewctl
+  // zaten diff/snapshot'tan haric. Okuyabilme tamamen ajanin/modelin becerisine kalir (metin/kod
+  // her ajanda, gorseli yalnizca gorsel okuyabilen model); biz yetenek koprusu KURMAYIZ, sadece
+  // yolu prompta koyariz. [{name, rel, ext}] doner.
+  stageTaskAttachments(task) {
+    const list = Array.isArray(task.attachments) ? task.attachments : [];
+    if (!list.length) return [];
+    const cwd = this._cwd;
+    const dstDir = path.join(cwd, ".crewctl", "attachments", task.id);
+    let dstMade = false;
+    const ensureDst = () => { if (!dstMade) { try { fs.mkdirSync(dstDir, { recursive: true }); } catch {} dstMade = true; } };
+    // Mutlak yol cwd'nin ICINDE mi? Ise goreli yolu doner (kopya gerekmez); degilse null.
+    const relInsideCwd = (abs) => { const r = path.relative(cwd, abs); return (r && !r.startsWith("..") && !path.isAbsolute(r)) ? r.split(path.sep).join("/") : null; };
+    const refs = [];
+    for (const a of list) {
+      const name = path.basename(String(a && a.name || ""));
+      if (!name) continue;
+      const ext = (path.extname(name).replace(".", "") || "?").toLowerCase();
+      if (a && a.kind === "path" && a.srcPath) {
+        // Sunucu tarafi secilen dosya (projeden/klasorden). cwd ICINDEyse KOPYA YOK — ajan zaten
+        // o klasoru okuyor, prompta sadece goreli yolu koyariz. cwd DISIndaysa .crewctl'e kopyalanir.
+        const abs = path.resolve(String(a.srcPath));
+        const inside = relInsideCwd(abs);
+        if (inside && fs.existsSync(abs)) { refs.push({ name, rel: inside, ext }); continue; }
+        ensureDst();
+        try { if (fs.existsSync(abs)) fs.copyFileSync(abs, path.join(dstDir, name)); } catch {}
+        refs.push({ name, rel: `.crewctl/attachments/${task.id}/${name}`, ext });
+      } else {
+        // Cihazdan yuklenen (base64) dosya: staging -> .crewctl.
+        ensureDst();
+        const src = path.join(store.attachmentStagingDir(task.id), name);
+        try { if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dstDir, name)); } catch {}
+        refs.push({ name, rel: `.crewctl/attachments/${task.id}/${name}`, ext });
+      }
+    }
+    return refs;
+  }
+
+  // Ekli dosyalari operator/uzman prompt'una tek blok olarak koyar. Icerigi GOMMEZ; yalnizca yol +
+  // uzanti verir (taskBrief'teki isaret deseniyle ayni) — ajan ilgiliyse dosyayi kendi okur.
+  attachmentSection() {
+    const refs = this._attachmentRefs || [];
+    if (!refs.length) return "";
+    const lines = refs.map((r) => `- \`${r.rel}\` (${r.ext})`).join("\n");
+    return `## Ekli dosyalar\nKullanici bu goreve asagidaki dosyalari ekledi; hepsi calisma klasorunun ICINDE. Goreve ilgiliyse ilgili dosyayi OKU. Okuyabilme dosya turune ve ajanin/modelin becerisine baglidir: metin/kod/markdown/json her ajanda okunur; gorsel gibi ikili dosyalari yalnizca o turu okuyabilen model acabilir, acamayan ajan bu dosyayi atlar. Bir alt ajana is verirken ilgili dosyanin YOLUNU talimatina aynen aktar.\n${lines}\n`;
+  }
+
   operatorPrompt(task, cfg, memory, state, phase) {
     const operatorCli = task.operatorCli || cfg.operator?.cli;
     // Operatör rolü daima operator.md'dir; operatör bir CLI'dir, uzman agent'lar onun altında çalışır.
@@ -1337,7 +1522,8 @@ class Engine extends EventEmitter {
       `## Calisma stratejisi\n${strategy}\n` +
       `## Agent katalogu\n${JSON.stringify(catalog, null, 2)}\n` +
       skillSection +
-      `## Kullanici gorevi\n${task.prompt}\n` +
+      `## Kullanici gorevi\n${this.taskBrief(task, cfg)}\n` +
+      this.attachmentSection() +
       `## Calisma klasoru\n${this._cwd}\n` +
       `SANDBOX: Butun is YALNIZCA bu klasorde yapilir. Bu klasor disina (ust dizinler, orkestrator/kurulum dizini, sistem dosyalari) dosya YAZMA/DEGISTIRME/SILME ve gerekmedikce disariyi OKUMA. Delegasyon talimatlarini da bu sinira gore yaz.\n` +
       `## Proje profili (bu klasorun birikmis baglami — tum kodu bastan taramak zorunda kalmayasin diye. IPUCUDUR, kanit degil: kritik kararlarda DOSYADAN dogrula, celiski gorursen profile guvenme. Gecmis teslimatlar mevcut gorevi TAMAMLANMIS SAYDIRMAZ.)\n${clip(memory || "(henuz proje profili yok — ilk gorevde olusturulacak)", cfg.projectContextCharBudget || cfg.memoryCharBudget || 8000)}\n` +
@@ -1371,7 +1557,7 @@ class Engine extends EventEmitter {
       `Planda olmayan riskli bir is gerekiyorsa yapma; BLOCKED olarak bildir. Yalnizca gercekten gozlemledigin veya dogruladigin sonuclari yaz.\n` +
       `SANDBOX: Butun is YALNIZCA calisma klasorunde (${this._cwd}) yapilir. Bu klasor disina dosya YAZMA/DEGISTIRME/SILME ve gerekmedikce disariyi OKUMA.\n` +
       (skillRefs ? `## Uygulanacak beceriler\nBu is icin asagidaki beceri rehberleri secildi. Her satirda becerinin OZETI ve TAM rehberin DOSYA YOLU var. Ozet yeterliyse dogrudan uygula; daha fazla ayrinti gerekiyorsa ilgili dosyayi OKU ve prosedure uy. Ilgisiz bir sey varsa gormezden gel.\n${skillRefs}\n` : "") +
-      `## Ana hedef\n${task.prompt}\n## Delegasyon\nID: ${assignment.id}\n${assignment.instruction}\n` +
+      `## Ana hedef\n${this.taskBrief(task, cfg)}\n` + this.attachmentSection() + `## Delegasyon\nID: ${assignment.id}\n${assignment.instruction}\n` +
       `## Onceki tamamlanan takim isleri\n${clip(JSON.stringify(completed, null, 2), cfg.teamContextCharBudget || 30000)}`;
   }
 
@@ -1501,6 +1687,16 @@ class Engine extends EventEmitter {
     this.busy = true;
     this.current = { id: task.id, stage: "operator", agent: operatorCli };
     this._cwd = path.resolve(store.WORK_BASE, task.targetDir || cfg.workingDir || ".");
+    // Kullanicinin sectigi path GERCEKTEN calisma klasoru olmali. Cozulen dizin yoksa CLI'lar
+    // spawn cwd bulunamayinca sunucunun baslatildigi dizine (WORK_BASE) veya bir ust dizine
+    // dusup "baska yerleri okuyup yazma" davranisi gosteriyordu. Sectigi yolu var edip garanti
+    // altina aliriz; boylece hapis (codex -s workspace-write / claude cwd) tam bu klasora oturur.
+    try { fs.mkdirSync(this._cwd, { recursive: true }); } catch {}
+    this._cwd = canonicalDir(this._cwd);
+    // Timeout OLCEKLEME SINYALI: taskBrief buyuk spec'i dosyaya tasidigi icin runCli'ye giden
+    // bileşik prompt artik KISA olabilir; gercek is boyutunu orijinal gorev metninden okuruz.
+    this._taskChars = String(task.prompt || "").length;
+    this._attachmentRefs = this.stageTaskAttachments(task);
     this._snapBefore = snapshotDir(this._cwd);
     this.startLiveDiff(task);
     // Onay sonrasi devam eden gorevde sayaci sifirlamayiz; ilk girise ozgu.
@@ -1771,7 +1967,9 @@ class Engine extends EventEmitter {
     if (!operatorCli || !cliRegistry.operatorSpec(operatorCli, cfg)) throw new Error("Sohbet icin operator CLI bulunamadi.");
     this.busy = true;
     this.current = { id: task.id, stage: "operator-chat", agent: operatorCli };
-    this._cwd = path.resolve(store.WORK_BASE, parent.targetDir || cfg.workingDir || ".");
+    this._cwd = canonicalDir(path.resolve(store.WORK_BASE, parent.targetDir || cfg.workingDir || "."));
+    this._taskChars = String(task.prompt || "").length;
+    this._attachmentRefs = [];
     this.publish("log", { level: "task", msg: `OPERATOR SOHBETI ${parent.id}: ${task.prompt}` }, task.id);
     this.emit("status", this.status());
 
