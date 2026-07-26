@@ -36,6 +36,16 @@ process.stdin.on("end", () => {
       }));
       return;
     }
+    if (operatorTask.includes("Kanitsiz PASS")) {
+      // Gerceklesen ariza taklidi: is gerektiren gorevde YALNIZCA inceleme delegasyonu acilir,
+      // hicbir dosya uretilmez, denetci PASS verir. Motor bunu teslimat sanmamalidir.
+      process.stdout.write(JSON.stringify({
+        summary: "Yalnizca inceleme yapilir; hicbir dosya uretilmez.",
+        completionCriteria: ["dosya olusmali"],
+        assignments: [{ id: "kanitsiz-review", agent: "reviewer", kind: "review", instruction: "Durumu incele.", dependsOn: [] }],
+      }));
+      return;
+    }
     if (operatorTask.includes("Kismi teslimat")) {
       process.stdout.write(JSON.stringify({
         summary: "Uzman uygular; operator hicbir turda tatmin olmaz.",
@@ -91,6 +101,16 @@ process.stdin.on("end", () => {
       process.stdout.write(JSON.stringify({ status: "continue", reason: "Canli tarayici dogrulamasi hala eksik.", assignments: [{ id: `partial-again-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, agent: "worker", kind: "implement", instruction: "team-output.txt icerigini dogrula ve guncelle.", dependsOn: [] }] }));
       return;
     }
+    if (operatorTask.includes("Kanitsiz PASS")) {
+      // Hizli yol dogru sekilde atlandiysa operator BURAYA gelir. Gercek isi simdi delege eder;
+      // ikinci turda (kayitta uygulama gorunurken) tamamlar.
+      if (prompt.includes("kanitsiz-build")) {
+        process.stdout.write(JSON.stringify({ status: "complete", final: "Dosya uretildi ve teslim edildi." }));
+      } else {
+        process.stdout.write(JSON.stringify({ status: "continue", reason: "Inceleme PASS verdi ama hicbir dosya uretilmedi; uygulama gerekiyor.", assignments: [{ id: "kanitsiz-build", agent: "worker", kind: "implement", instruction: "team-output.txt olustur.", dependsOn: [] }] }));
+      }
+      return;
+    }
     process.stdout.write(JSON.stringify({ status: "complete", final: "Takim gorevi tamamlandi ve team-output.txt olusturuldu." }));
     return;
   }
@@ -107,6 +127,11 @@ process.stdin.on("end", () => {
   if (delegationId === "governor-broken") {
     process.stderr.write("API key not valid: kontrollu test hatasi\n");
     process.exitCode = 2;
+    return;
+  }
+  if (delegationId.startsWith("kanitsiz-review")) {
+    // Denetci PASS verir ama HICBIR dosya uretilmemistir; bu bir teslimat kaniti degildir.
+    process.stdout.write("DEĞERLENDİRME: Incelenen kapsam tutarli.\nBULGULAR:\n- Yok\nDOĞRULAMA:\n- salt okunur inceleme — PASS\nKALAN RİSK: Yok\nVERDICT: PASS");
     return;
   }
   if (delegationId.startsWith("loop-review") || delegationId.startsWith("governor-review")) {

@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/web/index.html`, `orchestrator/src/server.js`, `orchestrator/src/cli-registry.js`, `orchestrator/config.default.json`
 
-**Last verified:** 2026-07-24
+**Last verified:** 2026-07-25
 
 ## Purpose
 
@@ -13,7 +13,8 @@ Agent profillerini, rol dosyalarını, CLI-geneli model politikalarını, operat
 - **Agent'lar & Roller:** kurulu CLI durumları, yeniden keşif, gizlenen otomatik adapter'lar, uzman agent ekleme/silme/düzenleme ve role Markdown CRUD.
 - **CLI'lar ve Modeller:** kurulu CLI kartları; Codex model/effort/service tier, kullanıcının Claude Code oturumundan gelen model kataloğu ve sağlayıcı gruplu OpenCode modeli. Gemini CLI varsayılanını kullanır.
 - **Operatör:** operatör CLI, tur/delegasyon/protokol limitleri ve `operator.md` editörü.
-- **Genel:** varsayılan çalışma klasörü, approval modu, günlük bütçe, timeout, memory/team context bütçeleri ve gelişmiş ham JSON.
+- **MCP Araçları:** içe dönük MCP sunucularının form tabanlı yönetimi — global etkinleştirme, kapsam (`strict`/`inherit`), delegasyon başına sunucu sınırı; sunucu başına ad, açıklama, komut/URL, argümanlar, ortam değişkenleri, görev türü seçimi, yazma yetkisi ve agent kısıtı. Tek tıkla eklenebilen hazır şablonlar (Playwright · dosya sistemi · fetch · CrewCtl'in kendisi).
+- **Genel:** varsayılan çalışma klasörü, approval modu, günlük bütçe, timeout, memory/team context bütçeleri, bildirim webhook'u, doğrulama kapısı (komut listesi · zaman aşımı · kırmızı kapı davranışı), eşzamanlı görev sayısı, git worktree izolasyonu (mod · bağlanacak klasörler · kurulum komutları) ve gelişmiş ham JSON.
 
 ## Contracts and invariants
 
@@ -23,6 +24,9 @@ Agent profillerini, rol dosyalarını, CLI-geneli model politikalarını, operat
 - Operatör uzman agent değildir; ayrı CLI seçimidir ve rolü `roles/operator.md` olarak sabittir.
 - Uzman rolü yalnızca prompt metni değil, izin verilen görev türüdür: executor uygulama, reviewer inceleme, planner planlama yapar.
 - Config kaydı server tarafı doğrulamasından geçer; en az bir uzman gerekir.
+- MCP sekmesi `draftMcp` taslağı üzerinde çalışır (`draftAgents` ile aynı desen); Kaydet basılana kadar config'e dokunmaz. Kaydetmede adsız sunucular atılır, adlar/açıklamalar trim'lenir, boş argüman satırları düşer, `ANAHTAR=değer` satırları ortam değişkenine çevrilir (değer içindeki `=` korunur) ve URL verildiyse `command`/`args` gönderilmez.
+- Kart, seçili türlerle yazma yetkisinin çelişkisini **kaydetmeden önce** gösterir ("Fiilen verilecek: …"): `write: true` bir sunucu `review`/`research`/`plan` türlerine motor tarafında hiçbir koşulda verilmez.
+- Doğrulama komutu alanı satır başına bir komut kabul eder; boş satırlar atılır ve liste boşken kapı kapalıdır. Kırmızı kapı seçimi `blockOnFailure` değerine karşılık gelir ("Teslimatı engelle" / "Yalnızca rapor et").
 - Global model, aynı adapter'ın operatör ve tüm uzman çağrılarına uygulanır; agent profilindeki model daha yüksek önceliklidir.
 - Codex, Claude Code ve OpenCode agent'larının boş override seçeneği, miras aldığı global modelin adını açıkça gösterir; otomatik profillerde kullanıcı seçimi `modelOverride` sayılır.
 - Claude Code seçenekleri statik değildir: Agent SDK initialize yanıtındaki `value`, `displayName`, `description` ve yetenek alanlarından üretilir. Böylece yalnızca mevcut hesap/sağlayıcı/kurum politikasının bildirdiği modeller görünür; boş seçim dinamik `Default` açıklamasını gösterir.
@@ -38,6 +42,15 @@ Config şeması için `configuration.md`, CLI keşfi için `cli-registry.md`, ro
 - Ayar değişikliklerinde `/api/config` validasyonunu ve yeniden açıldığında değerlerin korunmasını kontrol et.
 
 ## Major Changes
+
+### 2026-07-25 — MCP Araçları sekmesi (form tabanlı)
+
+- **Change:** İçe dönük MCP artık Genel sekmesindeki ham JSON alanı yerine kendi sekmesinde form tabanlı yönetiliyor: sunucu kartları (ad · açıklama · komut/URL · argümanlar · ortam · görev türleri · yazma yetkisi · agent kısıtı), ekle/sil, hazır şablonlar ve "fiilen verilecek türler" önizlemesi. `draftMcp` taslağı eklendi.
+- **Reason:** Ham JSON düzenlemek `config.json`'u elle açmaktan farklı değildi; MCP sunucusu eklemek arayüzden gerçekten yapılabilmeliydi.
+- **Impact:** Kullanıcı MCP sunucusu eklerken şema bilmek zorunda değil; rol kapısının sonucu (yazma yetkisi ile seçili türlerin çelişkisi) kaydetmeden önce görünür.
+- **Compatibility:** Üretilen gövde mevcut `config.mcp` şemasıyla birebir aynıdır; `/api/config` doğrulaması ve `mcp.normalizeConfig` değişmedi. Eski ham JSON alanı kaldırıldı (Genel sekmesindeki genel ham JSON düzenleyici duruyor).
+- **Verification:** `node orchestrator/test/ui-smoke.test.js` — taslak→config dönüşümü gerçekten koşturulur ve çıktının `mcp.normalizeConfig` ile rol kapısından geçtiği doğrulanır; canlı panelde `PUT /api/config` 200 döndü ve sunucular kalıcılaştı.
+- **Files:** `orchestrator/web/index.html`, `orchestrator/test/ui-smoke.test.js`
 
 ### 2026-07-24 — Claude Code model seçimi eklendi
 

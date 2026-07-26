@@ -23,6 +23,12 @@ const DEFAULT_RETENTION = 20;
 function ignored(rel) {
   const r = String(rel).replace(/\\/g, "/");
   return r.includes("node_modules") || r.includes(".git/") || r === ".git" || r.startsWith(".git/") ||
+    // .crewctl/ ORKESTRATORUN calisma klasoru icindeki kendi kazi alanidir: proje profili,
+    // gorev spec dosyalari, ekler ve (MCP sunuculari kullaniyorsa) tarayici profilleri gibi
+    // uretilen durum. Kullanicinin kodu DEGILDIR ve surume girmemeli. Olculdu (2026-07-26):
+    // tek bir Playwright oturumu buraya 190 dosya / 18.5 MB birakti; site kodu 42.6 KB'ti.
+    // engine.snapshotDir bunu zaten diff'ten cikariyor; checkpoint de ayni sinira uymali.
+    r === ".crewctl" || r.startsWith(".crewctl/") ||
     r.startsWith("orchestrator/queue") || r.startsWith("orchestrator/state") ||
     r.startsWith("orchestrator/memory") || r.startsWith("orchestrator/node_modules");
 }

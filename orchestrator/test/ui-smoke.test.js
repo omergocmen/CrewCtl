@@ -133,4 +133,123 @@ assert.match(html, /function setAgentCommand\(/, "CLI komutu degisince adapter U
 assert.match(html, /adapter ve güvenli varsayılan argümanlar otomatik eşitlenir/, "adapter esleme davranisi kullaniciya aciklanmali");
 assert.match(html, /rolü görev türünü bağlayıcı biçimde sınırlar/, "uzman rolunun gorev turunu sinirladigi aciklanmali");
 assert.match(html, /planner → executor → reviewer/, "balanced rol zinciri agent ayarlarinda aciklanmali");
+// Dogrulama kapisi: Genel ayarlarda duzenlenebilir olmali ve kaydetme yoluna baglanmali.
+assert.match(html, /id="verifyCommands"/, "Genel ayarlar dogrulama komutu alani icermeli");
+assert.match(html, /id="verifyTimeout"/, "dogrulama zaman asimi ayarlanabilir olmali");
+assert.match(html, /id="verifyBlock"/, "kirmizi kapi davranisi (engelle/rapor) secilebilir olmali");
+assert.match(html, /verify:\{\.\.\.\(STATE\.config\.verify\|\|\{\}\)/, "kapi ayarlari kaydetme govdesine eklenmeli");
+assert.match(html, /Kapı kırmızıysa hiçbir hızlı yol teslimatı kapatamaz/, "kapinin teslimat uzerindeki etkisi kullaniciya aciklanmali");
+// Git worktree izolasyonu: Genel ayarlardan yonetilebilir olmali.
+assert.match(html, /id="wtMode"/, "worktree modu secilebilir olmali");
+assert.match(html, /id="wtLinks"/, "worktree'ye baglanacak klasorler girilebilir olmali");
+assert.match(html, /id="wtSetup"/, "worktree kurulum komutlari girilebilir olmali");
+assert.match(html, /worktree:\{\.\.\.\(STATE\.config\.worktree\|\|\{\}\)/, "worktree ayarlari kaydetme govdesine eklenmeli");
+assert.match(html, /Uzağa hiçbir şey gönderilmez/, "push\/PR yapilmadigi kullaniciya acikca soylenmeli");
+// Es zamanli gorev: ayar alani + coklu kosan gorevin gosterimi.
+assert.match(html, /id="maxConc"/, "es zamanli gorev sayisi ayarlanabilir olmali");
+assert.match(html, /maxConcurrentTasks:/, "es zamanlilik ayari kaydetme govdesine eklenmeli");
+assert.match(html, /görev eşzamanlı/, "birden fazla kosan gorev durum satirinda gosterilmeli");
+// Pano: kosan TUM gorevleri gostermeli (tekil current'a sabitlenmemeli).
+assert.match(boardHtml, /s\.currents/, "board.html es zamanli gorev listesini tuketmeli");
+assert.match(boardHtml, /runs\.map\(r=>runningCard\(r\)\)/, "board.html Calisiyor sutununda tum kosan gorevleri gostermeli");
+// ---- Ice donuk MCP: AYRI SEKME, form tabanli (ham JSON degil) ----
+assert.match(html, /data-tab="mcp"/, "Ayarlar'da MCP Araclari sekmesi olmali");
+assert.match(html, /function renderMcp\(/, "MCP sekmesi render fonksiyonu olmali");
+assert.doesNotMatch(html, /id="mcpJson"/, "MCP artik ham JSON alaniyla degil formla yonetilmeli");
+assert.match(html, /const MCP_PRESETS=\[/, "tek tikla eklenebilen hazir sunucu sablonlari olmali");
+assert.match(html, /function mcpAdd\(/, "sunucu ekleme fonksiyonu olmali");
+assert.match(html, /function mcpRemove\(/, "sunucu silme fonksiyonu olmali");
+assert.match(html, /function mcpEffectiveKinds\(/, "fiilen verilecek turler kullaniciya gosterilmeli");
+assert.match(html, /Operatör MCP kullanmaz/, "operatorun MCP kullanmadigi acikca yazilmali");
+assert.match(html, /hiçbir koşulda<\/b> verilmez/, "yazma yetkilisinin salt-okunur turlere verilmedigi aciklanmali");
+assert.match(html, /sandbox\) garantisini kapsamaz/, "MCP'nin sandbox garantisini deldigi uyarisi bulunmali");
+assert.match(html, /kimlik bilgisiyle \(örn\. read-only DB kullanıcısı\)/, "yetkinin kimlik bilgisiyle kuruldugu anlatilmali");
+// codex opt-in bypass: kutu + uyari + kaydetme govdesi.
+assert.match(html, /codex için MCP'yi zorla aç \(sandbox'sız\)/, "codex bypass opt-in kutusu olmali");
+assert.match(html, /codexUnsafeBypass:!!draftMcp\.codexUnsafeBypass/, "codex bypass ayari kaydetme govdesine eklenmeli");
+assert.match(html, /ajan hapsi \(sandbox\) devre dışı/, "bypass'in sandbox'i kapattigi acikca yazilmali");
+// ---- JSON'dan ice aktarma: MCP dokumantasyonlarinin verdigi panoyu dogrudan kabul etmeli ----
+assert.match(html, /function mcpParseImport\(/, "MCP JSON ice aktarma parser'i olmali");
+assert.match(html, /id="mcpImportText"/, "yapistirma alani olmali");
+assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
+{
+  // Parser saf oldugu icin izole calistirilabilir; gercek dunya bicimleriyle test ediyoruz.
+  const src = html.match(/const MCP_KINDS=\[[\s\S]*?function mcpToggleImport\(/)[0];
+  const parse = new Function(`${src.replace(/function mcpToggleImport\($/, "")} return mcpParseImport;`)();
+
+  // (a) Standart bicim — firecrawl dokumantasyonundaki gerceginin aynisi.
+  const firecrawl = parse('{"mcpServers":{"firecrawl-mcp":{"command":"npx","args":["-y","firecrawl-mcp"],"env":{"FIRECRAWL_API_KEY":"YOUR-API-KEY"}}}}');
+  assert.ok(!firecrawl.error, `standart mcpServers bicimi kabul edilmeli: ${firecrawl.error || ""}`);
+  assert.equal(firecrawl.servers.length, 1);
+  assert.equal(firecrawl.servers[0].name, "firecrawl-mcp");
+  assert.equal(firecrawl.servers[0].command, "npx");
+  assert.equal(firecrawl.servers[0].argsText, "-y\nfirecrawl-mcp", "args satir satir alana aktarilmali");
+  assert.equal(firecrawl.servers[0].envText, "FIRECRAWL_API_KEY=YOUR-API-KEY", "env ANAHTAR=deger satirina cevrilmeli");
+  assert.equal(firecrawl.servers[0].write, false, "ice aktarilan sunucu salt okunur gelmeli");
+  assert.equal(firecrawl.servers[0].kinds.length, 4, "ice aktarilan sunucu tum turlere acik gelmeli (kullanici daraltir)");
+
+  // (b) Sarmalayicisiz ve (c) tek sunucu nesnesi de kabul edilmeli.
+  assert.equal(parse('{"docs":{"command":"npx","args":["d"]}}').servers[0].name, "docs", "sarmalayicisiz bicim kabul edilmeli");
+  assert.equal(parse('{"command":"npx","args":["x"]}').servers[0].name, "yeni-sunucu", "tek sunucu nesnesi kabul edilmeli");
+  assert.equal(parse('{"servers":{"a":{"command":"x"}}}').servers[0].name, "a", "servers sarmalayicisi da taninmali");
+
+  // (d) Uzak sunucu: url varsa command/args gonderilmemeli.
+  const remote = parse('{"mcpServers":{"uzak":{"type":"http","url":"https://o/mcp"}}}').servers[0];
+  assert.equal(remote.url, "https://o/mcp");
+  assert.equal(remote.command, "", "url verildiyse command bos kalmali");
+  assert.equal(remote.argsText, "", "url verildiyse args bos kalmali");
+
+  // (e) Gecersiz ad temizlenmeli, `disabled` bayragi onurlandirilmali.
+  assert.equal(parse('{"mcpServers":{"benim sunucum!":{"command":"x"}}}').servers[0].name, "benim-sunucum", "gecersiz karakterler ada uygun hale getirilmeli");
+  assert.equal(parse('{"mcpServers":{"a":{"command":"x","disabled":true}}}').servers[0].enabled, false, "disabled:true kapali gelmeli");
+
+  // (f) Hatalar ACIKCA bildirilmeli; sessizce bos sonuc DONMEMELI.
+  assert.match(parse("").error, /boş/, "bos girdi hata vermeli");
+  assert.match(parse("{bozuk").error, /ayrıştırılamadı/, "bozuk JSON hata vermeli");
+  assert.match(parse('{"mcpServers":{"a":{}}}').error, /command.*url/s, "command/url olmadan hata vermeli");
+  assert.match(parse("[]").error, /nesne/, "dizi reddedilmeli");
+  // Kismi gecerlilik: gecerliler alinir, gecersizler sayilir.
+  const mixed = parse('{"mcpServers":{"iyi":{"command":"x"},"kotu":{}}}');
+  assert.equal(mixed.servers.length, 1, "gecerli sunucu alinmali");
+  assert.deepEqual(mixed.skipped, ["kotu"], "atlanan giris bildirilmeli");
+}
+
+// Arayuzun URETTIGI sekil gecerli olmali: taslak -> config donusumunu GERCEKTEN kosturuyoruz.
+// Bu, formun API'nin reddedecegi bir govde uretmesi riskini kapatir.
+{
+  const saveBlock = html.match(/if\(draftMcp\)\{[\s\S]*?servers\}\}/);
+  assert.ok(saveBlock, "MCP kaydetme blogu bulunmali");
+  const draftMcp = {
+    enabled: true, mode: "strict", maxServersPerAssignment: 2, startupTimeoutMs: 15000,
+    servers: [
+      { name: "  docs  ", command: "npx", argsText: "-y\n\ndocs-mcp", envText: "A=1\n\nBOZUK\nB=2=3", kinds: ["plan", "review"], agents: ["", "w1"], write: false, enabled: true, description: " dok " },
+      { name: "uzak", url: " https://o/mcp ", command: "yok", argsText: "atilmali", envText: "", kinds: ["implement"], agents: [], write: true, enabled: false, description: "" },
+      { name: "   ", command: "x" }, // adsiz: ATILMALI
+    ],
+  };
+  const STATE = { config: {} };
+  new Function("draftMcp", "STATE", saveBlock[0])(draftMcp, STATE);
+  const m = STATE.config.mcp;
+  assert.deepEqual(Object.keys(m.servers), ["docs", "uzak"], "adsiz sunucu atilmali, adlar trim'lenmeli");
+  assert.deepEqual(m.servers.docs.args, ["-y", "docs-mcp"], "bos arguman satirlari atilmali");
+  assert.deepEqual(m.servers.docs.env, { A: "1", B: "2=3" }, "ANAHTAR=deger ayristirilmali; '=' iceren deger korunmali, gecersiz satir atilmali");
+  assert.equal(m.servers.docs.description, "dok", "aciklama trim'lenmeli");
+  assert.deepEqual(m.servers.docs.agents, ["w1"], "bos agent adi atilmali");
+  assert.equal(m.servers.uzak.url, "https://o/mcp", "URL trim'lenmeli");
+  assert.equal(m.servers.uzak.command, undefined, "URL verildiyse command/args gonderilmemeli");
+  assert.equal(m.servers.uzak.write, true);
+  assert.equal(m.servers.uzak.enabled, false);
+  assert.equal(m.mode, "strict");
+  assert.equal(m.maxServersPerAssignment, 2);
+  // HALKAYI KAPAT: arayuzun urettigi sekil motorun normalizasyonundan sag cikmali. Aksi halde
+  // kullanici formu doldurur, kaydeder ve sunucu sessizce dusurulur.
+  const mcpModule = require("../src/mcp");
+  const normalized = mcpModule.normalizeConfig({ mcp: m });
+  assert.deepEqual(Object.keys(normalized.servers).sort(), ["docs", "uzak"], "form cikti sunuculari normalizasyonda KORUNMALI");
+  assert.deepEqual(normalized.servers.docs.kinds, ["plan", "review"], "kind kisiti normalizasyondan gecmeli");
+  assert.equal(normalized.servers.docs.env.B, "2=3", "ortam degeri normalizasyonda bozulmamali");
+  assert.equal(normalized.enabled, true, "etkin bayragi korunmali");
+  // Rol kapisi form ciktisi uzerinde de gecerli: docs plan/review'e gider, uzak (write) gitmez.
+  assert.deepEqual(mcpModule.resolveForAssignment({ mcp: normalized }, { kind: "plan", agentName: "w1" }).map((s) => s.name), ["docs"], "form ciktisinda rol kapisi calismali");
+}
 console.log("ui smoke ok");

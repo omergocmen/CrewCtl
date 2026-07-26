@@ -39,6 +39,11 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 - [Markdown roller](#-markdown-roller)
 - [Beceriler (Skills)](#-beceriler-skills)
 - [Tamamlanan görevle sohbet](#-tamamlanan-görevle-sohbet)
+- [Ajanlara harici araç vermek (içe dönük MCP)](#-ajanlara-harici-araç-vermek-içe-dönük-mcp)
+- [CrewCtl'i başka bir ajana araç olarak bağlamak (dışa dönük MCP)](#-crewctli-başka-bir-ajana-araç-olarak-bağlamak-dışa-dönük-mcp)
+- [Git worktree izolasyonu](#-git-worktree-izolasyonu-görev-başına-branch)
+- [Eşzamanlı görev yürütme](#-eşzamanlı-görev-yürütme)
+- [Doğrulama kapısı](#-doğrulama-kapısı-verification-gate)
 - [Onay ve güvenlik](#-onay-ve-güvenlik)
 - [Depolama](#-depolama)
 - [Test](#-test)
@@ -67,6 +72,11 @@ ayrı ayrı kullanmak yerine **tek bir yapay zeka geliştirici takımı** gibi k
 - 🛰️ **Ekip Akışı sayfası** — operatör çekirdeği + animasyonlu delegasyon akışı + ajan filosu.
 - 🧬 **Canlı Kod sayfası** — agent'ların yaptığı dosya değişikliklerini Git‑benzeri **satır‑satır diff** ile canlı izle.
 - 🛟 **Otomatik sürüm + tek‑tık geri dönüş** — her görev öncesi checkpoint; beğenmezsen **Bu sürüme dön** ile önceki koda dön (redo güvenli).
+- 🌿 **Git worktree izolasyonu** — her görev kendi worktree + branch'inde çalışır; ana çalışma ağacınız kirlenmez, teslimat gözden geçirilebilir bir commit olur (push/PR yok).
+- ⚡ **Eşzamanlı görev** — kuyruktaki görevleri paralel yürüt; her biri kendi izole worktree, branch ve CLI süreçlerinde koşar.
+- ✅ **Doğrulama kapısı** — `npm test` gibi komutlar her turun sonunda **gerçekten** koşar; kapı kırmızıysa hiçbir hızlı yol teslimatı kapatamaz ve hata çıktısı operatöre kanıt olarak gider.
+- 🧰 **Ajanlara harici araç (içe dönük MCP)** — uzmanlara tarayıcı/DB/doküman aracı ver; rol kapısıyla: operatör kullanmaz, denetçi yalnızca salt okunur görür.
+- 🔌 **MCP sunucusu (dışa dönük)** — `crewctl mcp` ile CrewCtl'i Claude Code / Codex / Gemini / OpenCode içine **araç** olarak bağla; ajan kendi akışından iş devredip durumu okuyabilsin.
 - 🎚️ **Çalışma modları** — Otomatik / Hızlı / Dengeli / Derin ile hız‑kalite dengesi.
 - 🔎 **Otomatik CLI keşfi** — kurulu araçlar tespit edilip güvenli non‑interactive varsayılanlarla eklenir.
 - 🩺 **Hazır olma kontrolü** — OpenCode yalnızca kurulu olduğu için değil, kullanılabilir modeli keşfedildiğinde göreve alınır.
@@ -340,6 +350,96 @@ bağlam olarak görür (yeni dosya değişikliği veya delegasyon yapmaz). Tesli
 bağımsız üretilir: kısa özet, eklenen/değiştirilen/silinen dosyalar, çalışma klasörü, kullanılan
 agent'lar, tur sayısı ve doğrulama kontrolü.
 
+## 🧰 Ajanlara harici araç vermek (içe dönük MCP)
+
+Uzman ajanlarınıza tarayıcı, veritabanı veya doküman arama gibi MCP araçları verebilirsiniz.
+Varsayılan **kapalı**. Ayarlar → **MCP Araçları** sekmesinden yönetilir: sunucu kartları (ad,
+komut/URL, argümanlar, ortam değişkenleri, görev türü, yazma yetkisi, agent kısıtı), ekle/sil ve
+tek tıkla eklenebilen hazır şablonlar (Playwright · dosya sistemi · fetch · CrewCtl'in kendisi).
+Kart, yazma yetkisiyle seçtiğiniz türler çelişiyorsa "fiilen verilecek türleri" **kaydetmeden
+önce** gösterir. Aynı yapılandırmayı `config.json`'dan da yazabilirsiniz:
+
+~~~json
+"mcp": {
+  "enabled": true,
+  "mode": "strict",
+  "servers": {
+    "docs":        { "command": "npx", "args": ["-y", "docs-mcp"], "kinds": ["plan", "review", "research", "implement"] },
+    "playwright":  { "command": "npx", "args": ["-y", "@playwright/mcp", "--user-data-dir", "{tmp}/pw-{callId}"],
+                     "kinds": ["implement", "review"], "agents": ["claude-executor"] },
+    "postgres-ro": { "command": "npx", "args": ["-y", "pg-mcp"], "env": { "DB_URL": "postgres://readonly@db" } },
+    "postgres-rw": { "command": "npx", "args": ["-y", "pg-mcp"], "env": { "DB_URL": "postgres://app@db" },
+                     "write": true, "kinds": ["implement"] }
+  }
+}
+~~~
+
+**Kim hangi aracı kullanır?**
+
+| Rol | Erişim | Neden |
+| --- | --- | --- |
+| **Operatör** | **Yok** | Operatör iş yapmaz, delege eder. Kataloğunda aracın *var olduğunu* görür (doğru agent'a yönlendirmek için) ama kullanmaz. Çıktısı katı JSON protokolü olduğu ve en çok çağrılan rol olduğu için araç kullanımı hem kırılganlık hem maliyet demektir. |
+| Uygulayıcı (`implement`) | Tam | İşi yapan tek rol |
+| Planlayıcı (`plan`) · Denetçi (`review`) · Araştırma (`research`) | Salt okunur sunucular | Denetçinin "çalıştıramadım, `NOT RUN`" dediği kontroller gerçek kanıta dönüşür; planlayıcı planı gerçek şemaya dayandırır |
+
+**Yetki `readOnly` bayrağıyla değil kimlik bilgisiyle kurulur.** Yukarıdaki örnekte aynı veritabanına
+iki giriş var: `postgres-ro` read-only DB kullanıcısıyla herkese açık, `postgres-rw` ise
+`write: true` olduğu için **yalnızca** `implement` türüne verilir. `write: true` bir sunucu
+`plan`/`review`/`research` türlerine **hiçbir koşulda** verilmez — bu kural yapılandırmadan değil
+koddan gelir. Sebebi basit: modele "lütfen yazma" demek yerine ona yazma yetkisi olmayan bir
+kimlik vermek kat kat güçlüdür.
+
+**Bilmeniz gerekenler:**
+
+- Şu an **claude ve opencode** destekliyor. Codex ve Gemini için enjeksiyon henüz yok; o ajanlara
+  görev düşerse CrewCtl "MCP atlandı" uyarısı verir (sessizce yutmaz).
+- `mode: "strict"` yalnızca buradaki sunucuları açar ve CLI'nızın kendi global MCP yapılandırmasını
+  devre dışı bırakır. `"inherit"` ikisini birleştirir.
+- `args`/`env` içinde `{cwd}` `{callId}` `{taskId}` `{tmp}` yer tutucuları çözülür. Eşzamanlı
+  görevlerde bu şart: iki Playwright örneği aynı profil dizinini paylaşırsa kilit çakışır.
+- `maxServersPerAssignment` varsayılan **2**. Ağır MCP'lerin araç tanımları tek başına 30k+ token
+  yiyebilir; dar tutmak hem hız hem doğru araç seçimi demektir.
+- Operatör model çıktısıyla **yeni sunucu tanımlayamaz**; yalnızca sizin kataloğunuzdaki adlara
+  referans verip listeyi *daraltabilir*.
+
+> ⚠️ **Güvenlik.** MCP sunucusu ağ erişimli, keyfi bir yerel prosestir ve
+> [ajan hapsi](#-ajan-hapsi-sandbox) garantisini **kapsamaz**. Bu yüzden varsayılan kapalıdır ve
+> sunucu tanımı yalnızca sizin elinizden geçer.
+
+## 🔌 CrewCtl'i başka bir ajana araç olarak bağlamak (dışa dönük MCP)
+
+CrewCtl yalnızca MCP *tüketicisi* değil, aynı zamanda bir **MCP sunucusudur**. `crewctl mcp` komutunu
+başka bir kodlama ajanının yapılandırmasına eklerseniz, o ajan kendi akışından CrewCtl'e iş
+devredebilir — "şu üç refactor'ü CrewCtl'e ver, ben devam ediyorum" gibi.
+
+~~~json
+{"mcpServers":{"crewctl":{"command":"npx","args":["-y","@omerrgocmen/crewctl","mcp"]}}}
+~~~
+
+Claude Code için `claude mcp add crewctl -- npx -y @omerrgocmen/crewctl mcp` de aynı işi yapar.
+
+**Sunulan araçlar:**
+
+| Araç | İşi |
+| --- | --- |
+| `crewctl_add_task` | Kuyruğa görev ekler (prompt · klasör/proje · mod · operatör · `--fresh`) |
+| `crewctl_task_status` | Görevin durumu, özeti, değişen dosyaları ve doğrulama sonucu |
+| `crewctl_list_tasks` | Kuyruk: bekleyen · onay · tamamlanan · başarısız |
+| `crewctl_engine_status` | Motor çalışıyor mu, hangi ajan hangi evrede, bütçe ne kadar kullanıldı |
+| `crewctl_engine_control` | Motoru başlat/durdur — **varsayılan olarak kapalı** (aşağıya bakın) |
+
+**Bilmeniz gerekenler:**
+
+- MCP süreci CrewCtl'in kendisi değil, **çalışan panelin istemcisidir**. Önce paneli açın
+  (`crewctl start`); kapalıysa araçlar ne yapmanız gerektiğini söyleyen net bir hata döndürür.
+- Farklı port kullanıyorsanız aynı `PORT` değerini MCP süreç ortamına da verin (veya `CREWCTL_URL`).
+- **Motor kontrolü opt-in.** `config.json` → `mcpServer.allowEngineControl` `true` olmadıkça
+  `crewctl_engine_control` araç listesinde bile görünmez. Sebep: harici bir ajanın otonom koşumu
+  kendi başına başlatması sizin açık tercihiniz olmalı. Kapalıyken eklenen görevler kuyrukta
+  bekler ve araç bunu yanıtında açıkça söyler.
+- CrewCtl **sizin CLI yapılandırmanıza dokunmaz**; bu komut yalnızca stdio üzerinden konuşan bir
+  süreçtir, `~/.claude.json` veya `~/.codex/config.toml` dosyalarınızı değiştirmez.
+
 ## 🔒 Onay ve güvenlik
 
 İlk açılışta uygulama, CLI'ların non-interactive/otonom modda çalıştırılacağını açıklayan tek
@@ -366,6 +466,93 @@ değiştirilen/silinen dosyaları eski haline getirir. Geri yükleme öncesinde 
 checkpoint'i oluşturulur; böylece geri alma da geri alınabilir. Sürümler `state/checkpoints/` altında
 tutulur (`versioningRetention`, varsayılan 20 sürüm/klasör) ve yalnızca motor **boşta** iken geri yüklenir.
 Bu, Git yerine geçmez; kritik iş için normal sürüm kontrolünüzü sürdürün.
+
+### 🌿 Git worktree izolasyonu (görev başına branch)
+
+Varsayılan olarak ajanlar doğrudan çalışma klasörünüzde çalışır. `worktree.mode` değerini `task`
+yaparsanız (Ayarlar → **Genel** → *Git izolasyonu*) her görev, deponun HEAD'inden açılan **kendi
+git worktree'sinde ve kendi branch'inde** çalışır:
+
+~~~json
+"worktree": {
+  "mode": "task",
+  "linkPaths": ["node_modules"],
+  "setupCommands": ["npm ci"],
+  "commit": true
+}
+~~~
+
+- **Ana çalışma ağacınız kirlenmez.** Ajan ne yaparsa izole ağaçta yapar; aktif branch'iniz değişmez.
+- Görev bitince değişiklikler `crewctl/task-<id>` branch'ine **commit'lenir**. **Uzağa hiçbir şey
+  gönderilmez** — `git push` yoktur, PR açılmaz. Sonraki adım sizin kararınız:
+  `git log -p crewctl/task-<id>` ile inceleyin, beğenirseniz merge edin veya PR açın.
+- Değişiklik yoksa branch ve izole ağaç otomatik temizlenir. **Başarısız** görevin ağacı korunur ve
+  yolu size bildirilir, böylece yarım işi inceleyebilirsiniz.
+- Worktree'ler deponuza değil CrewCtl veri kökünüze (`<veri kökü>/state/worktrees`) açılır.
+
+> **İki önemli nokta.** (1) Worktree deponun **HEAD**'inden oluşur: commit edilmemiş yerel
+> değişiklikleriniz ajanın gördüğü ağaçta **olmaz** — CrewCtl bunu hem canlı akışta hem teslimat
+> uyarısında açıkça söyler. (2) Gitignore'lanmış üretilmiş dosyalar (`node_modules`, `.env`, build
+> çıktısı) yeni ağaçta yoktur. Ağır klasörleri `linkPaths` ile bağlayın (Windows'ta junction,
+> yönetici hakkı gerekmez), kalanını `setupCommands` ile kurun. Aksi halde doğrulama kapısı
+> "modül bulunamadı" diye kırmızı dönebilir.
+
+Git kurulu değilse, klasör bir depo değilse veya deponun henüz commit'i yoksa CrewCtl uyarı verip
+eski davranışla (doğrudan çalışma klasöründe) devam eder — görev bu yüzden asla başarısız olmaz.
+
+### ⚡ Eşzamanlı görev yürütme
+
+Varsayılan olarak görevler sırayla koşar (`maxConcurrentTasks: 1`). Değeri artırırsanız kuyruktaki
+görevler paralel yürütülür — her biri kendi izole slotunda:
+
+~~~json
+"maxConcurrentTasks": 2,
+"worktree": { "mode": "task" }
+~~~
+
+- **Git izolasyonu zorunludur.** `maxConcurrentTasks > 1` için `worktree.mode` `task` olmalıdır;
+  aksi halde CrewCtl ayarı reddeder. Sebebi basit: izolasyon olmadan iki görev aynı klasörde
+  birbirinin dosyalarını ezer.
+- Her görev kendi worktree'sinde, kendi branch'inde ve kendi CLI süreçlerinde koşar. Terminaller,
+  canlı diff, olay geçmişi ve token telemetrisi görev başına ayrı tutulur.
+- Panelde durum satırı "2 görev eşzamanlı" yazar; **Pano**'daki *Çalışıyor* sütunu koşan tüm
+  görevleri gösterir.
+- Günlük çağrı bütçesi **paylaşılır**; eşzamanlı koşum bütçeyi daha hızlı tüketir.
+- Üst sınır 8'dir. Makinenizin CPU/RAM'i ve CLI sağlayıcınızın hız limiti pratik sınırı belirler.
+
+> **Not:** Eşzamanlılık şu an *görevler arasıdır*. Bir görev içindeki delegasyonlar (plan →
+> uygulama → inceleme) hâlâ sırayla koşar.
+
+### ✅ Doğrulama kapısı (verification gate)
+
+Varsayılan olarak bir teslimatın "iyi" olduğunun tek kanıtı, denetçi agent'ın verdiği
+`VERDICT: PASS` satırıdır — yani bir **kanaat**. Doğrulama kapısı bunun yanına **ölçüm** koyar:
+`config.json` → `verify.commands` listesine komut yazarsanız CrewCtl her turun sonunda bu komutları
+çalışma klasöründe **gerçekten** koşar.
+
+~~~json
+"verify": {
+  "commands": ["npm test", "npx tsc --noEmit"],
+  "timeoutSeconds": 600,
+  "blockOnFailure": true,
+  "maxAttempts": 2
+}
+~~~
+
+Komutları Ayarlar → **Genel** sekmesinden de girebilirsiniz (satır başına bir komut).
+
+- **Kapı kırmızıysa hiçbir hızlı yol teslimatı kapatamaz.** FAST modun erken tamamlaması, PASS hızlı
+  yolu ve inceleme döngüsü valisi devre dışı kalır; karar operatöre gider.
+- **Başarısız komutun çıktısı operatöre kanıt olarak verilir**, böylece düzeltme turu tahminle değil
+  gerçek hata mesajıyla planlanır. Operatör kapı kırmızıyken `complete` demeye çalışırsa motor bir kez
+  düzeltme turu ister; testi silmek veya atlamak çözüm sayılmaz.
+- **İş asla çöpe atılmaz.** `maxAttempts` dolduğunda görev, teslimatın doğrulanmadığını söyleyen
+  yüksek sesli bir uyarıyla kapatılır (`delivery.warnings`) ve komut çıktısı `delivery.verify`
+  alanında saklanır.
+- **Boş liste = kapı kapalı.** Varsayılan yapılandırmada hiçbir şey çalışmaz ve davranış değişmez.
+  Yalnızca rapor isteyip teslimatı engellemek istemiyorsanız `blockOnFailure: false` kullanın.
+- Dosya değişmeyen görevlerde (araştırma, soru-cevap) kapı otomatik atlanır. Komutlar `CI=1` ile
+  koşulur; bu, test koşucularının watch moduna girip kapıyı süresiz asılı bırakmasını engeller.
 
 ### 🧱 Ajan hapsi (sandbox)
 

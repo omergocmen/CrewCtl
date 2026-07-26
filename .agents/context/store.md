@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/store.js`
 
-**Last verified:** 2026-07-14
+**Last verified:** 2026-07-25
 
 ## Purpose
 

@@ -24,6 +24,39 @@
   "_projectContext_comment": "Her calisma klasorunun .crewctl/CONTEXT.md proje profili gorev acilisinda operatore yuklenir (tum kodu bastan taramaya gerek kalmaz), gorev bitiminde operator profili REVIZE eder (changelog degil). Gorev basina '--fresh' ile atlanabilir. false = eski global hafiza.",
   "projectContext": true,
   "projectContextCharBudget": 6000,
+  "_maxConcurrentTasks_comment": "Ayni anda kac gorev yurutulecegi (1-8). Varsayilan 1 = eski davranis, gorevler sirayla kosar. 1'den buyuk yaparsaniz her gorev KENDI izole slotunda kosar; bunu yalnizca worktree.mode='task' ile birlikte kullanin — aksi halde iki gorev ayni klasorde birbirinin dosyalarini ezer. Gunluk cagri butcesi paylasilir.",
+  "maxConcurrentTasks": 1,
+  "worktree": {
+    "_comment": "GOREV-BASI GIT WORKTREE IZOLASYONU. mode:'task' = her gorev deponun HEAD'inden acilan KENDI git worktree'sinde ve kendi branch'inde calisir (ana calisma agaciniz kirlenmez; teslimat gozden gecirilebilir bir branch olur). mode:'off' = eski davranis, ajanlar dogrudan calisma klasorunde calisir. Worktree'ler <veri koku>/state/worktrees altina acilir, deponuza degil. UZAGA HICBIR SEY GONDERILMEZ: commit yapilir, push/PR YOK. DIKKAT 1: worktree HEAD'den olusur, yani commit edilmemis yerel degisiklikleriniz ajanin gordugu agacta OLMAZ (motor bunu uyari olarak bildirir). DIKKAT 2: gitignore'lanmis uretilmis dosyalar (node_modules, .env, build) yeni agacta yoktur — agir klasorleri linkPaths ile baglayin (Windows'ta junction, yonetici hakki gerekmez), kalanini setupCommands ile kurun (or. ['npm ci']). Aksi halde dogrulama kapisi 'npm test' bulunamadi diye kirmizi doner.",
+    "mode": "off",
+    "branchPrefix": "crewctl/task-",
+    "setupCommands": [],
+    "linkPaths": ["node_modules"],
+    "commit": true,
+    "keepOnFailure": true,
+    "setupTimeoutSeconds": 900
+  },
+  "mcp": {
+    "_comment": "ICE DONUK MCP: uzman ajanlara harici arac verir (tarayici, veritabani, dokuman...). enabled:false varsayilan. ROL KAPISI: operator MCP KULLANMAZ (katalogda aracin var oldugunu bilir, yonlendirme icin); executor 'implement' turunde tam erisim alir; planner/reviewer/research yalnizca salt okunur sunuculari gorur. YETKI, readOnly bayragiyla degil KIMLIK BILGISIYLE kurulur: ayni backend'e iki giris yazin (or. postgres-ro read-only DB kullanicisiyla + postgres-rw, write:true). write:true olan sunucu review/research/plan turlerine HICBIR KOSULDA verilmez. mode:'strict' yalnizca buradaki sunuculari acar ve kullanicinin kendi global MCP yapilandirmasini devre disi birakir. UYARI: MCP sunucusu ag erisimli keyfi bir yerel prosestir; sandbox.mode='workspace' garantisini KAPSAMAZ. args/env icinde {cwd} {callId} {taskId} {tmp} yer tutuculari kullanilabilir (es zamanli gorevlerde profil kilidi catismasin diye). Su an claude ve opencode destekli; codex ve gemini Faz 2.",
+    "enabled": false,
+    "mode": "strict",
+    "maxServersPerAssignment": 2,
+    "startupTimeoutMs": 15000,
+    "servers": {}
+  },
+  "mcpServer": {
+    "_comment": "DISA DONUK MCP. `crewctl mcp` komutu CrewCtl'i baska bir kodlama ajanina (Claude Code, Codex, Gemini, OpenCode) arac olarak sunar: ajan gorev ekleyebilir ve durum okuyabilir. allowEngineControl:true yaparsaniz harici ajan motoru BASLATIP DURDURABILIR de — yani kuyruktaki gorevlerin otonom yurutulmesini kendisi tetikleyebilir. Varsayilan false: baslatma karari sizde kalir.",
+    "allowEngineControl": false
+  },
+  "verify": {
+    "_comment": "DOGRULAMA KAPISI. commands bos = kapi kapali (varsayilan; davranis degismez). Komut yazarsaniz motor her turun sonunda bunlari CALISMA KLASORUNDE gercekten kosar; kapi kirmizi ise hicbir hizli yol teslimati kapatamaz ve basarisiz komut ciktisi operatore kanit olarak verilir. Ornek: [\"npm test\", \"npx tsc --noEmit\"]. Komutlar CI=1 ile kosulur (test kosucularinin watch moduna girip asili kalmasini onler). blockOnFailure:false = yalnizca rapor uret, teslimati engelleme. maxAttempts: kirmizi kapinin teslimati en fazla kac kez engelleyecegi; sonra is cope atilmaz, yuksek sesli uyariyla teslim edilir.",
+    "enabled": true,
+    "commands": [],
+    "timeoutSeconds": 600,
+    "maxOutputChars": 4000,
+    "blockOnFailure": true,
+    "maxAttempts": 2
+  },
   "notify": {
     "_comment": "Görev bitince/başarısız olunca webhookUrl'e {text,...} POST edilir (Slack incoming webhook ile uyumlu). Boş webhookUrl = bildirim kapalı.",
     "webhookUrl": "",

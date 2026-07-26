@@ -6,6 +6,9 @@ const store = require("./store");
 const cliRegistry = require("./cli-registry");
 const skillRegistry = require("./skill-registry");
 const checkpoints = require("./checkpoints");
+const verify = require("./verify");
+const worktree = require("./worktree");
+const mcp = require("./mcp");
 
 const isWin = process.platform === "win32";
 
@@ -821,18 +824,35 @@ function ensureBalancedRoleChain(assignments, cfg, operatorName, task, usedIds) 
     .map(({ item }) => item);
 }
 
+// ES ZAMANLI GOREV MIMARISI.
+// Ihracat edilen singleton SUPERVIZOR'dur: kuyrugu okur, slotlari doldurur, durumu toplar.
+// Her es zamanli gorev KENDI Engine ORNEGINDE kosar (worker). Boylece gorev-basi durumun
+// tamami (_cwd, current, _snapBefore, _usage, activeChild, canli diff zamanlayicisi,
+// callSequence, _worktree) kendiliginden izole olur ve `publish()`'in ornukli taskId
+// varsayilani DOGRU kalir — es zamanlilikta en tehlikeli hata olan "olayin yanlis gorevin
+// zaman cizelgesine dusmesi" mimari olarak imkansizlasir.
+//
+// Worker'lar supervizorle YALNIZCA su ikisini paylasir: karantina haritasi (bir ajan bir
+// gorevde kalici hata verdiyse kardes gorev onu tekrar denememeli) ve olay akisi (worker
+// olaylari supervizore iletilir; server.js yalnizca singleton'a abonedir).
 class Engine extends EventEmitter {
-  constructor() {
+  constructor(shared = null) {
     super();
+    // shared === null → supervizor (veya testlerde tek basina calisan motor).
+    this.shared = shared;
+    this.isWorker = !!shared;
     this.running = false;
     this.busy = false;
     this.current = null;
     this.activeChild = null;
     this.callSequence = 0;
+    // Es zamanli slotlar ve ustlenilen gorev id'leri (yalnizca supervizorde kullanilir).
+    this.workers = new Set();
+    this.inFlight = new Set();
     // Kesin kimlik/kurulum hatasi veren agent'lari ayni motor oturumunda tekrar secme.
     // Kalici config'i degistirmeyiz; kullanici kimlik bilgisini duzeltip motoru yeniden
-    // baslattiginda agent tekrar denenebilir.
-    this.unhealthyAgents = new Map();
+    // baslattiginda agent tekrar denenebilir. Karantina TUM slotlarda paylasilir.
+    this.unhealthyAgents = shared?.quarantine || new Map();
     this._retrySleepers = new Set();
     // Canli kodlama akisi: gorev calisirken calisma klasorunu periyodik tarayan zamanlayici
     // ve son yayinlanan degisiklik imzasi (ayni durum tekrar tekrar yayinlanmasin diye).
@@ -843,12 +863,37 @@ class Engine extends EventEmitter {
 
   cfg() { return store.loadConfig(); }
 
+  // Es zamanli slot sayisi. Varsayilan 1 → davranis eski surumle birebir ayni.
+  maxConcurrency(cfg = this.cfg()) {
+    const n = Number(cfg.maxConcurrentTasks);
+    return Number.isInteger(n) && n >= 1 ? Math.min(8, n) : 1;
+  }
+
+  // Su an calisan gorevler: supervizorun kendi calismasi (testler runTask'i dogrudan cagirir)
+  // ve tum worker slotlari birlikte.
+  activeRuns() {
+    const runs = [];
+    if (this.current) runs.push(this.current);
+    for (const worker of this.workers) if (worker.current) runs.push(worker.current);
+    return runs;
+  }
+
+  activeTaskIds() {
+    return this.activeRuns().map((run) => run.id).filter(Boolean);
+  }
+
   status() {
     const cfg = this.cfg();
+    const runs = this.activeRuns();
     return {
       running: this.running,
-      busy: this.busy,
-      current: this.current,
+      busy: this.busy || runs.length > 0,
+      // GERIYE UYUM: `current` tekil kalir (tek gorevli kurulumda bugunkuyle ayni). Es zamanli
+      // kurulumda arayuzler `currents`/`activeIds` uzerinden tam listeyi okur.
+      current: runs[0] || null,
+      currents: runs,
+      activeIds: runs.map((run) => run.id).filter(Boolean),
+      concurrency: this.maxConcurrency(cfg),
       mode: cfg.approvalMode,
       defaultOperator: cfg.operator?.cli || "",
       callsToday: store.getCallCount(),
@@ -985,8 +1030,37 @@ class Engine extends EventEmitter {
     if (this.activeChild) {
       try { this.activeChild.kill(); } catch {}
     }
+    // Tum es zamanli slotlari da durdur: aksi halde supervizor "durdu" gorunurken worker'lar
+    // arka planda CLI kosmaya devam ederdi.
+    for (const worker of this.workers) {
+      worker.running = false;
+      worker.cancelRetrySleeps();
+      worker.stopLiveDiff();
+      if (worker.activeChild) { try { worker.activeChild.kill(); } catch {} }
+    }
     this.publish("log", { level: "warn", msg: "Motor durduruluyor; aktif CLI islemi sonlandirildi." });
     this.emit("status", this.status());
+  }
+
+  // Bir es zamanli slot olusturur. Worker kendi Engine ornegidir; karantinayi paylasir ve
+  // olaylarini supervizore iletir (server.js yalnizca singleton'a abonedir).
+  createWorker() {
+    const worker = new Engine({ quarantine: this.unhealthyAgents, supervisor: this });
+    worker.running = true;
+    for (const type of ["activity", "message", "log", "result", "filechange", "notify"]) {
+      worker.on(type, (payload) => this.emit(type, payload));
+    }
+    worker.on("queue", () => this.emit("queue"));
+    // Worker'in kendi durumu tek slotu anlatir; disariya AGGREGATE durum yayilmali.
+    worker.on("status", () => this.emit("status", this.status()));
+    this.workers.add(worker);
+    return worker;
+  }
+
+  releaseWorker(worker, taskId) {
+    this.workers.delete(worker);
+    if (taskId) this.inFlight.delete(taskId);
+    worker.removeAllListeners();
   }
 
   wake() {
@@ -1057,44 +1131,81 @@ class Engine extends EventEmitter {
     return [...this.unhealthyAgents.keys()].filter((name) => this.isQuarantined(name));
   }
 
+  // SUPERVIZOR DONGUSU: gorevi kendisi kosmaz; bos slotlari doldurup bekler. Bir slot
+  // bosaldiginda worker `wake()` cagirir, boylece siradaki gorev poll suresini beklemeden baslar.
   async loop() {
     while (this.running) {
-      const task = store.nextPending();
-      if (!task) {
-        await this.sleepWake((this.cfg().pollSeconds || 15) * 1000);
-        continue;
+      const limit = this.maxConcurrency();
+      let dispatched = false;
+      while (this.running && this.workers.size < limit) {
+        // inFlight: calisan gorev queue/pending'de KALDIGI icin ayni gorevi ikinci bir slota
+        // vermemenin tek guvencesi bu kumedir.
+        const task = store.nextPending(this.inFlight);
+        if (!task) break;
+        this.inFlight.add(task.id);
+        this.dispatch(task);
+        dispatched = true;
       }
-      try {
-        await this.runTask(task);
-      } catch (error) {
-        if (!(await this.salvage(task, error))) {
-          const found = store.findTask(task.id);
-          const failure = classifyCliError(error);
-          task.status = "failed";
-          task.error = error.message;
-          // Siniflandirilmis teshis gorevle birlikte saklanir; arayuz "ne oldu / ne yapmali"
-          // ayrimini ham hata metnini kirparak tahmin etmek yerine buradan okur.
-          task.failure = failure;
-          // Basarisiz gorev de para harcar; telemetri burada da saklanmali.
-          task.usage = this.usageSummary();
-          task.finishedAt = new Date().toISOString();
-          if (found) store.moveTask(found.state, "failed", task);
-          this.publish("log", { level: "error", msg: `HATA (${failure.code}): ${failure.summary}` }, task.id);
-          this.publish("log", { level: "warn", msg: `Ne yapmali: ${failure.action}` }, task.id);
-          if (task.kind === "operator-chat") {
-            this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary, failure }, task.id);
-          }
-          this.notifyOutcome(task, "failed", { error: failure.summary, failureCode: failure.code, action: failure.action });
-          this.emit("queue");
+      if (dispatched) this.emit("status", this.status());
+      await this.sleepWake((this.cfg().pollSeconds || 15) * 1000);
+    }
+  }
+
+  // Bir gorevi bos slota verir. Bilincli olarak await EDILMEZ: dongu diger slotlari
+  // doldurmaya devam etmeli.
+  dispatch(task) {
+    const worker = this.createWorker();
+    const release = () => {
+      this.releaseWorker(worker, task.id);
+      this.emit("status", this.status());
+      this.wake();
+    };
+    worker.executeQueued(task).then(release, release);
+  }
+
+  // Kuyruktan alinan bir gorevin tam yasam dongusu (hata siniflandirma, kurtarma, temizlik).
+  // Eskiden loop() govdesiydi; es zamanlilik icin worker ornegine tasindi.
+  async executeQueued(task) {
+    try {
+      await this.runTask(task);
+    } catch (error) {
+      if (!(await this.salvage(task, error))) {
+        const found = store.findTask(task.id);
+        const failure = classifyCliError(error);
+        task.status = "failed";
+        task.error = error.message;
+        // Siniflandirilmis teshis gorevle birlikte saklanir; arayuz "ne oldu / ne yapmali"
+        // ayrimini ham hata metnini kirparak tahmin etmek yerine buradan okur.
+        task.failure = failure;
+        // Basarisiz gorev de para harcar; telemetri burada da saklanmali.
+        task.usage = this.usageSummary();
+        task.finishedAt = new Date().toISOString();
+        if (found) store.moveTask(found.state, "failed", task);
+        this.publish("log", { level: "error", msg: `HATA (${failure.code}): ${failure.summary}` }, task.id);
+        this.publish("log", { level: "warn", msg: `Ne yapmali: ${failure.action}` }, task.id);
+        if (task.kind === "operator-chat") {
+          this.publish("result", { id: task.id, kind: "operator-chat", parentTaskId: task.parentTaskId, status: "failed", error: failure.summary, failure }, task.id);
         }
-      } finally {
-        this.stopLiveDiff();
-        this._textBefore = null;
-        this.busy = false;
-        this.current = null;
-        this.activeChild = null;
-        this.emit("status", this.status());
+        // Basarisiz gorevin izole worktree'si SILINMEZ: ajanin yarim isi incelenebilir olmali
+        // (keepOnFailure). Kullaniciya nerede oldugunu soyle.
+        if (this._worktree) {
+          task.git = { branch: this._worktree.branch, worktree: this._worktree.dir, committed: false };
+          if (found) store.saveTask("failed", task);
+          this.publish("log", { level: "warn", msg: `Yarim is izole worktree'de korundu: ${this._worktree.branch} (${this._worktree.dir}). Incelemek icin bu klasore bakin; silmek icin: git worktree remove --force "${this._worktree.dir}"` }, task.id);
+        }
+        this.notifyOutcome(task, "failed", { error: failure.summary, failureCode: failure.code, action: failure.action });
+        this.emit("queue");
       }
+    } finally {
+      this.stopLiveDiff();
+      this._textBefore = null;
+      this._worktree = null;
+      this._worktreeDirty = null;
+      this._worktreeSetupFailed = null;
+      this.busy = false;
+      this.current = null;
+      this.activeChild = null;
+      this.emit("status", this.status());
     }
   }
 
@@ -1164,6 +1275,64 @@ class Engine extends EventEmitter {
         fs.writeFileSync(sbFile, JSON.stringify(sandboxSettings), "utf8");
         rawArgs.push("--settings", sbFile);
       }
+      // ICE DONUK MCP: delegasyona izin verilen sunucular burada materyalize edilir. Sandbox
+      // `--settings` ile AYNI desen: JSON'u arguman olarak gecmek Windows cmd.exe'de tirnaklari
+      // bozdugu icin dosyaya yazip yolunu veriyoruz. Operator cagrilarinda meta.kind YOKTUR,
+      // bu yuzden operator hicbir MCP sunucusu almaz (rol kapisi).
+      let mcpEnvBlock = null;
+      // configFile stili (codex) profil dosyalarini CLI'nin ev dizinine yazar; kosum sonunda
+      // temizlenir ki kullanicinin ~/.codex'i sismesin. Her cikis yolunda (close/error) bosaltilir.
+      const mcpCleanupFiles = [];
+      const cleanupMcp = () => { for (const f of mcpCleanupFiles) { try { fs.rmSync(f, { force: true }); } catch {} } mcpCleanupFiles.length = 0; };
+      const mcpPlan = mcp.plan(cfg, agent, {
+        kind: meta.kind || "",
+        agentName: displayName,
+        requested: meta.mcp,
+        cwd,
+        callId,
+        taskId: this.current?.id || "",
+        tmp: path.join(store.ROOT, "state", "mcp"),
+      // Adapter'a ozgu enjeksiyon bilgisi CLI tanimindan gelir; boylece yeni bir CLI eklemek
+      // mcp.js'i degil yalnizca DEFINITIONS'i etkiler.
+        // configFile stili (codex) profil dosyasini CLI'nin ev dizinine yazar; yolu buradan gelir.
+        codexHome: process.env.CODEX_HOME || path.join(require("os").homedir(), ".codex"),
+      }, cliRegistry.DEFINITIONS[agent.adapter]?.mcp || null);
+      if (mcpPlan.servers.length) {
+        // Dosyalari yaz. Iki bicim: `token` (state/prompts'a yaz, argumanda token'i yolla degistir)
+        // ve `absPath` (CLI'nin belirledigi yola yaz, arguman profili ADIYLA secer). absPath
+        // dosyalari (or. ~/.codex/...) motorun kirletmemesi icin kosum sonunda cleanup edilir.
+        let tokenPath = null, tokenName = null;
+        for (const spec of mcpPlan.files) {
+          if (spec.absPath) {
+            try { fs.mkdirSync(path.dirname(spec.absPath), { recursive: true }); } catch {}
+            fs.writeFileSync(spec.absPath, spec.content, "utf8");
+            if (spec.cleanup) mcpCleanupFiles.push(spec.absPath);
+          } else {
+            const mcpDir = path.join(store.ROOT, "state", "prompts");
+            fs.mkdirSync(mcpDir, { recursive: true });
+            tokenPath = path.join(mcpDir, `${callId}${spec.suffix || ".mcp.json"}`);
+            tokenName = spec.token;
+            fs.writeFileSync(tokenPath, spec.content, "utf8");
+          }
+        }
+        // BYPASS CAKISMASI: mcpPlan.stripSandbox (codex opt-in bypass) ise effectiveAgent'in
+        // eklemis oldugu `-s <mod>` / `--sandbox <mod>` cifti bypass bayragiyla celisir; once
+        // rawArgs'tan cikarilir. Bypass zaten sandbox'i kapatir.
+        if (mcpPlan.stripSandbox) {
+          for (let i = rawArgs.length - 1; i >= 0; i--) {
+            if (rawArgs[i] === "-s" || rawArgs[i] === "--sandbox") rawArgs.splice(i, 2);
+          }
+        }
+        // Argumanlar TEK KEZ eklenir; varsa token gercek yolla degistirilir.
+        for (const arg of mcpPlan.args) rawArgs.push(tokenName && arg === tokenName ? tokenPath : arg);
+        if (mcpPlan.envConfig) mcpEnvBlock = mcpPlan.envConfig;
+        this.publish("log", { level: "info", msg: `MCP araclari: ${mcpPlan.servers.map((s) => s.name).join(", ")} (${meta.kind || "?"})` }, this.current?.id);
+        // stripSandbox = codex opt-in bypass: sandbox devre disi → YUKSEK SESLI uyari. Diger
+        // notlar (or. codex strict sinirlamasi) yalnizca bilgi.
+        if (mcpPlan.note) this.publish("log", { level: mcpPlan.stripSandbox ? "warn" : "info", msg: `MCP: ${mcpPlan.note}` }, this.current?.id);
+      } else if (mcpPlan.note) {
+        this.publish("log", { level: "warn", msg: `MCP atlandi: ${mcpPlan.note}` }, this.current?.id);
+      }
       const command = cliRegistry.buildCommand(agent.cmd, rawArgs);
       const file = command.file;
       const args = command.args;
@@ -1181,7 +1350,7 @@ class Engine extends EventEmitter {
       // operatör/agent kosumuna girmeden uctaki tum probe'lari sonlandiriyoruz.
       cliRegistry.abortActiveProbes();
       let child;
-      try { child = spawn(file, args, { cwd, env: cliRegistry.agentEnvironment(agent), windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
+      try { child = spawn(file, args, { cwd, env: cliRegistry.agentEnvironment(agent, mcpEnvBlock), windowsHide: true, shell: command.shell, windowsVerbatimArguments: !!command.verbatim }); }
       catch (error) { return reject(error); }
       this.activeChild = child;
       child.stdout.setEncoding("utf8");
@@ -1269,6 +1438,7 @@ class Engine extends EventEmitter {
         clearInterval(progressTimer);
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
+        cleanupMcp();
         this.publish("activity", { ...base, kind: "process.failed", error: error.message, durationMs: Date.now() - started });
         reject(error);
       });
@@ -1280,6 +1450,7 @@ class Engine extends EventEmitter {
         clearInterval(progressTimer);
         this.activeChild = null;
         if (promptFile) { try { fs.rmSync(promptFile); } catch {} }
+        cleanupMcp();
         const durationMs = Date.now() - started;
         // Cikti tek kez ayristirilir; hem kullanim telemetrisi hem metin ayni sonuctan okunur.
         const normalized = normalizeCliOutput(agent, stdout);
@@ -1332,14 +1503,23 @@ class Engine extends EventEmitter {
   agentCatalog(cfg, operatorName) {
     return Object.entries(cfg.agents)
       .filter(([name, agent]) => name !== operatorName && agent.enabled !== false && agentUsable(agent) && !this.isQuarantined(name))
-      .map(([name, a]) => ({
-        name,
-        description: a.description || "",
-        capabilities: [...capabilitiesFor(a)],
-        allowedKinds: roleAllowedKinds(a) || ["implement", "review", "research", "plan"].filter((kind) => supportsKind(a, kind)),
-        roleFile: a.roleFile || "",
-        costTier: a.costTier || "standard",
-      }));
+      .map(([name, a]) => {
+        const allowedKinds = roleAllowedKinds(a) || ["implement", "review", "research", "plan"].filter((kind) => supportsKind(a, kind));
+        // MCP FARKINDALIGI (erisim DEGIL): operator "bu gorev tarayicida dogrulama istiyor →
+        // tarayicisi olan agent'a ver" diyebilsin. Operatorun kendisi MCP kullanmaz.
+        // Adapter tanimlayicisi (usable:false → codex/gemini) araci GIZLER: operator MCP isini
+        // yalnizca gercekten kullanabilen CLI'lara (claude/opencode) yonlendirir.
+        const tools = mcp.catalogForAgent(cfg, name, allowedKinds, cliRegistry.DEFINITIONS[a.adapter || cliRegistry.adapterId(a.cmd)]?.mcp || null);
+        return {
+          name,
+          description: a.description || "",
+          capabilities: [...capabilitiesFor(a)],
+          allowedKinds,
+          roleFile: a.roleFile || "",
+          costTier: a.costTier || "standard",
+          ...(tools.length ? { tools } : {}),
+        };
+      });
   }
 
   async invokeOperatorJson(operatorCli, prompt, cfg, stage, label) {
@@ -1504,7 +1684,10 @@ class Engine extends EventEmitter {
         `Gorev yalnizca bir bilgi/soru VEYA bir selamlasma/sohbet mesaji ise (or. "merhaba", "nasilsin", "kac beceri var") ve yaniti dogrudan verebiliyorsan, HICBIR delegasyon acmadan: {"status":"complete", "final":"kullaniciya gosterilecek CEVABIN TAM METNI", "verification":"cevabin dayandigi kaynak"}. ` +
         `Selamlasmalarda bile cevabi JSON DISINA yazma: kullaniciya gosterilen tek alan "final"dir, nesnenin disindaki her metin atilir. Gercek is gerektiren gorevi bu kestirmeyle atlatma.${skillProtocol}`
       : `Yalnizca gecerli JSON dondur. Is tamamlanmadiysa {"status":"continue", "reason":"...", "assignments":[{"id":"...", "agent":"...", "kind":"implement|review|research|plan", "instruction":"...", "dependsOn":[]${skillField}}]}; tum kabul kriterleri karsilandiysa {"status":"complete", "final":"en fazla 5 kisa maddeyle ne yapildi", "verification":"tek satir dogrulama"}. Dosya listesini motor ekleyecek; final icinde uzun log veya ham agent cevabi tekrarlama. Continue icin en az bir yeni assignment zorunlu.${skillProtocol}\n` +
-        `INCELEME DISIPLINI: Bagimsiz denetim VERDICT: PASS verdiyse ayni teslimat icin YENI review delegasyonu acma; complete dondur ve dusuk/orta onemdeki kalan notlari final metninde kalan risk olarak belirt. Ekipte bulunmayan dogrulama yetenegini (or. canli tarayici) tamamlanma sarti yapma; NOT RUN kalan dusuk riskli kontroller teslimati engellemez.`;
+        `INCELEME DISIPLINI: Bagimsiz denetim VERDICT: PASS verdiyse ayni teslimat icin YENI review delegasyonu acma; complete dondur ve dusuk/orta onemdeki kalan notlari final metninde kalan risk olarak belirt. Ekipte bulunmayan dogrulama yetenegini (or. canli tarayici) tamamlanma sarti yapma; NOT RUN kalan dusuk riskli kontroller teslimati engellemez.` +
+        (verify.isActive(cfg)
+          ? `\nDOGRULAMA KAPISI: Motor her turun sonunda kullanicinin dogrulama komutlarini GERCEKTEN kosar ve sonucu asagida sana verir. Kapi BASARISIZ iken status=complete DONME — bir uzmanin "duzelttim" demesi kanit degildir, kapinin yesile donmesi kanittir. Kok nedeni gider; testi silmek, atlamak (skip) veya beklentiyi hataya uydurmak cozum SAYILMAZ.`
+          : "");
     const strategy = task.executionMode === "fast"
       ? "HIZLI MOD: Kucuk bir is. Tek bir implementation agenti kullan. Ayri planlama veya review delegasyonu acma; uzman raporu hedefi karsiliyorsa ilk degerlendirmede tamamla."
       : task.executionMode === "deep"
@@ -1529,6 +1712,12 @@ class Engine extends EventEmitter {
       `## Proje profili (bu klasorun birikmis baglami — tum kodu bastan taramak zorunda kalmayasin diye. IPUCUDUR, kanit degil: kritik kararlarda DOSYADAN dogrula, celiski gorursen profile guvenme. Gecmis teslimatlar mevcut gorevi TAMAMLANMIS SAYDIRMAZ.)\n${clip(memory || "(henuz proje profili yok — ilk gorevde olusturulacak)", cfg.projectContextCharBudget || cfg.memoryCharBudget || 8000)}\n` +
       (phase === "review"
         ? `## Son bagimsiz denetim\n${(() => { const review = this.latestReview(state); return review ? `${review.id} (${review.agent}) → VERDICT: ${review.verdict}` : "Henuz tamamlanmis denetim yok."; })()}\n` +
+          // Dogrulama kapisi raporu: MODELIN BEYANI DEGIL, motorun calistirdigi komutun sonucu.
+          // Yalnizca kapi kostuysa eklenir; kullanmayan kurulumlarda prompt buyumez.
+          (() => {
+            const block = verify.reportForPrompt(state.verify, verify.normalizeVerifyConfig(cfg).maxOutputChars);
+            return block ? `## Dogrulama kapisi (motorun calistirdigi komutlar — kanit)\n${block}\n` : "";
+          })() +
           `## Takim calisma kaydi\n${this.teamDigest(state, cfg)}\n`
         : "");
   }
@@ -1580,7 +1769,9 @@ class Engine extends EventEmitter {
             agentName,
             this.specialistPrompt(task, cfg, { ...assignment, agent: agentName }, state),
             cfg,
-            { stage: "delegate", assignmentId: assignment.id }
+            // kind + mcp: ice donuk MCP sert kapisinin girdisi. Operator cagrilarinda kind
+            // YOKTUR, bu yuzden operator hicbir MCP sunucusu almaz.
+            { stage: "delegate", assignmentId: assignment.id, kind: assignment.kind, mcp: assignment.mcp }
           );
           return { response, agent: agentName };
         } catch (error) {
@@ -1611,6 +1802,147 @@ class Engine extends EventEmitter {
     error.adapter = failure?.adapter || "";
     error.triedAgents = [...tried];
     throw error;
+  }
+
+  // GOREV-BASI WORKTREE. Etkinse gorev, deponun HEAD'inden acilan izole bir git worktree'sinde
+  // ve kendi branch'inde calisir; _cwd o agaca tasinir ve boylece snapshot, canli diff,
+  // checkpoint, sandbox, ajanlar ve dogrulama kapisi kendiliginden izole agaci hedefler.
+  // ASLA firlatmaz: kurulamazsa gorev eski davranisla (dogrudan calisma klasorunde) surer.
+  async setupWorktree(task, cfg) {
+    // Gorevler arasi sizinti olmasin: her calismada durum sifirlanir.
+    this._worktree = null;
+    this._worktreeDirty = null;
+    this._worktreeSetupFailed = null;
+    if (!worktree.isEnabled(cfg)) return;
+    let result;
+    try { result = await worktree.create(task.id, this._cwd, cfg); }
+    catch (error) { result = { ok: false, reason: error.message }; }
+    if (!result.ok) {
+      this.publish("log", { level: "warn", msg: `Worktree izolasyonu kullanilamadi (${result.reason}); gorev dogrudan calisma klasorunde surecek.` }, task.id);
+      return;
+    }
+    this._worktree = { dir: result.dir, branch: result.branch, repo: result.repo };
+    this._cwd = canonicalDir(result.dir);
+    this.publish("log", { level: "info", msg: `Izole worktree hazir: ${result.branch} (${result.dir})` }, task.id);
+    // Commit edilmemis yerel is worktree'ye TASINMAZ. Sessiz kalmak, ajanin eksik bir agac
+    // uzerinde calistigini gizlerdi; yuksek sesle soyle.
+    if (result.dirty.length) {
+      this.publish("log", { level: "warn", msg: `UYARI: Depoda commit edilmemis ${result.dirty.length} degisiklik var ve izole worktree HEAD'den olusturuldu; bu degisiklikler ajanin gordugu agacta YOK (${result.dirty.slice(0, 5).join(", ")}${result.dirty.length > 5 ? ", ..." : ""}).` }, task.id);
+      this._worktreeDirty = result.dirty;
+    } else {
+      this._worktreeDirty = null;
+    }
+    if (result.links.linked.length) {
+      this.publish("log", { level: "info", msg: `Worktree'ye baglandi: ${result.links.linked.join(", ")}` }, task.id);
+    }
+    for (const skip of result.links.skipped) {
+      this.publish("log", { level: "warn", msg: `Baglanamadi (${skip.rel}): ${skip.reason}` }, task.id);
+    }
+    if (result.setup && !result.setup.skipped) {
+      if (result.setup.ok) {
+        this.publish("log", { level: "ok", msg: `Worktree kurulum komutlari tamamlandi (${result.setup.ran} komut).` }, task.id);
+      } else {
+        // Kurulum basarisiz olsa da gorevi oldurmuyoruz: ajan yine de kodu okuyup duzenleyebilir.
+        // Ama dogrulama kapisi buna takilabilir; bu yuzden uyari acik olmali.
+        this.publish("log", { level: "warn", msg: `Worktree kurulum komutu basarisiz: \`${result.setup.failed?.command}\` — gitignore'lanmis bagimliliklar (node_modules vb.) eksik olabilir.` }, task.id);
+        this._worktreeSetupFailed = result.setup.failed?.command || "kurulum";
+      }
+    }
+  }
+
+  // Teslimat sonunda worktree'yi branch'e commit'ler. UZAGA HICBIR SEY GONDERILMEZ.
+  // Hic degisiklik yoksa worktree ve branch temizlenir (cop birakmamak icin).
+  finalizeWorktree(task, cfg, finalText) {
+    const wt = this._worktree;
+    if (!wt) return null;
+    const settings = worktree.normalizeWorktreeConfig(cfg);
+    try {
+      if (!settings.commit) return { branch: wt.branch, dir: wt.dir, committed: false, reason: "commit kapali" };
+      const summary = `CrewCtl: ${clip(String(task.prompt || "gorev").replace(/\s+/g, " "), 120)}`;
+      const body = `Gorev: ${task.id}\n\n${clip(String(finalText || ""), 2000)}`;
+      const result = worktree.commit(wt.dir, `${summary}\n${body}`);
+      if (result.committed) {
+        this.publish("log", { level: "ok", msg: `Degisiklikler commit'lendi: ${wt.branch} @ ${result.sha} (${result.files} dosya). Uzaga gonderilmedi.` }, task.id);
+        return { branch: wt.branch, dir: wt.dir, repo: wt.repo, committed: true, sha: result.sha, files: result.files };
+      }
+      if (result.reason === "degisiklik yok") {
+        worktree.remove(wt.repo, wt.dir, wt.branch, true);
+        this.publish("log", { level: "info", msg: `Worktree'de degisiklik olmadigi icin ${wt.branch} branch'i ve izole agac temizlendi.` }, task.id);
+        return { branch: wt.branch, dir: wt.dir, committed: false, reason: "degisiklik yok", cleaned: true };
+      }
+      this.publish("log", { level: "warn", msg: `Commit yapilamadi: ${result.reason}. Degisiklikler ${wt.dir} icinde duruyor.` }, task.id);
+      return { branch: wt.branch, dir: wt.dir, repo: wt.repo, committed: false, reason: result.reason };
+    } catch (error) {
+      this.publish("log", { level: "warn", msg: `Worktree kapatilamadi: ${error.message}` }, task.id);
+      return { branch: wt.branch, dir: wt.dir, committed: false, reason: error.message };
+    }
+  }
+
+  // DOGRULAMA KAPISI. Turun tum delegasyonlari kostuktan sonra, "bitti" kararlarindan ONCE
+  // calisir: kullanicinin tanimladigi komutlar (npm test, tsc --noEmit...) calisma klasorunde
+  // gercekten kosulur. Boylece teslimat kalitesi LLM'in "VERDICT: PASS" kanaatine degil
+  // olculebilir kanita baglanir.
+  //
+  // Sessizce atlanan durumlar (kapi asla gorevi oldurmez):
+  //   - verify.commands bos               → ozellik opt-in; davranis eski surumle birebir ayni
+  //   - calisma klasorunde hic degisiklik → arastirma/plan gorevlerinde test kosmak bosuna
+  async runVerifyGate(task, cfg, state) {
+    const settings = verify.normalizeVerifyConfig(cfg);
+    if (!settings.enabled || !settings.commands.length) return { skipped: true, ok: true, reason: "disabled" };
+    // Dosya degismediyse dogrulayacak bir sey de yok. _snapBefore gorev basindaki durumdur.
+    if (this._snapBefore) {
+      const changes = diffSnapshots(this._snapBefore, snapshotDir(this._cwd));
+      if (!changes.created.length && !changes.modified.length && !changes.deleted.length) {
+        this.publish("log", { level: "info", msg: "Dogrulama kapisi atlandi: calisma klasorunde degisiklik yok." }, task.id);
+        return { skipped: true, ok: true, reason: "no-changes" };
+      }
+    }
+    this.publish("log", { level: "stage", msg: `DOGRULAMA ${settings.commands.length} komut: ${settings.commands.join(" · ")}` }, task.id);
+    const report = await verify.runVerification(settings.commands, {
+      cwd: this._cwd,
+      timeoutMs: settings.timeoutSeconds * 1000,
+      maxOutputChars: settings.maxOutputChars,
+      // Motor durdurulduysa kalan komutlari kosma.
+      shouldStop: () => !this.running,
+    });
+    for (const result of report.results) {
+      const seconds = (result.durationMs / 1000).toFixed(1);
+      this.publish("log", {
+        level: result.ok ? "ok" : "warn",
+        msg: `Dogrulama \`${result.command}\` → ${result.ok ? "GECTI" : result.timedOut ? "ZAMAN ASIMI" : `BASARISIZ (cikis kodu ${result.exitCode})`} · ${seconds}s`,
+      }, task.id);
+    }
+    report.blocking = settings.blockOnFailure;
+    // Yalnizca KIRMIZI kapi "engelleme hakki" tuketir. Yesil kapi da sayaci ilerletirse
+    // (1. tur yesil → 2. tur kirmizi) engelleme hic devreye girmez ve kapi sessizce islevsiz kalir.
+    if (!report.ok) state.verifyAttempts = (Number(state.verifyAttempts) || 0) + 1;
+    report.attempt = Number(state.verifyAttempts) || 0;
+    state.verify = report;
+    // Kapi kirmizi ama engelleme kapali (blockOnFailure:false) → yalnizca kanit kaydedilir.
+    if (!report.ok && !settings.blockOnFailure) {
+      this.publish("log", { level: "warn", msg: "Dogrulama basarisiz fakat blockOnFailure kapali; teslimat engellenmedi." }, task.id);
+    }
+    return report;
+  }
+
+  // Kirmizi kapi teslimati kac kez daha engelleyebilir? Bitince (veya engelleme kapaliyken)
+  // motor "teslimat > mukemmeliyet" ilkesine uyar: isi cope atmaz, yuksek sesli uyariyla teslim eder.
+  verifyStillBlocking(cfg, state) {
+    const settings = verify.normalizeVerifyConfig(cfg);
+    const report = state.verify;
+    if (!report || report.ok || report.skipped) return false;
+    if (!settings.blockOnFailure) return false;
+    return (Number(state.verifyAttempts) || 0) < settings.maxAttempts;
+  }
+
+  // Kirmizi kapiyla kapanan teslimatin uyari satirlari.
+  verifyWarnings(state) {
+    const report = state.verify;
+    if (!report || report.ok || report.skipped) return [];
+    const failed = report.failed;
+    return [
+      `DOGRULAMA BASARISIZ: \`${failed?.command || "?"}\`${failed?.timedOut ? " zaman asimina ugradi" : ` cikis kodu ${failed?.exitCode} dondurdu`}. Teslimat bu haliyle dogrulanmis DEGILDIR.`,
+    ];
   }
 
   async runAssignments(task, cfg, assignments, state) {
@@ -1693,6 +2025,11 @@ class Engine extends EventEmitter {
     // altina aliriz; boylece hapis (codex -s workspace-write / claude cwd) tam bu klasora oturur.
     try { fs.mkdirSync(this._cwd, { recursive: true }); } catch {}
     this._cwd = canonicalDir(this._cwd);
+    // PROJE DIZINI, calisma agacindan AYRI tutulur. Worktree acildiginda _cwd izole agaca
+    // tasinir; proje profili (.crewctl/CONTEXT.md) ise ozgun depoda yasar (cogu depoda .crewctl
+    // gitignore'da oldugu icin taze worktree'de bulunmaz ve baglam sessizce kaybolurdu).
+    this._projectDir = this._cwd;
+    await this.setupWorktree(task, cfg);
     // Timeout OLCEKLEME SINYALI: taskBrief buyuk spec'i dosyaya tasidigi icin runCli'ye giden
     // bileşik prompt artik KISA olabilir; gercek is boyutunu orijinal gorev metninden okuruz.
     this._taskChars = String(task.prompt || "").length;
@@ -1725,7 +2062,9 @@ class Engine extends EventEmitter {
     // temiz sayfa. projectContext:false ise eski GLOBAL hafiza davranisi korunur.
     const memory = cfg.projectContext === false
       ? store.getMemory(cfg.memoryCharBudget)
-      : (task.freshContext ? "" : store.readProjectContext(this._cwd));
+      // Proje profili OZGUN depoda yasar, izole worktree'de degil: cogu depoda .crewctl
+      // gitignore'da oldugu icin taze worktree'de bulunmaz ve baglam kaybolurdu.
+      : (task.freshContext ? "" : store.readProjectContext(this._projectDir || this._cwd));
     const state = task.teamState || { round: 0, plan: null, criteria: [], results: {}, messages: [], operatorDecisions: [], usedIds: [] };
     const usedIds = new Set(state.usedIds || []);
 
@@ -1842,10 +2181,31 @@ class Engine extends EventEmitter {
           ". Ayarlar > Agent'lar'dan 'implementation' yetenekli bir agent (Codex/Claude/Gemini/OpenCode) ekleyip etkinlestirin veya opencode'un oturum/model durumunu kontrol edin, sonra gorevi tekrar calistirin."
         );
       }
-      if (task.executionMode === "fast" && assignments.every((assignment) => state.results[assignment.id]?.status === "completed")) {
+      // DOGRULAMA KAPISI: butun "bitti" kestirmelerinden ONCE. Kapi kirmizi ise hicbir hizli yol
+      // teslimati kapatamaz; karar operatore gider ve komut ciktisi kanit olarak prompta girer.
+      const gate = await this.runVerifyGate(task, cfg, state);
+      if (!gate.ok && !gate.skipped) {
+        this.publish("log", { level: "warn", msg: "Dogrulama kapisi kirmizi; tamamlama kestirmeleri atlandi ve karar operatore birakildi." }, task.id);
+      }
+      // TESLIMAT KANITI SARTI — tum tamamlama kestirmelerinin ortak onkosulu.
+      // Gozlenen ariza (2026-07-25): plan ve uygulama BLOCKED dondu, operator sonraki turda
+      // yalnizca YENI bir inceleme delegasyonu acti, o inceleme KENDI topladigi bilgiyi PASS'ledi
+      // ve hizli yol gorevi "basariyla tamamlandi" diye kapatti — calisma klasoru BOSTU.
+      // Denetim, teslimatin KENDISI hakkinda degil baska bir is hakkinda PASS verebilir; bu yuzden
+      // kanit somut olmali: ya tamamlanmis bir 'implement' delegasyonu ya da gercek dosya degisikligi.
+      // Bilgi/soru gorevlerinde (taskRequiresDelegation false) kanit aranmaz; oradaki teslimat metnin kendisidir.
+      const needsWork = taskRequiresDelegation(task.prompt);
+      const hasImplementProof = Object.values(state.results).some((result) => result.kind === "implement" && result.status === "completed");
+      // Dosya taramasi yalnizca GEREKTIGINDE yapilir (ucuz kontroller once).
+      const deliveryProven = !needsWork || hasImplementProof || (() => {
+        if (!this._snapBefore || !this._cwd) return false;
+        const changes = diffSnapshots(this._snapBefore, snapshotDir(this._cwd));
+        return Boolean(changes.created.length || changes.modified.length || changes.deleted.length);
+      })();
+      if (gate.ok && deliveryProven && task.executionMode === "fast" && assignments.every((assignment) => state.results[assignment.id]?.status === "completed")) {
         const reports = assignments.map((assignment) => state.results[assignment.id].result).join("\n\n");
         this.publish("log", { level: "info", msg: "FAST mod: uzman teslimati basarili; ikinci operator degerlendirme cagrisi atlandi." }, task.id);
-        return this.complete(task, state, "done", reports, {});
+        return this.complete(task, state, "done", reports, { verify: gate });
       }
       // PASS hizli yolu: turdaki tum delegasyonlar tamamlandi ve turun kendi bagimsiz
       // denetimi PASS verdiyse operatorun ikinci degerlendirme cagrisi bilgi eklemez,
@@ -1855,7 +2215,12 @@ class Engine extends EventEmitter {
         .map((assignment) => state.results[assignment.id])
         .filter((result) => result?.kind === "review" && result.status === "completed" && result.verdict)
         .pop();
-      if (cfg.operator?.passFastPath !== false
+      if (gate.ok && !deliveryProven && roundReview?.verdict === "PASS") {
+        this.publish("log", { level: "warn", msg: "Denetim PASS verdi fakat tamamlanmis bir uygulama delegasyonu ve dosya degisikligi YOK; bu bir teslimat kaniti degil. Hizli yol atlandi ve karar operatore birakildi." }, task.id);
+      }
+      if (gate.ok
+        && deliveryProven
+        && cfg.operator?.passFastPath !== false
         && assignments.every((assignment) => state.results[assignment.id]?.status === "completed")
         && roundReview?.verdict === "PASS"
         && roundReview === this.latestReview(state)) {
@@ -1863,15 +2228,30 @@ class Engine extends EventEmitter {
         const completedWork = Object.values(state.results).filter((result) => result.status === "completed");
         const final = `Teslimat bagimsiz denetimden gecti (${roundReview.id} → VERDICT: PASS).\n` +
           completedWork.map((result) => `- ${result.id} (${result.agent}${result.verdict ? ` · VERDICT: ${result.verdict}` : ""})`).join("\n");
-        return this.complete(task, state, "done", final, { verification: `${roundReview.agent} → VERDICT: PASS` });
+        return this.complete(task, state, "done", final, { verification: `${roundReview.agent} → VERDICT: PASS`, verify: gate });
       }
-      const decision = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "review"), cfg, "operator-review", "Operator karari");
+      let decision = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "review"), cfg, "operator-review", "Operator karari");
+      // Kirmizi kapi operatorun "complete" kararini gecersiz kilar: dogrulama komutu hala
+      // basarisizken teslimati kapatmak kullaniciya calismayan is vermektir. Bir kez duzeltme
+      // turu isteriz (plan duzeltmesiyle ayni desen). Deneme hakki bittiginde is cope atilmaz;
+      // "teslimat > mukemmeliyet" ilkesiyle yuksek sesli uyari eklenip teslim edilir.
+      if (String(decision.status).toLowerCase() === "complete" && this.verifyStillBlocking(cfg, state)) {
+        this.publish("log", { level: "warn", msg: "Operator complete dedi fakat dogrulama kapisi kirmizi; duzeltme turu isteniyor." }, task.id);
+        const correction = "\n\nUYARI: Dogrulama komutu HALA BASARISIZ. Bu teslimati tamamlanmis sayamazsin. " +
+          "status=complete DONME; basarisiz komut ciktisindaki kok nedeni gideren en az bir 'implement' delegasyonu iceren bir plan uret. " +
+          "Testi devre disi birakmak, atlamak veya beklentiyi hataya uydurmak COZUM DEGILDIR.";
+        decision = await this.invokeOperatorJson(operatorCli, this.operatorPrompt(task, cfg, memory, state, "review") + correction, cfg, "operator-review", "Operator karari");
+      }
       state.operatorDecisions.push({ round: state.round, ...decision });
       task.teamState = state;
       store.saveTask("pending", task);
       if (String(decision.status).toLowerCase() === "complete") {
         if (!String(decision.final || "").trim()) throw new Error("Operator complete dedi fakat final sonucu bos birakti.");
-        return this.complete(task, state, "done", String(decision.final), decision);
+        return this.complete(task, state, "done", String(decision.final), {
+          ...decision,
+          verify: state.verify,
+          warnings: [...(Array.isArray(decision.warnings) ? decision.warnings : []), ...this.verifyWarnings(state)],
+        });
       }
       if (String(decision.status).toLowerCase() !== "continue") throw new Error("Operator status alani continue veya complete olmali.");
       assignments = normalizeAssignments(decision.assignments, cfg, operatorCli, new Set(state.usedIds), task.prompt);
@@ -1879,12 +2259,15 @@ class Engine extends EventEmitter {
       // inceleme turlari acmak istiyorsa dongu burada kesilir. Sonsuz review ping-pong'u
       // hem tur butcesini tuketiyor hem de basarili teslimati kullaniciya geciktiriyordu.
       const lastReview = this.latestReview(state);
-      if (lastReview?.verdict === "PASS" && assignments.every((assignment) => assignment.kind === "review")) {
+      // Kapi kirmizi iken bu vali devreye girmez: dogrulama basarisizken PASS'e dayanip gorevi
+      // kapatmak, olculebilir kaniti kanaate teslim etmek olur.
+      // deliveryProven: PASS tek basina teslimat kaniti degil (yukaridaki gerekceyle ayni).
+      if (gate.ok && deliveryProven && lastReview?.verdict === "PASS" && assignments.every((assignment) => assignment.kind === "review")) {
         this.publish("log", { level: "warn", msg: `Denetim ${lastReview.id} PASS verdi; yalnizca yeni inceleme iceren tur acilmadi ve teslimat tamamlandi.` }, task.id);
         const final = `Teslimat bagimsiz denetimden gecti (${lastReview.id} → VERDICT: PASS). ` +
           `Operatorun ek inceleme talebi tur butcesini korumak icin motor tarafindan sonlandirildi.` +
           (String(decision.reason || "").trim() ? `\nOperator notu: ${clip(decision.reason, 600)}` : "");
-        return this.complete(task, state, "done", final, { verification: `${lastReview.agent} → VERDICT: PASS` });
+        return this.complete(task, state, "done", final, { verification: `${lastReview.agent} → VERDICT: PASS`, verify: gate });
       }
     }
     if (!this.running) throw new Error("Motor durduruldu; gorev tamamlanmadan kesildi.");
@@ -1904,6 +2287,7 @@ class Engine extends EventEmitter {
     const warnings = [
       `Tur butcesi doldu (${state.round} tur); operator complete karari veremeden teslimat kapatildi.`,
       ...(lastReview ? [`Son bagimsiz denetim: ${lastReview.id} → VERDICT: ${lastReview.verdict}.`] : []),
+      ...this.verifyWarnings(state),
       ...(lastDecision && String(lastDecision.reason || "").trim() ? [`Operatorun acik biraktigi konu: ${clip(lastDecision.reason, 400)}`] : []),
     ];
     this.publish("log", { level: "warn", msg: `Tur butcesi doldu; tamamlanan is kismi teslimat olarak kapatiliyor (${completedWork.length} tamamlanmis delegasyon).` }, task.id);
@@ -1913,6 +2297,7 @@ class Engine extends EventEmitter {
     return this.complete(task, state, "done", final, {
       warnings,
       verification: lastReview ? `${lastReview.agent} → VERDICT: ${lastReview.verdict}` : "",
+      verify: state.verify,
     });
   }
 
@@ -1949,8 +2334,12 @@ class Engine extends EventEmitter {
           `Gorev su hatayla kesildi: ${failure.summary}`,
           ...(operatorDirect ? [`Operator CLI (${task.operatorCli || "?"}) plan JSON'i yerine isi dogrudan yapti. Daha guvenilir orkestrasyon icin operator olarak JSON planlamaya uygun bir CLI (or. Codex veya Claude) secmeyi dusunun.`] : []),
           ...(lastReview ? [`Son bagimsiz denetim: ${lastReview.id} → VERDICT: ${lastReview.verdict}.`] : []),
+          ...this.verifyWarnings(rescueState),
         ],
         verification: lastReview ? `${lastReview.agent} → VERDICT: ${lastReview.verdict}` : "",
+        // Hata yolunda kapi YENIDEN kosulmaz (kesintinin nedeni kapinin kendisi olabilir);
+        // varsa son turun raporu kanit olarak korunur.
+        verify: rescueState.verify,
       });
       return true;
     } catch {
@@ -2000,6 +2389,9 @@ class Engine extends EventEmitter {
 
   async complete(task, state, status, finalText, decision = {}) {
     const changes = diffSnapshots(this._snapBefore || new Map(), snapshotDir(this._cwd));
+    // Worktree commit'i diff HESAPLANDIKTAN SONRA yapilir: aksi halde teslimatin "degisen
+    // dosyalar" listesi commit'ten etkilenmez ama sira netlik icin bilincli olarak boyle.
+    const git = this.finalizeWorktree(task, this.cfg(), finalText);
     // Son periyodik taramadan sonra yapilan degisiklikleri de replay kaydina ve dashboard'a
     // aktar; ardindan run --once yolunda da timer'in acik kalmamasini garanti et.
     this.publishFileChanges(task.id);
@@ -2012,7 +2404,11 @@ class Engine extends EventEmitter {
       ...changes.deleted.map((file) => ({ path: file, action: "deleted" })),
     ];
     const concise = clip(String(finalText).replace(/\n{3,}/g, "\n\n"), 700);
-    let verification = String(decision.verification || "").trim();
+    // Dogrulama kapisi kostuysa CALISTIRILAN kanit, modelin kendi beyanindan onceliklidir:
+    // "npm test gecti" olculebilir, "dogruladim" degildir.
+    const verifyReport = decision.verify && !decision.verify.skipped ? decision.verify : null;
+    const verifySummary = verifyReport ? verify.summarize(verifyReport) : "";
+    let verification = verifySummary || String(decision.verification || "").trim();
     if (!verification) {
       for (const result of Object.values(state.results)) {
         const match = String(result.result || "").match(/DO(?:Ğ|G\u0306|G)RULAMA:\s*([^\n`]+)/i);
@@ -2023,7 +2419,17 @@ class Engine extends EventEmitter {
     task.final = finalText;
     task.changes = changes;
     task.usage = this.usageSummary();
-    const warnings = (Array.isArray(decision.warnings) ? decision.warnings : []).map(String).filter(Boolean);
+    const warnings = [
+      ...(Array.isArray(decision.warnings) ? decision.warnings : []).map(String).filter(Boolean),
+      // Izole worktree HEAD'den olusturulur; commit edilmemis yerel is ajanin gordugu agacta
+      // yoktu. Teslimati degerlendiren kullanicinin bunu bilmesi gerekir.
+      ...(this._worktreeDirty?.length
+        ? [`Izole worktree deponun HEAD'inden olusturuldu; commit edilmemis ${this._worktreeDirty.length} yerel degisiklik ajanin gordugu agacta YOKTU.`]
+        : []),
+      ...(this._worktreeSetupFailed
+        ? [`Worktree kurulum komutu (\`${this._worktreeSetupFailed}\`) basarisiz oldu; gitignore'lanmis bagimliliklar eksik kalmis olabilir.`]
+        : []),
+    ].filter(Boolean);
     task.delivery = {
       summary: concise,
       files,
@@ -2033,6 +2439,35 @@ class Engine extends EventEmitter {
       rounds: state.round,
       agents: [...new Set(Object.values(state.results).map((result) => result.agent))],
       ...(warnings.length ? { warnings } : {}),
+      // Git izolasyonu kullanildiysa teslimat, gozden gecirilecek branch'i ve commit'i tasir.
+      // push/PR YOKTUR; sonraki adim kullanicinin karari.
+      ...(git ? {
+        git: {
+          branch: git.branch,
+          worktree: git.dir,
+          committed: !!git.committed,
+          ...(git.sha ? { commit: git.sha } : {}),
+          ...(git.files ? { files: git.files } : {}),
+          ...(git.reason ? { reason: git.reason } : {}),
+          ...(git.cleaned ? { cleaned: true } : {}),
+        },
+      } : {}),
+      // Yapilandirilmis kapi raporu: hangi komut kostu, ne kadar surdu, gecti mi. Ham cikti
+      // teslimat kaydini sismesin diye yalnizca basarisiz komutta ve kirpilmis halde tutulur.
+      ...(verifyReport ? {
+        verify: {
+          ok: verifyReport.ok,
+          attempt: verifyReport.attempt || 1,
+          results: (verifyReport.results || []).map((result) => ({
+            command: result.command,
+            ok: result.ok,
+            exitCode: result.exitCode ?? null,
+            timedOut: !!result.timedOut,
+            durationMs: result.durationMs,
+            ...(result.ok ? {} : { output: result.output || result.error || "" }),
+          })),
+        },
+      } : {}),
     };
     task.teamState = state;
     const found = store.findTask(task.id);
@@ -2060,7 +2495,9 @@ class Engine extends EventEmitter {
       const operatorCli = task.operatorCli || cfg.operator?.cli;
       if (!operatorCli || !cliRegistry.operatorSpec(operatorCli, cfg)) return;
       const budget = cfg.projectContextCharBudget || 6000;
-      const current = store.readProjectContext(this._cwd);
+      // Profil ozgun depoda tutulur (worktree gecicidir ve silinebilir).
+      const projectDir = this._projectDir || this._cwd;
+      const current = store.readProjectContext(projectDir);
       const changed = files.map((f) => `${f.action}: ${f.path}`).join("\n");
       const prompt =
         `Sen bir projenin YASAYAN bilgi tabanini (proje profili) guncelliyorsun. Amac: sonraki gorevlerde ` +
@@ -2076,7 +2513,7 @@ class Engine extends EventEmitter {
         `## Son tamamlanan gorev\n${task.prompt}\n\n## Sonuc ozeti\n${task.summary || ""}\n\n## Degisen dosyalar\n${changed}`;
       const response = await this.invokeOperator(operatorCli, prompt, cfg, { stage: "operator-context" });
       const profile = stripCodeFence(String(response?.text || "")).trim();
-      if (profile && store.writeProjectContext(this._cwd, clip(profile, budget * 2))) {
+      if (profile && store.writeProjectContext(projectDir, clip(profile, budget * 2))) {
         this.publish("log", { level: "info", msg: "Proje profili (.crewctl/CONTEXT.md) guncellendi." }, task.id);
       }
     } catch (error) {

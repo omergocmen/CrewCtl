@@ -3,6 +3,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const os = require("os");
+// mcp.js yalnizca `path` kullanir; store'u require ETMEZ, bu yuzden dongu olusmaz.
+const mcp = require("./mcp");
 
 const isWin = process.platform === "win32";
 // ASSETS: paket dizini (salt-okunur varlıklar: web/, config.default.json, varsayilan roles/+skills/).
@@ -132,6 +134,16 @@ const FALLBACK_CONFIG = {
   // Proje context: her calisma klasorunun .crewctl/CONTEXT.md profili gorev acilisinda yuklenir,
   // bitiminde operator revize eder. false = eski global hafiza davranisi.
   projectContext: true, projectContextCharBudget: 6000,
+  // Dogrulama kapisi: commands bos = kapali. Bkz. verify.js ve config.default.json aciklamasi.
+  verify: { enabled: true, commands: [], timeoutSeconds: 600, maxOutputChars: 4000, blockOnFailure: true, maxAttempts: 2 },
+  // Disa donuk MCP: harici ajanin motoru baslatmasi opt-in'dir. Bkz. mcp-server.js.
+  mcpServer: { allowEngineControl: false },
+  // Ice donuk MCP: uzman ajanlara harici arac. enabled:false = kapali. Bkz. mcp.js.
+  mcp: { enabled: false, mode: "strict", maxServersPerAssignment: 2, startupTimeoutMs: 15000, servers: {}, codexUnsafeBypass: false },
+  // Es zamanli gorev sayisi: 1 = eski davranis (sirayla). Bkz. engine.js supervizor dongusu.
+  maxConcurrentTasks: 1,
+  // Gorev-basi git worktree izolasyonu: mode 'off' = eski davranis. Bkz. worktree.js.
+  worktree: { mode: "off", branchPrefix: "crewctl/task-", setupCommands: [], linkPaths: ["node_modules"], commit: true, keepOnFailure: true, setupTimeoutSeconds: 900 },
   notify: { webhookUrl: "", onComplete: true, onFailed: true },
   operator: { roleFile: "roles/operator.md", maxRounds: 6, maxDelegationsPerRound: 8, maxInfrastructureRecoveryRounds: 2, protocolRetries: 1 },
   resilience: { transientRetries: 2, retryBaseSeconds: 3, maxFailoverAgents: 1 },
@@ -155,6 +167,42 @@ function normalizeConfig(cfg) {
     ...cfg,
     skills: { enabled: [], autoMatch: true, catalogLimit: 12, maxSkillsPerAssignment: 3, charBudget: 2400, referenceCharBudget: 1200, ...(cfg.skills || {}) },
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
+    // Dogrulama kapisi semasini her yuklemede garanti et; eski config.json'lar yukseltilince
+    // alani kazanir ve komut listesi bos oldugu icin davranisi DEGISMEZ (opt-in).
+    verify: {
+      enabled: cfg.verify?.enabled !== false,
+      commands: Array.isArray(cfg.verify?.commands)
+        ? cfg.verify.commands.map((x) => String(x || "").trim()).filter(Boolean)
+        : [],
+      timeoutSeconds: Number(cfg.verify?.timeoutSeconds) >= 5 ? Number(cfg.verify.timeoutSeconds) : 600,
+      maxOutputChars: Number(cfg.verify?.maxOutputChars) >= 200 ? Number(cfg.verify.maxOutputChars) : 4000,
+      blockOnFailure: cfg.verify?.blockOnFailure !== false,
+      maxAttempts: Number.isInteger(cfg.verify?.maxAttempts) && cfg.verify.maxAttempts >= 1 ? cfg.verify.maxAttempts : 2,
+    },
+    // Disa donuk MCP: harici ajanin motoru baslatip durdurmasi ACIK tercih gerektirir; sema
+    // her yuklemede garanti edilir ve eksik/gecersiz deger guvenli tarafa (false) duser.
+    mcpServer: { allowEngineControl: cfg.mcpServer?.allowEngineControl === true },
+    // Ice donuk MCP semasi mcp.js tarafindan normalize edilir (saf + idempotent); gecersiz
+    // sunucu girisleri sessizce dusurulur, cunku yarim yapilandirilmis bir sunucuyu ajana
+    // vermek onu hic vermemekten daha tehlikelidir.
+    mcp: mcp.normalizeConfig(cfg),
+    // Es zamanli slot sayisi 1..8 arasina sikistirilir; gecersiz deger 1'e (eski davranis) duser.
+    maxConcurrentTasks: Number.isInteger(cfg.maxConcurrentTasks) && cfg.maxConcurrentTasks >= 1
+      ? Math.min(8, cfg.maxConcurrentTasks) : 1,
+    // Worktree semasi her yuklemede garanti edilir; gecersiz mode 'off'a (eski davranis) duser.
+    // Bagli yollar depo kokune goreli olmali: mutlak yol ve '..' kacisi temizlenir.
+    worktree: {
+      mode: cfg.worktree?.mode === "task" ? "task" : "off",
+      branchPrefix: String(cfg.worktree?.branchPrefix || "").trim() || "crewctl/task-",
+      setupCommands: Array.isArray(cfg.worktree?.setupCommands)
+        ? cfg.worktree.setupCommands.map((x) => String(x || "").trim()).filter(Boolean) : [],
+      linkPaths: Array.isArray(cfg.worktree?.linkPaths)
+        ? cfg.worktree.linkPaths.map((x) => String(x || "").trim()).filter(Boolean)
+          .filter((rel) => !path.isAbsolute(rel) && !rel.split(/[\\/]/).includes("..")) : [],
+      commit: cfg.worktree?.commit !== false,
+      keepOnFailure: cfg.worktree?.keepOnFailure !== false,
+      setupTimeoutSeconds: Number(cfg.worktree?.setupTimeoutSeconds) >= 10 ? Number(cfg.worktree.setupTimeoutSeconds) : 900,
+    },
     // Proje = kaydedilmis, isimli calisma klasoru. Gorevler projectId ile bir projeye baglanabilir;
     // targetDir geriye-uyum icin kalir (projesiz/eski gorevler aynen calisir).
     projects: Array.isArray(cfg.projects) ? cfg.projects : [],
@@ -271,8 +319,13 @@ function listRecentTasks(state, limit) {
     })
     .filter(Boolean);
 }
-function nextPending() {
-  return listTasks("pending")[0] || null;
+// Calisan gorev queue/pending'de KALIR (complete() tasir). Bu yuzden es zamanli yurutmede
+// ayni gorevi iki kez almamak icin cagiran, halihazirda ustlendigi id'leri skipIds ile bildirir.
+// Argumansiz cagri eski davranisi birebir korur.
+function nextPending(skipIds) {
+  const skip = skipIds instanceof Set ? skipIds : new Set(Array.isArray(skipIds) ? skipIds : []);
+  if (!skip.size) return listTasks("pending")[0] || null;
+  return listTasks("pending").find((task) => !skip.has(task.id)) || null;
 }
 function addTask(prompt, targetDir, operatorCli, executionMode) {
   const id =

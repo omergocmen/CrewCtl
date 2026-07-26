@@ -1,3 +1,6 @@
+// REGRESYON (2026-07-26): `.crewctl/` orkestratorun calisma klasoru icindeki kazi alanidir
+// (proje profili, gorev spec'leri, ekler, MCP tarayici profilleri). Surume GIRMEMELI. Olculdu:
+// tek bir Playwright oturumu buraya 190 dosya / 18.5 MB birakti; kullanicinin site kodu 42.6 KB'ti.
 const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
@@ -56,6 +59,26 @@ function main() {
 
     // Guard: olmayan surum sessizce hata doner, patlamaz.
     assert.equal(checkpoints.restoreCheckpoint("cp-yok").ok, false);
+
+    // `.crewctl/` SURUME GIRMEMELI: orkestratorun kendi kazi alani (proje profili, gorev
+    // spec'leri, ekler, MCP tarayici profilleri). engine.snapshotDir bunu diff'ten cikariyor;
+    // checkpoint de ayni sinira uymalidir, yoksa her surum yuzlerce MB tarayici profili kopyalar.
+    const clean = fs.mkdtempSync(path.join(os.tmpdir(), "cp-crewctl-"));
+    try {
+      fs.writeFileSync(path.join(clean, "index.html"), "<h1>site</h1>", "utf8");
+      const profile = path.join(clean, ".crewctl", "pw-CALL-1", "Default", "Cache");
+      fs.mkdirSync(profile, { recursive: true });
+      for (let i = 0; i < 20; i++) fs.writeFileSync(path.join(profile, `data_${i}`), "x".repeat(1000), "utf8");
+      fs.writeFileSync(path.join(clean, ".crewctl", "CONTEXT.md"), "proje profili", "utf8");
+      const made = checkpoints.createCheckpoint(clean, { taskId: "crewctl-haric", retention: 5 });
+      assert.ok(made.ok, "surum alinabilmeli");
+      assert.equal(made.fileCount, 1, `yalnizca kullanicinin dosyasi surume girmeli (.crewctl haric); gelen: ${made.fileCount}`);
+      assert.ok(checkpoints._internals.ignored(".crewctl/pw-CALL-1/Default/Cache/data_0"), "tarayici profili yok sayilmali");
+      assert.ok(checkpoints._internals.ignored(".crewctl"), ".crewctl kokü yok sayilmali");
+      assert.ok(!checkpoints._internals.ignored("assets/app.js"), "kullanici dosyalari yok sayilMAmali");
+    } finally {
+      try { fs.rmSync(clean, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } catch {}
+    }
 
     console.log("checkpoints ok");
   } finally {

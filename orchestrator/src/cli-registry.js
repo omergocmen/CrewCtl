@@ -12,6 +12,26 @@ const DEFINITIONS = {
     defaultArgs: ["exec", "--skip-git-repo-check"],
     // Codex calisirken surekli ilerleme akitir; 3 dakikalik sessizlik gercek bir takilmadir.
     silenceTimeoutSeconds: 180,
+    // Codex MCP sunucularini TOML config'ten okur; `-p <ad>` profili `$CODEX_HOME/<ad>.config.toml`
+    // dosyasini BASE config'in ustune katmanlar (gercek codex ile olculdu). Profil adi/dosya
+    // {callId} ile izole edilir (es zamanli gorevler ayni dosyayi ezmesin); motor dosyayi
+    // cleanup eder (kullanicinin ~/.codex'i kirlenmesin).
+    // usable:false — configFile YAZICISI dogru (sunucu yukleniyor, `-p` ile gorunuyor; gercek
+    // codex ile olculdu) FAKAT codex headless `exec` modu tool CAGRISINI "user cancelled MCP tool
+    // call" ile iptal ediyor. Bes yapilandirma denendi (approval_policy never/on-failure,
+    // trust_level, -c noktali-yol), hicbiri exec'te otomatik onaylatmadi — bu bir codex exec
+    // sinirlamasi. codex TUI'de calisir ama CrewCtl exec kullanir. codex yeni bir exec-onay
+    // mekanizmasi eklerse usable:true yapilir; yazici hazir.
+    // usableNote: bypass KAPALIYKEN operatore verilen aciklama. unsafeBypass: kullanici
+    // config.mcp.codexUnsafeBypass=true yaparsa (belgelenmis codex bug'i #16685/#24135 icin tek
+    // community cozumu) --dangerously-bypass-approvals-and-sandbox eklenir; codex MCP CALISIR
+    // ama o ajan icin sandbox DEVRE DISI kalir.
+    mcp: { style: "configFile", usable: false, shape: "codexToml",
+      usableNote: "codex headless exec modunda MCP tool cagrilarini 'user cancelled' ile iptal ediyor (belgelenmis codex bug'i #16685/#24135). Cozum: Ayarlar'dan 'codex MCP (sandbox'siz)' opt-in'ini acin veya MCP isini claude/opencode uzmanina verin.",
+      unsafeBypass: { configKey: "codexUnsafeBypass", flag: "--dangerously-bypass-approvals-and-sandbox",
+        note: "UYARI: codex MCP icin ajan hapsi (sandbox) DEVRE DISI birakildi (codex exec MCP'yi baska turlu yurutmuyor). Bu ajan calisma klasoru DISINA da yazabilir; git worktree izolasyonu siddetle onerilir." },
+      pathTemplate: "{codexHome}/crewctl-{callId}.config.toml",
+      activateArgs: ["-p", "crewctl-{callId}"], cleanup: true },
     description: "OpenAI Codex kodlama, hata ayiklama ve inceleme agenti",
     capabilities: ["implementation", "debugging", "testing", "review", "analysis"],
     roleFile: "roles/executor.md",
@@ -26,6 +46,12 @@ const DEFINITIONS = {
     defaultArgs: ["-p", "--permission-mode", "acceptEdits", "--output-format", "stream-json", "--verbose"],
     // Claude artik akitiyor; kisa sessizlik esigi guvenli. (sizeFactor buyuk gorevde yine acar.)
     silenceTimeoutSeconds: 240,
+    // MCP ENJEKSIYON TANIMLAYICISI. Yeni bir CLI eklerken MCP icin tek yapilacak sey budur;
+    // mcp.js icinde dallanma BUYUMEZ (bkz. mcp.plan stilleri). allowFlag ZORUNLU: headless
+    // modda MCP cagrilari acik izin ister, yoksa ajan "permission not granted" ile takilir.
+    // usable:true — gercek claude ile uctan uca dogrulandi (araclar cagrilir, cikti alinir).
+    mcp: { style: "flagFile", usable: true, flag: "--mcp-config", suffix: ".mcp.json", shape: "mcpServers",
+      strictFlag: "--strict-mcp-config", allowFlag: "--allowedTools", allowPrefix: "mcp__", allowSeparator: "," },
     description: "Claude Code uygulama, analiz ve test agenti",
     capabilities: ["implementation", "debugging", "testing", "review", "web"],
     roleFile: "roles/executor.md",
@@ -39,6 +65,15 @@ const DEFINITIONS = {
     silenceTimeoutSeconds: 180,
     // --skip-trust her Gemini surumunde yok; kesifte yoklanip destekleniyorsa eklenir.
     optionalFlags: ["--skip-trust"],
+    // Gemini'de MCP enjeksiyon bayragi YOK: sunucular `gemini mcp add` ile kullanici
+    // ayarlarina yazilir, CrewCtl yalnizca hangilerinin acik olacagini FILTRELEYEBILIR.
+    // usable:false — gemini gorev-basi MCP ENJEKSIYONU sunmaz (bayrak yok); yalnizca ONCEDEN
+    // `gemini mcp add` ile kayitli sunuculari `--allowed-mcp-server-names` ile FILTRELER. CrewCtl
+    // dinamik olarak sunucu tanimlayamaz. filterOnly yazicisi dogru (bayrak gercek gemini ile kabul
+    // edildi) ama on-kosul (kullanici kaydi) + bu makinede gemini auth yok. Bu yuzden operatore
+    // arac gostermeyip isi calisan CLI'lara yonlendiriyoruz.
+    mcp: { style: "filterOnly", usable: false, flag: "--allowed-mcp-server-names",
+      usableNote: "gemini gorev-basi MCP enjeksiyonu desteklemez; sunuculari once `gemini mcp add -s user <ad> ...` ile kaydedip filtreleyebilirsiniz. Dinamik MCP isi icin claude/opencode kullanin." },
     description: "Gemini CLI analiz, uygulama ve web arastirma agenti",
     capabilities: ["implementation", "planning", "analysis", "research", "web"],
     roleFile: "roles/executor.md",
@@ -56,6 +91,10 @@ const DEFINITIONS = {
     // Bazi eski OpenCode surumleri --auto bayragini tanimaz. Otonom izinler
     // engine tarafinda OPENCODE_CONFIG_CONTENT ile surumden bagimsiz aktarilir.
     defaultArgs: ["run", "--format", "json", "Attached file contains the full task. Follow it exactly, make the changes, and report what you did.", "--file", "{PROMPT_FILE}"],
+    // OpenCode config'i ortam degiskeninde JSON olarak tasir; otonom izin blogu ile ayni
+    // govdeye `mcp` anahtari eklenir (birlestirme agentEnvironment'ta).
+    // usable:true — gercek opencode ile env-config enjeksiyonu dogrulandi.
+    mcp: { style: "envJson", usable: true, envVar: "OPENCODE_CONFIG_CONTENT", key: "mcp", shape: "opencode" },
     description: "OpenCode coklu saglayici kodlama, uygulama ve inceleme agenti",
     capabilities: ["implementation", "debugging", "testing", "review", "analysis", "research"],
     roleFile: "roles/executor.md",
@@ -608,12 +647,38 @@ function preparePromptArgs(args, prompt) {
 // Tek kaynak: OpenCode icin otonom izinler surumden bagimsiz olarak OPENCODE_CONFIG_CONTENT
 // ile aktarilir. Hem engine.runCli hem saglik testi bu ortami kullanir ki test ile gercek
 // calistirma ayni izinlerle calissin.
-function agentEnvironment(agent) {
+// mcpBlock: mcp.plan() opencode icin `__OPENCODE_MCP__` uretirse buraya JSON metin olarak
+// gelir ve ayni config govdesine `mcp` anahtari olarak eklenir. SAGLIK TESTI bunu ASLA
+// gecirmez: her probe'ta MCP sunuculari ayaga kaldirmak probe'lari yavaslatir ve
+// abortActiveProbes onlari oldururken yarim proses birakirdi.
+// mcpEnvConfig: mcp.plan() `envJson` stilinde `{ var, key, value }` dondurur. GENELDIR — hangi
+// CLI olursa olsun "JSON config tutan ortam degiskenine bir anahtar ekle" isini yapar, adapter
+// adina gore dallanmaz. SAGLIK TESTI bunu ASLA gecirmez: her probe'ta MCP sunuculari ayaga
+// kaldirmak probe'lari yavaslatir ve abortActiveProbes onlari oldururken yarim proses birakirdi.
+function agentEnvironment(agent, mcpEnvConfig = null) {
   const env = { ...process.env };
-  if (agent.adapter !== "opencode") return env;
-  let inline = {};
-  try { inline = JSON.parse(env.OPENCODE_CONFIG_CONTENT || "{}"); } catch {}
-  env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ ...inline, permission: { "*": "allow" } });
+  // OpenCode'un otonom izinleri surumden bagimsiz olarak config icerigiyle aktarilir.
+  const autonomous = agent.adapter === "opencode"
+    ? { var: "OPENCODE_CONFIG_CONTENT", patch: { permission: { "*": "allow" } } }
+    : null;
+  // Ayni ortam degiskenine yazan iki katmani (otonom izin + MCP) TEK govdede birlestir; aksi
+  // halde biri diğerini ezer.
+  const targets = new Map();
+  if (autonomous) targets.set(autonomous.var, { ...autonomous.patch });
+  if (mcpEnvConfig && mcpEnvConfig.var && mcpEnvConfig.key) {
+    let value = mcpEnvConfig.value;
+    if (typeof value === "string") { try { value = JSON.parse(value); } catch { value = null; } }
+    if (value && typeof value === "object" && Object.keys(value).length) {
+      const patch = targets.get(mcpEnvConfig.var) || {};
+      patch[mcpEnvConfig.key] = value;
+      targets.set(mcpEnvConfig.var, patch);
+    }
+  }
+  for (const [name, patch] of targets) {
+    let inline = {};
+    try { inline = JSON.parse(env[name] || "{}"); } catch {}
+    env[name] = JSON.stringify({ ...inline, ...patch });
+  }
   return env;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "@omerrgocmen/crewctl",
-  "version": "1.3.3",
+  "version": "2.0.0",
   "description": "CrewCtl — Zero-dependency Node.js orchestrator that runs installed CLI coding agents as one operator-led team.",
   "keywords": [
     "ai",
@@ -39,7 +39,7 @@
     "start": "node orchestrator/src/server.js",
     "cli": "node orchestrator/src/cli.js",
     "doctor": "node orchestrator/src/doctor.js",
-    "test": "node orchestrator/test/ui-smoke.test.js && node orchestrator/test/cli.test.js && node orchestrator/test/server-flow.test.js && node orchestrator/test/skills.test.js && node orchestrator/test/schedule.test.js && node orchestrator/test/team-flow.test.js && node orchestrator/test/live-diff.test.js && node orchestrator/test/checkpoints.test.js",
+    "test": "node orchestrator/test/ui-smoke.test.js && node orchestrator/test/cli.test.js && node orchestrator/test/server-flow.test.js && node orchestrator/test/skills.test.js && node orchestrator/test/schedule.test.js && node orchestrator/test/team-flow.test.js && node orchestrator/test/live-diff.test.js && node orchestrator/test/checkpoints.test.js && node orchestrator/test/verify.test.js && node orchestrator/test/mcp-server.test.js && node orchestrator/test/worktree.test.js && node orchestrator/test/concurrency.test.js && node orchestrator/test/mcp.test.js",
     "prepublishOnly": "npm test"
   },
   "engines": {

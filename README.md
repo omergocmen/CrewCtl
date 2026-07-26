@@ -90,6 +90,8 @@ kenar çubuğundaki **Zamanlanmış görevler** kartında sonraki çalışma zam
 - **Otomatik sürüm:** Varsayılan yapılandırmada CrewCtl, agent'lar çalışmaya başlamadan önce çalışma klasörünün bir checkpoint'ini alır.
 - **Tek tıkla geri dönüş:** Tamamlanan veya başarısız görev kartındaki **Bu sürüme dön** eylemi, değiştirilmiş ve silinmiş dosyaları geri getirir; görevden sonra oluşan dosyaları kaldırır.
 - **Geri almanın geri alınması:** Bir checkpoint geri yüklenmeden önce mevcut durum için yeni bir redo checkpoint'i oluşturulur.
+- **Git worktree izolasyonu:** `worktree.mode` değerini `task` yaparsanız her görev, deponun HEAD'inden açılan kendi git worktree'sinde ve kendi branch'inde çalışır. Ana çalışma ağacınız kirlenmez; teslimat `crewctl/task-<id>` branch'ine commit'lenir. **Uzağa hiçbir şey gönderilmez** — push ve PR kararı sizde. Commit edilmemiş yerel değişikliklerin izole ağaçta olmadığı ve gitignore'lanmış bağımlılıkların (`node_modules`) `linkPaths`/`setupCommands` ile taşınması gerektiği açıkça bildirilir.
+- **Doğrulama kapısı:** `verify.commands` içine `npm test`, `npx tsc --noEmit` gibi komutlar yazarsanız CrewCtl bunları her turun sonunda çalışma klasöründe gerçekten koşar. Kapı kırmızıysa hiçbir hızlı yol teslimatı kapatamaz; başarısız komutun çıktısı operatöre kanıt olarak verilir ve düzeltme turu istenir. Kapı, teslimat kalitesini "agent PASS dedi" kanaatinden ölçülebilir sonuca taşır.
 - **Risk onayı:** Riskli görülen planlar yürütülmeden önce açık onay bekler.
 - **Dayanıklılık:** Sessizlik zaman aşımı, proses ağacı sonlandırma, yeniden deneme ve uygun agent'a fallback mekanizmaları uzun çalışmaların kontrolünü korur.
 
@@ -103,6 +105,11 @@ kenar çubuğundaki **Zamanlanmış görevler** kartında sonraki çalışma zam
 | Çoklu CLI desteği | Codex, Claude Code, Gemini ve OpenCode profillerini aynı takımda kullanma |
 | Kanban Pano | Görev yaşam döngüsünü sütunlarda (Bekleyen · Çalışıyor · Tamamlanan · Başarısız) tek bakışta gösteren salt-görsel pano |
 | Zamanlanmış görevler | Dostça ön ayarlarla (her N dakika · günlük HH:MM · haftalık günler) tekrar eden görevleri otomatik kuyruğa alma |
+| Git worktree izolasyonu | Her görev kendi worktree + branch'inde çalışır; ana çalışma ağacı kirlenmez, teslimat gözden geçirilebilir bir commit olur (push/PR yok) |
+| Eşzamanlı görev | `maxConcurrentTasks` ile kuyruktaki görevleri paralel yürütür; git izolasyonu zorunludur ve her görev kendi slotunda koşar |
+| Doğrulama kapısı | Tanımlı komutları (test, typecheck, lint) her turun sonunda gerçekten koşar; kırmızı sonuç hızlı yolları bastırır ve hata çıktısı operatöre kanıt olur |
+| Ajanlara harici araç (içe dönük MCP) | Uzmanlara tarayıcı/veritabanı/doküman aracı verir; rol kapısı uygular — operatör MCP kullanmaz, `plan`/`review` yalnızca salt okunur sunucuları görür, yetki kimlik bilgisiyle kurulur |
+| MCP sunucusu (dışa dönük) | `crewctl mcp` ile CrewCtl'i Claude Code / Codex / Gemini / OpenCode içine araç olarak bağlayın; ajan kendi akışından görev devredip durumu okuyabilir |
 | Çalışma modları | Görevin kapsamına göre Auto, Fast, Balanced ve Deep yürütme seçenekleri |
 | Otomatik CLI keşfi | Kurulu araçları, modelleri ve çalışmaya hazır olma durumunu algılama |
 | Rol ve skill yönlendirme | Planner, executor, reviewer gibi roller ile yerel skill eşleştirme |
@@ -161,6 +168,19 @@ npm run cli -- task "Testleri çalıştır ve bulunan hataları düzelt" --mode 
 npm run cli -- run --once
 npm run cli -- approvals
 ~~~
+
+### CrewCtl'i başka bir ajana araç olarak bağlamak (MCP)
+
+CrewCtl aynı zamanda bir **MCP sunucusudur**. Aşağıdaki yapılandırmayı Claude Code, Codex, Gemini ya da
+OpenCode'a eklerseniz o ajan kendi akışından CrewCtl'e iş devredebilir ve durumu okuyabilir:
+
+~~~json
+{"mcpServers":{"crewctl":{"command":"npx","args":["-y","@omerrgocmen/crewctl","mcp"]}}}
+~~~
+
+Araçlar çalışan panele bağlanır, bu yüzden önce paneli açın. Motoru başlatma yetkisi güvenlik gereği
+varsayılan olarak kapalıdır (`mcpServer.allowEngineControl`). Ayrıntı için
+**[tam dokümantasyona](orchestrator/README.md#-crewctli-başka-bir-ajana-araç-olarak-bağlamak-mcp)** bakın.
 
 Global <code>crewctl</code> komutunu kullanmak isterseniz:
 
