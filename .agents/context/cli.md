@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/cli.js`
 
-**Last verified:** 2026-07-18
+**Last verified:** 2026-07-25
 
 ## Purpose
 
@@ -15,6 +15,7 @@ Web paneline gerek olmadan sunucuyu, engine'i ve dosya tabanlı görev kuyruğun
 - `run [--once] [--approval ask|auto]`: engine'i panelsiz çalıştırır.
 - `status [--json]`: operatör, mod, agent, kuyruk ve günlük bütçe özetini verir.
 - `task <hedef> [--dir] [--operator] [--mode]`: kuyruğa görev ekler.
+- `mcp`: CrewCtl'i stdio üzerinden MCP sunucusu olarak sunar (başka kodlama ajanları için). Ayrıntı: `mcp-server.md`.
 - `approvals`, `approve <id>`, `reject <id>`: insan onayı akışını yönetir.
 
 ## Contracts and invariants
@@ -24,6 +25,7 @@ Web paneline gerek olmadan sunucuyu, engine'i ve dosya tabanlı görev kuyruğun
 - Bilinmeyen option veya değersiz option hata üretir.
 - `run --once` yalnızca ilk pending görevi çalıştırır ve engine running durumunu `finally` ile kapatır.
 - CLI metin çıktısı ve JSON status şeması script kullananlar için dış sözleşmedir.
+- `mcp` komutu stdout'a **yalnızca** JSON-RPC mesajı yazar; bu yola eklenen herhangi bir `console.log` MCP istemcisinde parse hatası üretir.
 
 ## Interactions
 
@@ -35,6 +37,15 @@ Kuyruk ve config için `store.js`, yürütme için `engine.js`, doctor için `do
 - Yeni komut veya option eklenirse help metni ve CLI testini birlikte güncelle.
 
 ## Major Changes
+
+### 2026-07-25 — `crewctl mcp` komutu eklendi
+
+- **Change:** CrewCtl'i dışa dönük MCP sunucusu olarak çalıştıran `mcp` komutu ve help metnine MCP yapılandırma örneği eklendi.
+- **Reason:** Başka bir kodlama ajanının (Claude Code, Codex, Gemini, OpenCode) kendi akışından CrewCtl'e iş devredebilmesi.
+- **Impact:** Komut `mcp-server.js`'i yükler ve stdio'yu protokole devreder; diğer CLI komutları etkilenmedi.
+- **Compatibility:** Additive; mevcut komut yüzeyi ve JSON status şeması değişmedi.
+- **Verification:** `node orchestrator/test/mcp-server.test.js` (süreci gerçek istemci gibi konuşturur), `node orchestrator/test/cli.test.js`.
+- **Files:** `orchestrator/src/cli.js`, `orchestrator/src/mcp-server.js`
 
 ### 2026-07-14 — Global komut adı crewctl oldu
 

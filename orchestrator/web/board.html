@@ -115,13 +115,16 @@ function taskCard(t,state){const opLabel=t.operatorCli?cliLabel(t.operatorCli):'
   return `<div class="tcard"><div class="top"><span class="id">${esc(t.id)}</span><div class="grow"></div><span class="badge">${esc(t.executionMode||'auto')}</span>${opLabel?`<span class="badge">${esc(opLabel)}</span>`:''}${sched}</div><div class="prompt">${esc(t.prompt||'')}</div>${acts?`<div class="acts">${acts}</div>`:''}</div>`}
 function runningCard(cur){const stage=cur.stage?`<span class="badge">${esc(cur.stage)}</span>`:'';return `<div class="tcard"><div class="top"><span class="id">${esc(cur.id||'')}</span><div class="grow"></div>${stage}</div><div class="prompt">${esc(cur.prompt||'')}</div><div class="run-state"><span class="rd"></span>${esc(cur.agent?cur.agent+' çalışıyor':'operatör çalışıyor')}</div></div>`}
 function fill(id,html,count){$('#col-'+id).innerHTML=html||`<div class="col-empty">—</div>`;$('#cnt-'+id).textContent=count}
-function renderBoard(){const q=BOARD.queue||{},cur=BOARD.status?.current||null,runId=cur&&cur.id;
-  const pending=(q.pending||[]).filter(t=>!runId||t.id!==runId);
+/* Es zamanli gorevde BIRDEN FAZLA kosan gorev olabilir: "Calisiyor" sutunu hepsini gostermeli
+   ve "Bekleyen" sutunu hepsini gizlemeli. status.currents/activeIds yeni sozlesme; eski tekil
+   `current` geriye uyum icin fallback olarak kalir. */
+function renderBoard(){const q=BOARD.queue||{},runs=(BOARD.status?.currents)||(BOARD.status?.current?[BOARD.status.current]:[]),runIds=new Set(runs.map(r=>r&&r.id).filter(Boolean));
+  const pending=(q.pending||[]).filter(t=>!runIds.has(t.id));
   fill('pending',pending.map(t=>taskCard(t,'pending')).join(''),pending.length);
-  fill('running',cur?runningCard(cur):'',cur?1:0);
+  fill('running',runs.map(r=>runningCard(r)).join(''),runs.length);
   fill('done',(q.done||[]).map(t=>taskCard(t,'done')).join(''),(q.done||[]).length);
   fill('failed',(q.failed||[]).map(t=>taskCard(t,'failed')).join(''),(q.failed||[]).length)}
-function applyStatus(s){BOARD.status=s||{};$('#dot').className='dot'+(s&&s.running?' on':'');$('#engineState').textContent=s&&s.running?'çalışıyor':'durdu';$('#modePill').textContent=s&&s.current?`${esc(s.current.agent||'operatör')} · ${esc(s.current.stage||'')}`:(s&&s.busy?'meşgul':'boşta');renderBoard()}
+function applyStatus(s){BOARD.status=s||{};$('#dot').className='dot'+(s&&s.running?' on':'');$('#engineState').textContent=s&&s.running?'çalışıyor':'durdu';const runs=(s&&s.currents)||(s&&s.current?[s.current]:[]);$('#modePill').textContent=runs.length>1?`${runs.length} görev eşzamanlı`:(runs[0]?`${esc(runs[0].agent||'operatör')} · ${esc(runs[0].stage||'')}`:(s&&s.busy?'meşgul':'boşta'));renderBoard()}
 
 /* ---- Zamanlama şeridi ---- */
 function schedTriggerText(s){const t=s.trigger||{};if(t.type==='interval'){const n=t.everyMinutes||0;return n%60===0&&n>=60?`Her ${n/60} saatte bir`:`Her ${n} dk`}if(t.type==='daily')return `Her gün ${esc(t.at||'')}`;if(t.type==='weekly')return `${(t.days||[]).map(d=>SCHED_DAYS[d]).join(', ')} ${esc(t.at||'')}`;return '—'}

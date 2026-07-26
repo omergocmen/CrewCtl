@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/server.js`
 
-**Last verified:** 2026-07-24
+**Last verified:** 2026-07-25
 
 ## Purpose
 
@@ -27,12 +27,19 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 - Görev için seçilen operatör kurulu ve sağlıklı olmalıdır; OpenCode model hazırlığı ayrıca dikkate alınır.
 - CLI health cache sürümlüdür; health yürütme sözleşmesi değiştiğinde eski sonuçlar startup'ta agent profillerinden temizlenir ve otomatik yeniden test edilir.
 - `PUT /api/config`, eski model alanlarını `cliSettings` şemasına normalize eder; Codex/Claude/OpenCode model alanlarını, Codex effort değerini ve service tier biçimini doğrular.
+- `mcpServer` bloğu da ham gövde üzerinde doğrulanır (`allowEngineControl` boolean olmalı).
+- `maxConcurrentTasks` 1..8 tam sayı olmalıdır ve **1'den büyükse `worktree.mode` `"task"` olmak zorundadır**; izolasyon olmadan eşzamanlı görev aynı klasörde veri kaybına yol açacağı için istek 400 ile reddedilir.
+- `GET /api/state` → `status` artık `currents` (aktif görev listesi), `activeIds` ve `concurrency` alanlarını da taşır; `current` geriye uyum için ilk aktif görevdir. "Çalışan görev silinemez/güncellenemez" korumaları `activeIds` üzerinden tüm slotları kontrol eder.
+- `worktree` bloğu ham gövde üzerinde doğrulanır: `mode` yalnızca `off`/`task`, `setupCommands`/`linkPaths` metin dizisi, `setupTimeoutSeconds` ≥10, `commit`/`keepOnFailure` boolean. `linkPaths` içinde mutlak yol veya `..` kaçışı reddedilir (izolasyonu bozar).
+- `verify` bloğu `normalizeConfig` çağrısından ÖNCE, ham gövde üzerinde doğrulanır: normalizasyon geçersiz değerleri güvenli varsayılana çevirdiği için normalize sonrası kontrol asla tetiklenmez ve kullanıcı hatası sessizce yutulurdu.
 - Yalnızca pending görev düzenlenebilir; aktif görev düzenlenemez veya silinemez.
 - Görev hedefi düzenlenince eski plan, approval ve team state geçersizleştirilir.
 - Rol dosyası yolları `path.basename` ile `roles/` altına sınırlanır.
 - Statik kök `/`, `web/index.html`; `/flow.html`, ayrı ekip akışı sayfasıdır.
 
 ## Interactions
+
+Dışa dönük MCP sunucusu (`mcp-server.md`) bu API'nin bir **istemcisidir**: `POST /api/tasks`, `GET /api/tasks/:id`, `GET /api/state` ve `POST /api/engine` uçlarını kullanır. Bu uçların gövde/yanıt şeması değiştiğinde `mcp-server.js` birlikte güncellenmelidir.
 
 `engine` olayları `broadcast()` ile SSE istemcilerine ve kalıcı event store'a aktarılır. Task, config ve role işlemleri `store`; CLI işlemleri `cli-registry` üzerinden yürür.
 
@@ -42,6 +49,15 @@ Sunucu başlangıç banner'ı ürün adını `CrewCtl` olarak, çok-agent orkest
 - Endpoint değişikliklerinde dashboard/flow tüketicilerini ve hata kodlarını birlikte kontrol et.
 
 ## Major Changes
+
+### 2026-07-25 — Doğrulama kapısı config doğrulaması
+
+- **Change:** `PUT /api/config`, `verify` bloğunun tip ve alt sınırlarını (`commands` metin dizisi, `timeoutSeconds` ≥5, `maxOutputChars` ≥200, `maxAttempts` pozitif tam sayı, `enabled`/`blockOnFailure` boolean) ham gövde üzerinde denetler.
+- **Reason:** Kapı ayarını doğrulanmış bir API sözleşmesi yapmak ve normalizasyonun hatalı girdiyi sessizce düzeltmesini engellemek.
+- **Impact:** Hatalı tipte kapı ayarı açıklayıcı 400 yanıtı alır; geçerli ayar trim'lenerek kalıcılaşır.
+- **Compatibility:** Alan gönderilmezse doğrulama atlanır ve normalizasyon güvenli varsayılanı uygular; mevcut istemciler değişmeden çalışır.
+- **Verification:** `node orchestrator/test/server-flow.test.js` (canlı sunucu üzerinde geçerli/geçersiz gövde matrisi).
+- **Files:** `orchestrator/src/server.js`, `orchestrator/test/server-flow.test.js`
 
 ### 2026-07-24 — Claude Code model kataloğu API'si
 

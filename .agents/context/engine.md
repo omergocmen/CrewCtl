@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/engine.js`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-07-25
 
 ## Purpose
 
@@ -18,6 +18,9 @@ Dosya tabanlı kuyruktan görev alır; operatör planını, uzman delegasyonlar�
 - Çalışma dizinini görev öncesi/sonrası snapshot'lar; oluşturulan, değiştirilen ve silinen dosyaları teslimata ekler.
 - Görev çalışırken metin dosyalarının sınırlı başlangıç içeriğini saklar; değişiklikleri satır/hunk bazlı `filechange` olaylarıyla canlı ve replay edilebilir biçimde yayınlar.
 - Tamamlanmış görev hakkındaki salt-okunur operatör sohbetini ayrı akışla yürütür.
+- Turun tüm delegasyonları bittikten sonra, tamamlama kararlarından önce doğrulama kapısını çalıştırır; kırmızı kapıda kestirmeleri bastırır ve komut çıktısını operatöre kanıt olarak besler (`verify.md`).
+- Etkinse görev öncesi izole bir git worktree açıp `_cwd`'yi oraya taşır ve teslimatta branch'e commit'ler; proje profili için `_projectDir` ayrı tutulur (`worktree.md`).
+- İhraç edilen singleton süpervizördür: kuyruğu okur, `maxConcurrentTasks` kadar worker slotu doldurur ve durumu toplar. Görev yürütme worker örneklerinde olur (`concurrency.md`).
 
 ## Contracts and invariants
 
@@ -25,6 +28,8 @@ Dosya tabanlı kuyruktan görev alır; operatör planını, uzman delegasyonlar�
 - Bilinen uzman rolleri görev türünü bağlayıcı biçimde sınırlar: executor→`implement`, reviewer→`review`, planner→`plan`; katalog bu sözleşmeyi `allowedKinds` ile operatöre bildirir.
 - Review kararının son `VERDICT: PASS|FAIL` satırı korunur; PASS sonrası gereksiz yeni review turu açılmaz.
 - Bir turun tüm atamaları tamamlanmış ve turun en güncel incelemesi PASS ise `operator.passFastPath !== false` koşuluyla ikinci operatör değerlendirme çağrısı atlanır.
+- Doğrulama kapısı kırmızıyken FAST erken tamamlama, PASS hızlı yolu ve inceleme döngüsü valisi devre dışıdır; karar operatöre gider. Kapı `verify.commands` boşken hiç çalışmaz ve önceki davranış birebir korunur.
+- Kırmızı kapı teslimatı en fazla `verify.maxAttempts` kez engeller; sonrasında iş çöpe atılmaz, uyarılı teslimat yapılır.
 - Riskli plan `approvalMode=ask` iken hash'lenerek approval kuyruğuna alınır.
 - Otonom consent olmadan engine başlatılamaz.
 - `.git`, `node_modules` ve orkestratör runtime klasörleri dosya snapshot'ına dahil edilmez.
@@ -41,6 +46,33 @@ Dosya tabanlı kuyruktan görev alır; operatör planını, uzman delegasyonlar�
 - Proses yaşam döngüsü, recovery, approval, routing, PASS fast-path ve kısmi teslimat senaryolarını doğrula.
 
 ## Major Changes
+
+### 2026-07-25 — Motor süpervizör + worker slotlarına ayrıldı (eşzamanlı görev)
+
+- **Change:** `Engine` opsiyonel `shared` bağlamı alıyor; ihraç edilen singleton süpervizör (slot yönetimi, durum toplama), her eşzamanlı görev kendi `Engine` örneğinde koşuyor. Eski `loop()` gövdesi worker'a `executeQueued()` olarak taşındı; `stop()` tüm slotları durduruyor. Ayrıntı: `concurrency.md`.
+- **Reason:** Görev başına durumun tamamı zaten `this.*` üzerindeydi; worker-başına örnek bu ~150 dokunuş noktasını değiştirmeden izole eder ve `publish()`'in örtük `taskId` varsayılanını doğru tutar.
+- **Impact:** `maxConcurrentTasks > 1` iken görevler paralel koşar. Karantina haritası slotlar arasında paylaşılır; olaylar süpervizöre iletilir ve `status` olayı toplu durumu yayınlar.
+- **Compatibility:** Varsayılan 1 → davranış birebir aynı. `status().current` tekil kalır (`runs[0]`), `currents`/`activeIds`/`concurrency` eklenir. Singleton hâlâ tam bir Engine'dir, bu yüzden testlerin doğrudan `runTask()` çağrısı çalışmaya devam eder.
+- **Verification:** `npm test` (12 suite); `test/concurrency.test.js` iki görevin gerçekten üst üste koştuğunu ve olay atfının karışmadığını ölçer.
+- **Files:** `orchestrator/src/engine.js`, `orchestrator/src/store.js`, `orchestrator/test/concurrency.test.js`
+
+### 2026-07-25 — Çalışma ağacı izole edilebilir hâle geldi (`_cwd` / `_projectDir` ayrımı)
+
+- **Change:** `runTask`, çalışma dizinini çözdükten sonra `setupWorktree` ile `_cwd`'yi izole git worktree'sine taşıyor; `complete()` içinde `finalizeWorktree` branch'e commit'liyor ve `delivery.git` üretiyor. Proje profili okuma/yazma artık `_projectDir` (özgün depo) kullanıyor.
+- **Reason:** Ajanların kullanıcının çalışma ağacını doğrudan değiştirmesini önlemek ve teslimatı gözden geçirilebilir bir branch'e dönüştürmek.
+- **Impact:** `_cwd` tek dokunuş noktası olduğu için snapshot, canlı diff, checkpoint, sandbox, ajan prosesleri ve doğrulama kapısı kendiliğinden izole ağacı hedefler. Başarısız görevin izole ağacı korunur ve yolu bildirilir.
+- **Compatibility:** `worktree.mode` varsayılan `off`; kapalıyken tüm akış aynen çalışır. Git yok/depo değil/HEAD yok durumlarında uyarı yayınlanıp eski davranışa düşülür. **Kritik:** proje profili worktree'de değil özgün depoda tutulmalıdır, aksi halde `.crewctl` gitignore'daysa bağlam sessizce kaybolur.
+- **Verification:** `npm test` (11 suite); `test/worktree.test.js` gerçek depoda ana ağacın korunduğunu ve işin branch'te commit'lendiğini doğrular.
+- **Files:** `orchestrator/src/engine.js`, `orchestrator/src/worktree.js`, `orchestrator/test/worktree.test.js`
+
+### 2026-07-25 — Doğrulama kapısı tamamlama kararlarının önüne alındı
+
+- **Change:** Round döngüsünde `runAssignments` sonrasına tek çağrı noktalı `runVerifyGate` eklendi; FAST/PASS/vali kestirmeleri `gate.ok` koşuluna bağlandı, operatörün kırmızı kapıya rağmen verdiği `complete` kararı bir kez düzeltme turuyla reddedilir, `operatorPrompt` review evresine `## Dogrulama kapisi` kanıt bloğu ve kapı disiplini kuralı eklendi.
+- **Reason:** Teslimatın tek kalite dayanağı LLM'in `VERDICT: PASS` kanaatiydi; çalıştırılan bir kanıt katmanı yoktu.
+- **Impact:** `complete()` çalıştırılan kanıtı modelin beyanının önüne koyar ve `delivery.verify` üretir; `finishExhausted`/`salvage` kırmızı kapıyı uyarı olarak taşır.
+- **Compatibility:** `verify.commands` boşken (varsayılan) kapı hiç çalışmaz; mevcut tur/çağrı bütçeleri ve tüm testler değişmeden geçer.
+- **Verification:** `npm test` (9 suite); `test/verify.test.js` yeşil ve kırmızı kapıyı sahte CLI ile uçtan uca doğrular.
+- **Files:** `orchestrator/src/engine.js`, `orchestrator/src/verify.js`, `orchestrator/test/verify.test.js`
 
 ### 2026-07-17 — Canlı satır diff olayları
 

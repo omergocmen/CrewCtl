@@ -710,7 +710,7 @@ const server = http.createServer(async (req, res) => {
       if ((m = pathname.match(/^\/api\/tasks\/([^/]+)$/)) && req.method === "DELETE") {
         const found = store.findTask(m[1]);
         if (!found) return send(res, 404, { error: "gorev yok" });
-        if (engine.status().current?.id === found.task.id) return send(res, 409, { error: "su an calisan gorev silinemez" });
+        if (engine.status().activeIds.includes(found.task.id)) return send(res, 409, { error: "su an calisan gorev silinemez" });
         store.removeTask(found.state, found.task.id);
         broadcast("queue", snapshot());
         return send(res, 200, { ok: true });
@@ -719,7 +719,7 @@ const server = http.createServer(async (req, res) => {
         const found = store.findTask(m[1]);
         if (!found) return send(res, 404, { error: "gorev yok" });
         if (found.state !== "pending") return send(res, 409, { error: "yalnizca bekleyen gorev guncellenebilir" });
-        if (engine.status().current?.id === found.task.id) return send(res, 409, { error: "su an calisan gorev guncellenemez" });
+        if (engine.status().activeIds.includes(found.task.id)) return send(res, 409, { error: "su an calisan gorev guncellenemez" });
         const body = await readBody(req);
         const cfg = store.loadConfig();
         const t = found.task;
@@ -766,6 +766,70 @@ const server = http.createServer(async (req, res) => {
         if (!cfg.operator?.cli || !cliRegistry.KNOWN_CLIS.includes(cfg.operator.cli)) return send(res, 400, { error: "operator.cli gecerli bir CLI olmali (claude/codex/gemini/opencode)" });
         cfg.operator.roleFile = "roles/operator.md";
         delete cfg.operator.agent;
+        // Dogrulama kapisi HAM govde uzerinde denetlenir: normalizeConfig gecersiz degerleri
+        // guvenli varsayilanlara cevirdigi icin normalize SONRASI kontrol asla tetiklenmezdi.
+        // Boylece kullanici hatali tip gonderdiginde sessizce duzeltilmek yerine 400 alir.
+        if (cfg.verify !== undefined) {
+          const v = cfg.verify;
+          if (typeof v !== "object" || v === null || Array.isArray(v)) return send(res, 400, { error: "verify nesne olmali" });
+          if (v.commands !== undefined && (!Array.isArray(v.commands) || v.commands.some((x) => typeof x !== "string"))) return send(res, 400, { error: "verify.commands metin dizisi olmali" });
+          if (v.timeoutSeconds !== undefined && (typeof v.timeoutSeconds !== "number" || !Number.isFinite(v.timeoutSeconds) || v.timeoutSeconds < 5)) return send(res, 400, { error: "verify.timeoutSeconds en az 5 olmali" });
+          if (v.maxOutputChars !== undefined && (typeof v.maxOutputChars !== "number" || !Number.isFinite(v.maxOutputChars) || v.maxOutputChars < 200)) return send(res, 400, { error: "verify.maxOutputChars en az 200 olmali" });
+          if (v.maxAttempts !== undefined && (!Number.isInteger(v.maxAttempts) || v.maxAttempts < 1)) return send(res, 400, { error: "verify.maxAttempts pozitif tam sayi olmali" });
+          for (const key of ["enabled", "blockOnFailure"]) {
+            if (v[key] !== undefined && typeof v[key] !== "boolean") return send(res, 400, { error: `verify.${key} boolean olmali` });
+          }
+        }
+        if (cfg.maxConcurrentTasks !== undefined && (!Number.isInteger(cfg.maxConcurrentTasks) || cfg.maxConcurrentTasks < 1 || cfg.maxConcurrentTasks > 8)) {
+          return send(res, 400, { error: "maxConcurrentTasks 1-8 arasi tam sayi olmali" });
+        }
+        // Es zamanli gorev, izolasyon olmadan tehlikelidir: iki gorev ayni klasorde birbirinin
+        // dosyalarini ezer. Sessizce kabul etmek yerine kullaniciya sebebi soyle.
+        if (Number(cfg.maxConcurrentTasks) > 1 && cfg.worktree?.mode !== "task") {
+          return send(res, 400, { error: "Es zamanli gorev icin git worktree izolasyonu gerekir: once worktree.mode degerini 'task' yapin (aksi halde gorevler ayni klasorde birbirinin dosyalarini ezer)." });
+        }
+        if (cfg.worktree !== undefined) {
+          const w = cfg.worktree;
+          if (typeof w !== "object" || w === null || Array.isArray(w)) return send(res, 400, { error: "worktree nesne olmali" });
+          if (w.mode !== undefined && !["off", "task"].includes(w.mode)) return send(res, 400, { error: "worktree.mode 'off' veya 'task' olmali" });
+          for (const key of ["setupCommands", "linkPaths"]) {
+            if (w[key] !== undefined && (!Array.isArray(w[key]) || w[key].some((x) => typeof x !== "string"))) return send(res, 400, { error: `worktree.${key} metin dizisi olmali` });
+          }
+          // Bagli yollar depo kokune goreli olmali; mutlak yol veya '..' kacisi izolasyonu bozar.
+          for (const rel of Array.isArray(w.linkPaths) ? w.linkPaths : []) {
+            if (path.isAbsolute(rel) || String(rel).split(/[\\/]/).includes("..")) return send(res, 400, { error: `worktree.linkPaths goreli olmali ve '..' icermemeli: ${rel}` });
+          }
+          if (w.branchPrefix !== undefined && typeof w.branchPrefix !== "string") return send(res, 400, { error: "worktree.branchPrefix metin olmali" });
+          if (w.setupTimeoutSeconds !== undefined && (typeof w.setupTimeoutSeconds !== "number" || !Number.isFinite(w.setupTimeoutSeconds) || w.setupTimeoutSeconds < 10)) return send(res, 400, { error: "worktree.setupTimeoutSeconds en az 10 olmali" });
+          for (const key of ["commit", "keepOnFailure"]) {
+            if (w[key] !== undefined && typeof w[key] !== "boolean") return send(res, 400, { error: `worktree.${key} boolean olmali` });
+          }
+        }
+        if (cfg.mcp !== undefined) {
+          const m = cfg.mcp;
+          if (typeof m !== "object" || m === null || Array.isArray(m)) return send(res, 400, { error: "mcp nesne olmali" });
+          if (m.enabled !== undefined && typeof m.enabled !== "boolean") return send(res, 400, { error: "mcp.enabled boolean olmali" });
+          if (m.codexUnsafeBypass !== undefined && typeof m.codexUnsafeBypass !== "boolean") return send(res, 400, { error: "mcp.codexUnsafeBypass boolean olmali" });
+          if (m.mode !== undefined && !["strict", "inherit"].includes(m.mode)) return send(res, 400, { error: "mcp.mode 'strict' veya 'inherit' olmali" });
+          if (m.maxServersPerAssignment !== undefined && (!Number.isInteger(m.maxServersPerAssignment) || m.maxServersPerAssignment < 1 || m.maxServersPerAssignment > 8)) return send(res, 400, { error: "mcp.maxServersPerAssignment 1-8 arasi tam sayi olmali" });
+          if (m.servers !== undefined) {
+            if (typeof m.servers !== "object" || m.servers === null || Array.isArray(m.servers)) return send(res, 400, { error: "mcp.servers nesne olmali" });
+            for (const [name, srv] of Object.entries(m.servers)) {
+              if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) return send(res, 400, { error: `gecersiz MCP sunucu adi: ${name} (yalnizca harf, sayi, _ ve -)` });
+              if (typeof srv !== "object" || srv === null || Array.isArray(srv)) return send(res, 400, { error: `mcp.servers.${name} nesne olmali` });
+              if (!String(srv.command || "").trim() && !String(srv.url || "").trim()) return send(res, 400, { error: `mcp.servers.${name} icin 'command' (yerel) veya 'url' (uzak) gerekli` });
+              if (srv.args !== undefined && (!Array.isArray(srv.args) || srv.args.some((x) => typeof x !== "string"))) return send(res, 400, { error: `mcp.servers.${name}.args metin dizisi olmali` });
+              if (srv.kinds !== undefined && (!Array.isArray(srv.kinds) || srv.kinds.some((k) => !["implement", "review", "research", "plan"].includes(k)))) return send(res, 400, { error: `mcp.servers.${name}.kinds yalnizca implement/review/research/plan icerebilir` });
+              if (srv.agents !== undefined && (!Array.isArray(srv.agents) || srv.agents.some((x) => typeof x !== "string"))) return send(res, 400, { error: `mcp.servers.${name}.agents metin dizisi olmali` });
+              if (srv.write !== undefined && typeof srv.write !== "boolean") return send(res, 400, { error: `mcp.servers.${name}.write boolean olmali` });
+            }
+          }
+        }
+        if (cfg.mcpServer !== undefined) {
+          const m = cfg.mcpServer;
+          if (typeof m !== "object" || m === null || Array.isArray(m)) return send(res, 400, { error: "mcpServer nesne olmali" });
+          if (m.allowEngineControl !== undefined && typeof m.allowEngineControl !== "boolean") return send(res, 400, { error: "mcpServer.allowEngineControl boolean olmali" });
+        }
         // Eski UI govdeleri (operator.codexSettings / operator.model) yeni cliSettings
         // yapisina tasinir; dogrulama tek semada yapilir.
         cfg = store.normalizeConfig(cfg);

@@ -20,6 +20,7 @@ Kullanim:
   crewctl run [--once] [--approval mod] Kuyrugu panelsiz calistir
   crewctl status [--json]               Kuyruk ve butce ozetini goster
   crewctl task <hedef> [secenekler]      Kuyruga gorev ekle
+  crewctl mcp                            MCP sunucusu olarak calis (stdio; baska ajanlar icin)
   crewctl approvals                      Onay bekleyen planlari listele
   crewctl approve <id>                   Plani onayla
   crewctl reject <id>                    Plani reddet
@@ -33,6 +34,11 @@ Task secenekleri:
 Ornek:
   crewctl task "Testleri duzelt" --dir . --mode balanced
   crewctl status
+
+MCP: Baska bir kodlama ajanina (Claude Code, Codex, Gemini, OpenCode) CrewCtl'i arac olarak
+sunmak icin "crewctl mcp" komutunu o ajanin MCP yapilandirmasina ekleyin. Ornek:
+  {"mcpServers":{"crewctl":{"command":"npx","args":["-y","@omerrgocmen/crewctl","mcp"]}}}
+Araclar calisan panele baglanir; once "crewctl start" ile paneli acin.
 
 Veri (config, kuyruk, gecmis) ~/.crewctl altinda tutulur (CREWCTL_HOME ile degistirilebilir).
 Calisma klasoru varsayilan olarak komutun calistirildigi dizindir; panelden degistirilebilir.
@@ -125,6 +131,8 @@ async function main(argv = process.argv.slice(2)) {
   if (["--version", "-v", "version"].includes(command)) return console.log(VERSION);
   if (command === "start") return require("./server");
   if (command === "doctor") return require("./doctor").main({ fix: args.includes("--fix") });
+  // MCP: stdout YALNIZCA JSON-RPC mesajlari icindir; bu yol hicbir sey yazdirmamali.
+  if (command === "mcp") return require("./mcp-server").start();
   if (command === "run") return run(args);
   if (command === "status") return status(args.includes("--json"));
   if (command === "task") return addTask(args);

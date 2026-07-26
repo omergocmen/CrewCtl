@@ -34,6 +34,7 @@ async function main() {
   const reviewGovernorWorkspace = path.join(__dirname, ".tmp-review-governor-workspace");
   const partialWorkspace = path.join(__dirname, ".tmp-partial-workspace");
   const shortcutWorkspace = path.join(__dirname, ".tmp-shortcut-workspace");
+  const noProofWorkspace = path.join(__dirname, ".tmp-noproof-workspace");
   const operatorDirectWorkspace = path.join(__dirname, ".tmp-operator-direct-workspace");
   const openCodeWorkspace = path.join(__dirname, ".tmp-opencode-workspace");
   const fakeCli = path.join(__dirname, "fake-cli.js");
@@ -45,7 +46,7 @@ async function main() {
   // sayarak snapshot diff'ini bozar ve YANLIS bir basarisizlik uretir. Best-effort ve
   // asla firlatmayan bu yardimci hem baslangicta hem teardown'da kullanilir.
   const removeWorkspace = (dir) => { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 }); } catch {} };
-  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, failoverWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, shortcutWorkspace, operatorDirectWorkspace, openCodeWorkspace];
+  const workspaces = [workspace, approvalWorkspace, recoveryWorkspace, failoverWorkspace, routingWorkspace, reviewLoopWorkspace, reviewGovernorWorkspace, partialWorkspace, shortcutWorkspace, noProofWorkspace, operatorDirectWorkspace, openCodeWorkspace];
   for (const dir of workspaces) { removeWorkspace(dir); fs.mkdirSync(dir, { recursive: true }); }
   const tasks = [];
   try {
@@ -279,6 +280,30 @@ async function main() {
     assert.equal(shortcutFound.task.teamState.results["shortcut-build"].status, "completed");
     assert.ok(fs.existsSync(path.join(shortcutWorkspace, "team-output.txt")));
     assert.ok(store.listRunEvents(shortcutTask.id).some((event) => event.type === "log" && event.msg.includes("delegasyonsuz kapatmaya")));
+
+    // TESLIMAT KANITI SARTI (regresyon 2026-07-25): is gerektiren gorevde YALNIZCA inceleme
+    // yapilip hicbir dosya uretilmediginde, denetci PASS verse bile hizli yol gorevi
+    // KAPATMAMALIDIR. Gozlenen ariza: kullanici "Gorev basariyla tamamlandi" gordu, klasor bostu.
+    base.workingDir = noProofWorkspace;
+    store.saveConfig(base);
+    const noProofTask = store.addTask("Kanitsiz PASS: team-output.txt olustur.", noProofWorkspace, "operator", "balanced");
+    tasks.push(noProofTask);
+    engine.running = true;
+    await engine.runTask(noProofTask);
+    engine.running = false;
+    const noProofFound = store.findTask(noProofTask.id);
+    const noProofEvents = store.listRunEvents(noProofTask.id);
+    // Hizli yol ATLANMIS olmali ve sebebi kullaniciya bildirilmis olmali.
+    assert.ok(noProofEvents.some((event) => event.type === "log" && /teslimat kaniti degil/.test(event.msg || "")),
+      "kanitsiz PASS'te hizli yolun atlandigi bildirilmeli");
+    assert.ok(!noProofEvents.some((event) => event.type === "log" && /PASS verdi; operator degerlendirme cagrisi atlandi/.test(event.msg || "")),
+      "kanitsiz PASS ile teslimat KAPATILMAMALI");
+    // Karar operatore gitmis, gercek is delege edilmis ve dosya URETILMIS olmali.
+    assert.equal(noProofFound.state, "done", "operator devrede kalip isi tamamlamali");
+    assert.ok(noProofFound.task.teamState.results["kanitsiz-build"], "gercek uygulama delegasyonu acilmali");
+    assert.equal(noProofFound.task.teamState.results["kanitsiz-build"].status, "completed");
+    assert.ok(fs.existsSync(path.join(noProofWorkspace, "team-output.txt")), "teslimat gercekten dosya uretmeli");
+    assert.ok((noProofFound.task.delivery.files || []).some((f) => f.path === "team-output.txt"), "teslimatta dosya listelenmeli");
 
     // Operator dogrudan uygulama: operator JSON plani yerine isi kendisi yapip duz metin
     // donerse (or. OpenCode operator rolunde) motor JSON parse edemez; ancak calisma klasoru

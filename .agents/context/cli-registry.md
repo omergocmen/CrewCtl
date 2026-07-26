@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/cli-registry.js`
 
-**Last verified:** 2026-07-24
+**Last verified:** 2026-07-25
 
 ## Purpose
 
@@ -18,6 +18,7 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 - Codex app-server initialize çağrısında istemci kimliğini `crewctl` / `CrewCtl` olarak bildirir.
 - Claude Code Agent SDK `initialize` kontrol yanıtından oturuma özel model kataloğunu alır; hesap bilgisini dışarı aktarmadan yalnızca model görüntüleme/yetenek alanlarını normalize eder.
 - Health check, normal runtime ile aynı `{PROMPT}`/`{PROMPT_FILE}` materyalizasyonunu ve OpenCode otonom izin ortamını kullanır; geçici prompt dosyasını her çıkış yolunda temizler.
+- `agentEnvironment(agent, mcpBlock)` ikinci argümanı **opsiyoneldir ve yalnızca motor verir**: MCP sunucuları sağlık probe'larında açılmaz (probe'ları yavaşlatır ve `abortActiveProbes` onları öldürürken yarım proses kalırdı). Bozuk `mcpBlock` sessizce yok sayılır; otonom izin bloğu her durumda korunur. Ayrıntı: `mcp-inbound.md`.
 - Otomatik keşfedilen uzmanları config'e ekler; kullanıcının gizlediği adapter'ları geri eklemez ve geçersiz operatörü uygun CLI'a taşır.
 
 ## Contracts and invariants

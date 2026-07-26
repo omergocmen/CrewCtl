@@ -1,6 +1,6 @@
 # Project Context Index
 
-**Last verified:** 2026-07-18
+**Last verified:** 2026-07-25
 
 Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. Bir alanı değiştirmeden önce ilgili context'i oku; değişiklikten sonra `.agents/skills/context-maintainer/SKILL.md` ile güncelle.
 
@@ -13,6 +13,11 @@ Bu dizin, projenin güncel modül ve sayfa bağlamının kaynak haritasıdır. B
 | `orchestrator/src/engine.js` | `engine.md` |
 | `orchestrator/src/server.js` | `server-api.md` |
 | `orchestrator/src/store.js` | `store.md` |
+| `orchestrator/src/verify.js`, engine doğrulama kapısı entegrasyonu | `verify.md` |
+| `orchestrator/src/mcp-server.js`, `crewctl mcp` komutu | `mcp-server.md` |
+| `orchestrator/src/mcp.js`, engine MCP materyalizasyonu, `agentEnvironment` | `mcp-inbound.md` |
+| `orchestrator/src/worktree.js`, engine worktree entegrasyonu | `worktree.md` |
+| engine süpervizör/worker slotları, `store.nextPending(skipIds)`, `maxConcurrentTasks` | `concurrency.md` |
 | `orchestrator/src/cli-registry.js` | `cli-registry.md` |
 | `orchestrator/src/cli.js` | `cli.md` |
 | `orchestrator/src/doctor.js` | `doctor.md` |

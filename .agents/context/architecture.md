@@ -2,7 +2,7 @@
 
 **Sources:** `README.md`, `CONTRIBUTING.md`, `package.json`, `.gitignore`, `.npmignore`, `orchestrator/src/*.js`, `orchestrator/web/*.html`
 
-**Last verified:** 2026-07-18
+**Last verified:** 2026-07-25
 
 ## Purpose
 
@@ -17,6 +17,10 @@ CrewCtl, kurulu Codex, Claude Code, Gemini ve OpenCode CLI'larını tek bir oper
 - `orchestrator/src/cli-registry.js`: CLI keşfi, model/argüman normalizasyonu ve sağlık kontrolleri.
 - `orchestrator/src/skill-registry.js`: yerel skill keşfi, eşleştirme, bağlam bütçesi ve çağrı takibi.
 - `orchestrator/src/checkpoints.js`: görev öncesi çalışma klasörü checkpoint'i, listeleme, saklama limiti ve güvenli geri yükleme.
+- `orchestrator/src/verify.js`: doğrulama kapısı — kullanıcı komutlarının çalışma klasöründe koşumu, fail-fast raporu ve operatöre verilecek kanıt metni.
+- `orchestrator/src/worktree.js`: görev başına git worktree izolasyonu — izole ağaç, branch, commit ve kurulum komutları.
+- `orchestrator/src/mcp.js`: içe dönük MCP — uzman ajanlara harici araç verirken uygulanan sert kapı (kind/agent/kimlik) ve adapter'a özgü materyalizasyon planı.
+- `orchestrator/src/mcp-server.js`: dışa dönük MCP sunucusu — CrewCtl'i başka kodlama ajanlarına araç olarak sunar; çalışan panelin HTTP API'sinin istemcisidir.
 - `orchestrator/src/schedule.js`: zamanlanmış görevlerin saf (yan etkisiz) doğrulama ve sonraki-çalışma hesabı.
 - `orchestrator/web/index.html`: ana dashboard ve tüm yönetim modalları (zamanlama sekmesi dahil).
 - `orchestrator/web/flow.html`: Three.js/WebGL tabanlı canlı ekip akışı, agent filosu ve görev zaman çizelgesi.
@@ -52,6 +56,51 @@ Dashboard, Ekip Akışı ve Canlı Kod sayfaları `server.js` API/SSE sözleşme
 - `npm pack --dry-run --json`
 
 ## Major Changes
+
+### 2026-07-25 — İçe dönük MCP (Faz 1) eklendi
+
+- **Change:** Yeni `orchestrator/src/mcp.js` ve motor materyalizasyonu; uzman ajanlar harici MCP araçları kullanabiliyor. Rol kapısı: operatör hiçbir koşulda MCP almaz. Ayrıntı için `mcp-inbound.md`.
+- **Reason:** Ajanların dış dünyaya erişimi yoktu; reviewer'ın doğrulayamadığı kontroller `NOT RUN` kalıyordu.
+- **Impact:** Yeni modül, `config.mcp` şeması, `agentEnvironment(agent, mcpBlock)` imzası, agent kataloğunda `tools` farkındalığı ve bağımsız test suite'i. claude + opencode destekli; codex/gemini Faz 2.
+- **Compatibility:** `mcp.enabled: false` varsayılan → davranış birebir korunur; sağlık testleri MCP açmaz. Sıfır runtime bağımlılığı korunur.
+- **Verification:** `npm test` (13 suite); uçtan uca test operatörde MCP argümanı bulunmadığını, uzmanda bulunduğunu doğrular.
+- **Files:** `orchestrator/src/mcp.js`, `orchestrator/src/engine.js`, `orchestrator/src/cli-registry.js`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/config.default.json`, `orchestrator/web/index.html`, `orchestrator/test/mcp.test.js`, `package.json`
+
+### 2026-07-25 — Eşzamanlı görev yürütme eklendi
+
+- **Change:** Motor süpervizör + worker slotu mimarisine ayrıldı; `maxConcurrentTasks` (varsayılan 1) ile görevler paralel koşabiliyor. Ayrıntı için `concurrency.md`.
+- **Reason:** Worktree izolasyonu geldiği için kuyruk artık güvenle paralelleştirilebilirdi; duvar saati süresi kuyruk derinliğiyle ölçekleniyor.
+- **Impact:** Yeni context dosyası, `store.nextPending(skipIds)` sahiplenmesi, `status()` genişletmesi, `/api/config` güvenlik kapısı (izolasyon olmadan eşzamanlılık reddedilir) ve bağımsız test suite'i.
+- **Compatibility:** Varsayılan 1 → davranış birebir korunur; `status().current` tekil kalır ve dört web sayfası değişmeden çalışır. Sıfır runtime bağımlılığı korunur.
+- **Verification:** `npm test` (12 suite); gerçek git deposunda iki görevin üst üste koştuğu ve olay atfının karışmadığı ölçüldü. Ayrıca iki eşzamanlı `codex exec` ayrı dizinlerde başarıyla doğrulandı.
+- **Files:** `orchestrator/src/engine.js`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/config.default.json`, `orchestrator/web/index.html`, `orchestrator/web/board.html`, `orchestrator/test/concurrency.test.js`, `package.json`
+
+### 2026-07-25 — Görev başına git worktree izolasyonu eklendi
+
+- **Change:** Yeni `orchestrator/src/worktree.js` ve motor entegrasyonu; görev artık izole bir git worktree içinde çalışıp kendi branch'ine commit'lenebiliyor. Ayrıntı için `worktree.md`.
+- **Reason:** Ajanlar kullanıcının çalışma ağacını doğrudan değiştiriyordu; teslimat gözden geçirilebilir bir git nesnesi değildi ve eşzamanlı görev için izolasyon zemini yoktu.
+- **Impact:** Yeni bir modül, `config.worktree` şeması, Ayarlar alanları, `delivery.git` sözleşmesi ve bağımsız test suite'i. Uzağa hiçbir şey gönderilmez (push/PR yok).
+- **Compatibility:** Varsayılan `mode: "off"` — davranış birebir korunur; git yoksa güvenli geri düşme. Sıfır runtime bağımlılığı ve CommonJS sözleşmesi korunur.
+- **Verification:** `npm test` (11 suite); gerçek git deposu üzerinde uçtan uca izolasyon, commit ve geri düşme doğrulandı.
+- **Files:** `orchestrator/src/worktree.js`, `orchestrator/src/engine.js`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/config.default.json`, `orchestrator/web/index.html`, `orchestrator/test/worktree.test.js`, `package.json`
+
+### 2026-07-25 — Dışa dönük MCP sunucusu eklendi
+
+- **Change:** Yeni `orchestrator/src/mcp-server.js` ve `crewctl mcp` komutu; CrewCtl artık yalnızca kendi panelinden değil, başka bir kodlama ajanının akışından da kullanılabiliyor. Ayrıntı için `mcp-server.md`.
+- **Reason:** Rakiplerin (Vibe Kanban, Conductor OSS) sunduğu "orkestratörün kendisi MCP sunucusu" yönü eksikti; mevcut HTTP API üzerine ince bir kabukla karşılanıyor.
+- **Impact:** Yeni bir modül + CLI komutu + `config.mcpServer` şeması + bağımsız test suite'i. Panel, motor ve mevcut API sözleşmeleri değişmedi.
+- **Compatibility:** Tamamen additive; sıfır runtime bağımlılığı ve CommonJS sözleşmesi korunur. MCP süreci ayrı çalışır, panel kapalıyken açıklayıcı hata döner.
+- **Verification:** `npm test` (on suite); canlı panele karşı el sıkışma + gerçek görev oluşturma doğrulandı; `npm pack --dry-run --json` paket içeriğini onaylar.
+- **Files:** `orchestrator/src/mcp-server.js`, `orchestrator/src/cli.js`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/config.default.json`, `orchestrator/test/mcp-server.test.js`, `package.json`
+
+### 2026-07-25 — Doğrulama kapısı katmanı eklendi
+
+- **Change:** Yeni `orchestrator/src/verify.js` modülü ve motor entegrasyonu eklendi; teslimat kararı LLM verdict'ine ek olarak çalıştırılan komut sonucuna bağlandı. Ayrıntı için `verify.md`.
+- **Reason:** Kalite döngüsünün tek dayanağı modelin `VERDICT: PASS` beyanıydı; ölçülebilir kanıt katmanı yoktu.
+- **Impact:** Yeni bir modül, `config.verify` şeması, Ayarlar → Genel alanları ve bağımsız test suite'i; kapı `verify.commands` boşken tamamen edilgen kalır.
+- **Compatibility:** Varsayılan yapılandırmada davranış birebir korunur; sıfır runtime bağımlılığı ve CommonJS sözleşmesi bozulmaz.
+- **Verification:** `npm test` (dokuz suite); `npm pack --dry-run --json` (103 dosya, `src/verify.js` dahil, testler hariç).
+- **Files:** `orchestrator/src/verify.js`, `orchestrator/src/engine.js`, `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/config.default.json`, `orchestrator/web/index.html`, `orchestrator/test/verify.test.js`, `package.json`
 
 ### 2026-07-18 — Npm paketi sahipli kapsam altına taşındı
 
