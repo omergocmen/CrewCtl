@@ -113,6 +113,62 @@ button > svg, .btn svg { stroke-linecap: round; stroke-linejoin: round; }
 .app-btn-confirm:hover{filter:brightness(1.07);border-color:var(--acc)}
 .app-dialog.danger .app-btn-confirm:hover{border-color:var(--err)}
 
+/* ---- Light Mode Crispness & Theme Harmony ---- */
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --panel2: #f1f5f9;
+  --line: #e2e8f0;
+  --tx: #0f172a;
+  --dim: #64748b;
+  --acc: #4f46e5;
+  --ok: #059669;
+  --warn: #d97706;
+  --err: #dc2626;
+  --purple: #7c3aed;
+  --headerbg: #ffffff;
+  --input: #f8fafc;
+  --nodebg: #f1f5f9;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="light"] input,
+[data-theme="light"] textarea,
+[data-theme="light"] select {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+[data-theme="light"] input:hover,
+[data-theme="light"] textarea:hover,
+[data-theme="light"] select:hover {
+  border-color: #818cf8;
+}
+
+[data-theme="light"] .card,
+[data-theme="light"] .item,
+[data-theme="light"] .task {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .cp-container {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .cp-item.selected,
+[data-theme="light"] .cp-item:hover {
+  background: #e0e7ff;
+}
+
+[data-theme="light"] code,
+[data-theme="light"] pre {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
 /* ---- Mobil & Responsive Katmanı ---- */
 @media (max-width: 992px) {
   main {
@@ -135,4 +191,5 @@ button > svg, .btn svg { stroke-linecap: round; stroke-linejoin: round; }
     grid-template-columns: repeat(2, 1fr) !important;
   }
 }
+
 
