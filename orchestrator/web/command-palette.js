@@ -14,7 +14,7 @@
     {id:'theme-toggle',title:'Tema Değiştir',description:'Açık/koyu tema geçişi',category:'System',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',action:()=>{if(typeof toggleTheme==='function')toggleTheme();close()},shortcut:'Alt+T',keywords:['theme','dark','light','tema','mod']},
     {id:'engine-start',title:'Motoru Başlat',description:'Operatör motorunu çalıştır',category:'System',icon:'<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',action:()=>{if(typeof engine==='function')engine('start');close()},shortcut:'Alt+S',keywords:['start','engine','motor','başlat','run']},
     {id:'engine-stop',title:'Motoru Durdur',description:'Operatör motorunu durdur',category:'System',icon:'<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',action:()=>{if(typeof engine==='function')engine('stop');close()},keywords:['stop','engine','motor','durdur','halt']},
-    {id:'open-settings',title:'Ayarlar',description:'Sistem ayarlarını aç',category:'System',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2l4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2l4.2-4.2"/></svg>',action:()=>{if(typeof openSettings==='function')openSettings();close()},shortcut:'Alt+,',keywords:['settings','config','ayarlar','tercih']},
+    {id:'open-settings',title:'Ayarlar',description:'Sistem ayarlarını aç',category:'System',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2l4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2l4.2-4.2"/></svg>',action:()=>{close();if(typeof openSettings==='function')openSettings();else location.href='index.html?settings=true';},shortcut:'Alt+,',keywords:['settings','config','ayarlar','tercih']},
     {id:'refresh-page',title:'Sayfayı Yenile',description:'Sayfayı yeniden yükle',category:'Utility',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>',action:()=>location.reload(),shortcut:'F5',keywords:['refresh','reload','yenile','update']},
     {id:'fullscreen-toggle',title:'Tam Ekran',description:'Tam ekran modunu aç/kapat',category:'Utility',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>',action:()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();close()},shortcut:'F11',keywords:['fullscreen','tam ekran','expand']},
     {id:'copy-url',title:'URL Kopyala',description:'Sayfa adresini kopyala',category:'Utility',icon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',action:()=>{navigator.clipboard.writeText(location.href).then(()=>showToast('URL kopyalandı!','ok')).catch(()=>showToast('Kopyalanamadı','err'));close()},shortcut:'Alt+U',keywords:['copy','url','link','kopyala','adres']},
@@ -27,6 +27,7 @@
   let searchTerm='';
   let activeCategory='All';
   let commandHistory=[];
+  let lastMouseX=0, lastMouseY=0;
   
   try{
     const saved=localStorage.getItem('commandHistory');
@@ -118,7 +119,7 @@
               <div class="cp-item ${idx===selectedIndex?'selected':''}" 
                    data-index="${idx}"
                    onclick="window.CommandPalette.execute(${idx})"
-                   onmouseenter="window.CommandPalette.select(${idx})">
+                   onmousemove="window.CommandPalette.handleMouseMove(event, ${idx})">
                 <span class="cp-icon">${item.icon}</span>
                 <div class="cp-content">
                   <div class="cp-title">${ESCAPE(item.title)}</div>
@@ -220,12 +221,32 @@
     selectedIndex=0;
     updateList();
   }
+
+  function handleMouseMove(e, idx) {
+    if (e.clientX === lastMouseX && e.clientY === lastMouseY) return;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+    if (selectedIndex !== idx) {
+      selectedIndex = idx;
+      highlightItem(idx);
+    }
+  }
   
   function select(idx){
     selectedIndex=idx;
-    updateList();
-    const el=$(`.cp-item[data-index="${idx}"]`);
-    if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+    highlightItem(idx);
+  }
+
+  function highlightItem(idx){
+    const items=$$('.cp-item');
+    items.forEach((item, i)=>{
+      if(i===idx){
+        item.classList.add('selected');
+        item.scrollIntoView({block:'nearest',behavior:'auto'});
+      }else{
+        item.classList.remove('selected');
+      }
+    });
   }
   
   function execute(idx){
@@ -240,10 +261,10 @@
   
   function updateList(){
     const list=$('#cpList');
-    const container=$('.cp-container');
-    if(!list||!container)return;
+    if(!list)return;
     
     const items=getDisplayItems();
+    if(selectedIndex >= items.length) selectedIndex = Math.max(0, items.length - 1);
     
     list.innerHTML=items.length===0?`
       <div class="cp-empty">
@@ -253,7 +274,7 @@
       <div class="cp-item ${idx===selectedIndex?'selected':''}" 
            data-index="${idx}"
            onclick="window.CommandPalette.execute(${idx})"
-           onmouseenter="window.CommandPalette.select(${idx})">
+           onmousemove="window.CommandPalette.handleMouseMove(event, ${idx})">
         <span class="cp-icon">${item.icon}</span>
         <div class="cp-content">
           <div class="cp-title">${ESCAPE(item.title)}</div>
@@ -279,15 +300,11 @@
     if(e.key==='ArrowDown'){
       e.preventDefault();
       selectedIndex=Math.min(selectedIndex+1,items.length-1);
-      updateList();
-      const el=$(`.cp-item[data-index="${selectedIndex}"]`);
-      if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+      highlightItem(selectedIndex);
     }else if(e.key==='ArrowUp'){
       e.preventDefault();
       selectedIndex=Math.max(selectedIndex-1,0);
-      updateList();
-      const el=$(`.cp-item[data-index="${selectedIndex}"]`);
-      if(el)el.scrollIntoView({block:'nearest',behavior:'smooth'});
+      highlightItem(selectedIndex);
     }else if(e.key==='Enter'){
       e.preventDefault();
       execute(selectedIndex);
