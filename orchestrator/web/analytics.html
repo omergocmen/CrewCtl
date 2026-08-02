@@ -3,84 +3,60 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Analytics & Performans · CrewCtl</title>
+<title>Analytics · CrewCtl</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <style>
 *{box-sizing:border-box}
-:root{
-  --bg:#0b0f17;--panel:rgba(18, 26, 41, 0.75);--panel2:rgba(26, 37, 57, 0.6);--line:rgba(255, 255, 255, 0.08);
-  --tx:#f1f5f9;--dim:#94a3b8;--acc:#6366f1;--acc-glow:rgba(99, 102, 241, 0.25);
-  --ok:#10b981;--ok-glow:rgba(16, 185, 129, 0.15);--warn:#f59e0b;--err:#f43f5e;--err-glow:rgba(244, 63, 94, 0.15);
-  --headerbg:rgba(13, 17, 23, 0.85);--shadow:0 12px 32px rgba(0,0,0,0.5);--appbg:var(--bg)
-}
-[data-theme=light]{
-  --bg:#f8fafc;--panel:rgba(255, 255, 255, 0.9);--panel2:rgba(241, 245, 249, 0.8);--line:rgba(0, 0, 0, 0.08);
-  --tx:#0f172a;--dim:#64748b;--acc:#4f46e5;--acc-glow:rgba(79, 70, 229, 0.15);
-  --ok:#059669;--ok-glow:rgba(5, 150, 105, 0.1);--warn:#d97706;--err:#e11d48;--err-glow:rgba(225, 29, 72, 0.1);
-  --headerbg:rgba(255, 255, 255, 0.9);--shadow:0 4px 16px rgba(0,0,0,0.06);--appbg:var(--bg)
-}
-body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 Inter,-apple-system,BlinkMacSystemFont,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font:inherit;transition:all 0.2s}
-button:hover{border-color:var(--acc);box-shadow:0 0 12px var(--acc-glow)}
-main{padding:28px 24px;max-width:1400px;margin:0 auto}
+:root{--bg:#0a0e14;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;--acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;--purple:#a98bff;
+--headerbg:#0d1117;--input:#0d1520;--nodebg:#0b1220;--shadow:0 8px 24px rgba(0,0,0,0.4);--appbg:var(--bg)}
+[data-theme=light]{--bg:#f5f7fa;--panel:#ffffff;--panel2:#f8f9fb;--line:#e1e5eb;--tx:#1a202c;--dim:#64748b;--acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;--purple:#7350f0;
+--headerbg:#ffffff;--input:#f8f9fb;--nodebg:#f8f9fb;--shadow:0 2px 8px rgba(0,0,0,0.08);--appbg:var(--bg)}
 
-.grid-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;margin-bottom:24px}
-.grid-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:20px;margin-bottom:24px}
+body{margin:0;background:var(--appbg);background-attachment:fixed;color:var(--tx);font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif;transition:background .3s,color .3s}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-weight:500;transition:all .2s}
+button:hover{border-color:var(--acc);background:var(--panel)} button:active{transform:translateY(1px)}
 
-.card{
-  background:var(--panel);
-  backdrop-filter:blur(16px);
-  -webkit-backdrop-filter:blur(16px);
-  border:1px solid var(--line);
-  border-radius:20px;
-  padding:22px;
-  box-shadow:var(--shadow);
-  transition:transform 0.2s, border-color 0.2s;
-}
-.card:hover{border-color:rgba(255,255,255,0.14)}
+main{padding:24px;max-width:1400px;margin:0 auto}
 
-.card h2{
-  font-size:12px;
-  color:var(--dim);
-  margin:0 0 14px;
-  font-weight:700;
-  text-transform:uppercase;
-  letter-spacing:0.8px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-}
+.grid-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:20px}
+.grid-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px;margin-bottom:20px}
 
-.stat-val{font-size:36px;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums;margin-bottom:6px;letter-spacing:-0.5px}
-.stat-sub{font-size:12px;color:var(--dim);font-weight:500}
-.stat-accent{color:var(--acc);text-shadow:0 0 16px var(--acc-glow)}
-.stat-ok{color:var(--ok);text-shadow:0 0 16px var(--ok-glow)}
-.stat-err{color:var(--err);text-shadow:0 0 16px var(--err-glow)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
+.card h2{font-size:12px;color:var(--dim);margin:0 0 12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between}
 
-.progress-bar-bg{width:100%;height:8px;background:var(--panel2);border-radius:6px;overflow:hidden;margin-top:10px;border:1px solid var(--line)}
-.progress-bar-fill{height:100%;background:linear-gradient(90deg, #6366f1, #10b981);border-radius:6px;transition:width 0.5s cubic-bezier(0.4, 0, 0.2, 1)}
+.stat-val{font-size:32px;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums;margin-bottom:4px}
+.stat-sub{font-size:12px;color:var(--dim)}
+.stat-accent{color:var(--acc)}
+.stat-ok{color:var(--ok)}
+.stat-err{color:var(--err)}
 
-/* Custom Visual Bar Charts */
-.chart-bar-container{display:flex;flex-direction:column;gap:16px;margin-top:10px}
-.chart-bar-item{display:flex;flex-direction:column;gap:6px;background:var(--panel2);padding:12px 14px;border-radius:12px;border:1px solid var(--line)}
-.chart-bar-label{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--tx);font-weight:600}
-.chart-bar-track{width:100%;height:12px;background:rgba(0,0,0,0.2);border-radius:6px;overflow:hidden;display:flex;margin-top:4px}
-.chart-bar-done{height:100%;background:linear-gradient(90deg, #059669, #10b981);transition:width 0.5s ease}
-.chart-bar-failed{height:100%;background:linear-gradient(90deg, #e11d48, #f43f5e);transition:width 0.5s ease}
+.progress-bar-bg{width:100%;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:8px;border:1px solid var(--line)}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--acc),var(--ok));border-radius:4px;transition:width 0.4s ease}
+
+/* Visual Bar Chart per Agent */
+.chart-bar-container{display:flex;flex-direction:column;gap:14px;margin-top:8px}
+.chart-bar-item{display:flex;flex-direction:column;gap:4px;background:var(--panel2);padding:12px;border-radius:10px;border:1px solid var(--line)}
+.chart-bar-label{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--tx);font-weight:500}
+.chart-bar-track{width:100%;height:10px;background:var(--panel);border-radius:5px;overflow:hidden;display:flex;margin-top:2px}
+.chart-bar-done{height:100%;background:var(--ok);transition:width 0.4s ease}
+.chart-bar-failed{height:100%;background:var(--err);transition:width 0.4s ease}
 
 /* Tables */
 table{width:100%;border-collapse:collapse;margin-top:4px}
-th{text-align:left;padding:12px 14px;color:var(--dim);font-size:12px;border-bottom:1px solid var(--line);font-weight:600;text-transform:uppercase;letter-spacing:0.5px}
-td{padding:14px;border-bottom:1px solid var(--line);font-size:13px}
+th{text-align:left;padding:10px 12px;color:var(--dim);font-size:12px;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:12px;border-bottom:1px solid var(--line);font-size:13px}
 tr:last-child td{border-bottom:none}
-tr:hover td{background:rgba(255,255,255,0.02)}
 
-code.task-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;color:var(--acc);background:var(--acc-glow);padding:3px 8px;border-radius:6px;border:1px solid rgba(99,102,241,0.3)}
+code.task-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;color:var(--acc);background:var(--panel2);padding:2px 6px;border-radius:4px;border:1px solid var(--line)}
 
-.badge{display:inline-flex;align-items:center;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;letter-spacing:0.4px;line-height:1}
-.badge-ok{background:var(--ok-glow);color:var(--ok);border:1px solid rgba(16,185,129,0.3)}
-.badge-err{background:var(--err-glow);color:var(--err);border:1px solid rgba(244,63,94,0.3)}
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;line-height:1}
+.badge-ok{background:rgba(47,208,138,0.15);color:var(--ok)}
+.badge-err{background:rgba(242,86,95,0.15);color:var(--err)}
 </style>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="pill-nav.css">
@@ -252,7 +228,7 @@ code.task-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-siz
 
   <!-- Son Görev Telemetrisi -->
   <div class="card">
-    <h2>Son Görevler Telemetrisi (Canlı Veri)</h2>
+    <h2>Son Görevler Telemetrisi</h2>
     <table>
       <thead>
         <tr>
@@ -344,8 +320,8 @@ async function loadAnalytics() {
         return `
           <div class="chart-bar-item">
             <div class="chart-bar-label">
-              <span><strong>${esc(a.id)}</strong> <span style="color:var(--dim);font-weight:normal;">(${a.total} görev)</span></span>
-              <span style="color:${a.successRate > 50 ? 'var(--ok)' : 'var(--err)'};">%${a.successRate} başarı</span>
+              <span><strong>${esc(a.id)}</strong> <span style="color:var(--dim);">(${a.total} görev)</span></span>
+              <span>%${a.successRate} başarı</span>
             </div>
             <div class="chart-bar-track">
               <div class="chart-bar-done" style="width: ${donePct}%" title="${a.done} başarılı"></div>
@@ -365,7 +341,7 @@ async function loadAnalytics() {
         <tr>
           <td><strong>${esc(a.id)}</strong></td>
           <td>${a.total}</td>
-          <td><span class="stat-ok" style="font-weight:700">${a.done}</span> / <span class="stat-err" style="font-weight:700">${a.failed}</span></td>
+          <td><span class="stat-ok">${a.done}</span> / <span class="stat-err">${a.failed}</span></td>
           <td>
             <div style="display:flex;align-items:center;gap:10px;">
               <span style="min-width:40px;font-weight:600">${a.successRate}%</span>
@@ -381,7 +357,7 @@ async function loadAnalytics() {
       agentTable.innerHTML = '<tr><td colspan="5" style="color:var(--dim);">Veri yok.</td></tr>';
     }
 
-    // Son Görevler Telemetrisi
+    // Son Görev Telemetrisi
     const recentTable = $('#recentTable');
     if (data.recentActivity && data.recentActivity.length > 0) {
       recentTable.innerHTML = data.recentActivity.map(t => {
@@ -392,7 +368,7 @@ async function loadAnalytics() {
         return `
           <tr>
             <td><code class="task-id">${esc(t.id)}</code></td>
-            <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500;" title="${esc(t.prompt)}">${esc(t.prompt)}</td>
+            <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(t.prompt)}">${esc(t.prompt)}</td>
             <td><strong>${esc(t.operatorCli || '-')}</strong></td>
             <td>${t.durationSec} sn</td>
             <td style="color:var(--dim);">${dateStr}</td>
