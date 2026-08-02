@@ -61,7 +61,8 @@ let cliStatus = cliRegistry.discoverInstalled({
     checkedAt: Date.parse(savedModels.checkedAt || "") || 0,
     models: Array.isArray(savedModels.models) ? savedModels.models : [],
   };
-  codexModelRefreshDue = !codexModelCache.models.length || startupCount % 10 === 0;
+  const codexInstalled = !!cliStatus.find((c) => c.id === "codex" && c.installed);
+  codexModelRefreshDue = codexInstalled && (!codexModelCache.models.length || startupCount % 10 === 0);
   cfg.codexModelCache = { ...savedModels, startupCount, lastStartedAt: new Date().toISOString() };
   const healthCacheValid = cfg.cliHealthCache?.version === HEALTH_CACHE_VERSION;
   const cached = healthCacheValid ? cfg.cliHealthCache?.results : null;
