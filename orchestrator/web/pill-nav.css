@@ -158,6 +158,8 @@
   color: var(--hover-text, #fff);
   z-index: 3;
   display: inline-block;
+  opacity: 0;
+  pointer-events: none;
   will-change: transform, opacity;
 }
 
