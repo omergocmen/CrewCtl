@@ -1,0 +1,386 @@
+/* pill-nav.css — React Bits PillNav Header Design System for CrewCtl */
+
+.pill-nav-container {
+  position: sticky;
+  top: 12px;
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding: 0 16px;
+  margin-bottom: 20px;
+  pointer-events: none;
+}
+
+.pill-nav {
+  --nav-h: 44px;
+  --logo-size: 38px;
+  --pill-pad-x: 18px;
+  --pill-gap: 4px;
+  --base: var(--headerbg, #0d1117);
+  --pill-bg: var(--panel2, #182234);
+  --hover-text: #ffffff;
+  --pill-text: var(--tx, #e9eef7);
+
+  width: max-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  background: var(--headerbg, #0d1117);
+  border: 1px solid var(--line, #243149);
+  border-radius: 9999px;
+  padding: 4px 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  transition: background 0.3s, border-color 0.3s, box-shadow 0.3s;
+}
+
+[data-theme="light"] .pill-nav {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+}
+
+.pill-logo {
+  width: var(--nav-h);
+  height: var(--nav-h);
+  border-radius: 50%;
+  background: var(--panel, #111826);
+  border: 1px solid var(--line, #243149);
+  padding: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--acc, #5e8bff);
+  text-decoration: none;
+  flex: none;
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.pill-logo:hover {
+  border-color: var(--acc);
+}
+
+.pill-logo-icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pill-logo-icon svg {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+.pill-nav-items {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--nav-h);
+  background: var(--panel, #111826);
+  border-radius: 9999px;
+  border: 1px solid var(--line, #243149);
+}
+
+.pill-list {
+  list-style: none;
+  display: flex;
+  align-items: stretch;
+  gap: var(--pill-gap);
+  margin: 0;
+  padding: 3px;
+  height: 100%;
+}
+
+.pill-list > li {
+  display: flex;
+  height: 100%;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 var(--pill-pad-x);
+  background: transparent;
+  color: var(--pill-text);
+  text-decoration: none;
+  border-radius: 9999px;
+  box-sizing: border-box;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: color 0.2s, background-color 0.2s;
+}
+
+.pill .hover-circle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  border-radius: 50%;
+  background: var(--acc, #5e8bff);
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.pill .label-stack {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+  z-index: 2;
+}
+
+.pill .pill-label {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+  line-height: 1;
+  will-change: transform;
+}
+
+.pill .pill-label-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--hover-text, #fff);
+  z-index: 3;
+  display: inline-block;
+  will-change: transform, opacity;
+}
+
+.pill.is-active {
+  background: color-mix(in srgb, var(--acc) 18%, var(--panel2));
+  color: var(--acc);
+}
+
+.pill.is-active::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  background: var(--acc, #5e8bff);
+  border-radius: 50%;
+  z-index: 4;
+}
+
+/* Right Side Actions */
+.pill-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+.pill-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--nav-h);
+  padding: 0 12px;
+  border-radius: 9999px;
+  background: var(--panel, #111826);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.pill-status .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.pill-status .dot.on {
+  background: var(--ok);
+  box-shadow: 0 0 10px var(--ok);
+}
+
+.pill-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--nav-h);
+  padding: 0 14px;
+  border-radius: 9999px !important;
+  background: var(--panel, #111826);
+  border: 1px solid var(--line);
+  color: var(--tx);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+}
+
+.pill-action-btn:hover {
+  border-color: var(--acc);
+  background: var(--panel2);
+  color: var(--acc);
+}
+
+.pill-action-btn.btn-start {
+  background: #2fd08a !important;
+  border-color: #2fd08a !important;
+  color: #051a10 !important;
+  font-weight: 700 !important;
+  border-radius: 9999px !important;
+}
+
+.pill-action-btn.btn-start:hover {
+  background: #39e398 !important;
+  border-color: #39e398 !important;
+  box-shadow: 0 0 12px rgba(47, 208, 138, 0.4) !important;
+  color: #051a10 !important;
+}
+
+.pill-action-btn.btn-stop {
+  background: #f2565f !important;
+  border-color: #f2565f !important;
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  border-radius: 9999px !important;
+}
+
+.pill-action-btn.btn-stop:hover {
+  background: #ff6b74 !important;
+  border-color: #ff6b74 !important;
+  box-shadow: 0 0 12px rgba(242, 86, 95, 0.4) !important;
+  color: #ffffff !important;
+}
+
+.pill-action-btn.icon-only {
+  width: var(--nav-h);
+  padding: 0;
+  border-radius: 50%;
+}
+
+.pill-kbd {
+  padding: 2px 5px;
+  background: var(--input);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: ui-monospace, monospace;
+  color: var(--dim);
+}
+
+/* Mobile & Desktop Utilities */
+.desktop-only {
+  display: flex !important;
+}
+
+.mobile-only {
+  display: none !important;
+}
+
+.mobile-menu-button {
+  width: var(--nav-h);
+  height: var(--nav-h);
+  border-radius: 50%;
+  background: var(--panel, #111826);
+  border: 1px solid var(--line);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  color: var(--tx);
+  flex: none;
+}
+
+.hamburger-line {
+  width: 16px;
+  height: 2px;
+  background: var(--tx);
+  border-radius: 1px;
+  transition: all 0.3s ease;
+  transform-origin: center;
+}
+
+.mobile-menu-popover {
+  position: absolute;
+  top: calc(var(--nav-h) + 12px);
+  left: 8px;
+  right: 8px;
+  background: var(--panel, #111826);
+  border: 1px solid var(--line, #243149);
+  border-radius: 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  z-index: 998;
+  opacity: 0;
+  transform-origin: top center;
+  visibility: hidden;
+  pointer-events: auto;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.mobile-menu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-menu-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  color: var(--tx);
+  background-color: var(--panel2);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+}
+
+.mobile-menu-link:hover, .mobile-menu-link.is-active {
+  background-color: var(--acc);
+  color: #ffffff;
+}
+
+/* Responsive Media Queries */
+@media (max-width: 920px) {
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-only {
+    display: flex !important;
+  }
+  .pill-nav-container {
+    padding: 0 8px;
+    top: 8px;
+    margin-bottom: 12px;
+  }
+  .pill-nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

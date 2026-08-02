@@ -313,6 +313,11 @@ function classifyCliError(error) {
   if (/API key not valid|API_KEY_INVALID|invalid[_ ]api[_ ]key|incorrect api key/i.test(raw)) {
     return of("AUTH_INVALID", "API anahtarı geçersiz veya reddedildi.", "Agent ayarlarındaki API anahtarını yenileyin (Gemini için GEMINI_API_KEY / GOOGLE_API_KEY).");
   }
+  // Gemini IneligibleTierError: Google bireysel kullanıcılara Gemini CLI'yi kalcı olarak kapattı.
+  // AUTH_REQUIRED yerine özel mesajla (çözüm yolu farklı): Claude veya OpenCode'a geçılmeli.
+  if (/IneligibleTierError|no longer supported for gemini code assist|individual users.*not supported|not eligible for gemini/i.test(raw)) {
+    return of("AUTH_REQUIRED", "Gemini CLI bireysel kullanıcılara artık erişilemiyor (Google politikası).", "Claude CLI veya OpenCode kullanın: `npm install -g @anthropic-ai/claude-code` veya `npm install -g opencode-ai`.");
+  }
   // Gemini CLI oturum acilmadiginda "Please set an Auth method" / "GEMINI_API_KEY environment
   // variable not found" yazar; her ikisi de kurulum degil OTURUM sorunudur.
   if (/set an auth method|GEMINI_API_KEY|GOOGLE_API_KEY|unauthorized|unauthenticated|authentication|login required|not logged in|please (run )?login|credentials? (not found|missing|expired)|PERMISSION_DENIED|\b40[13]\b/i.test(raw)) {
@@ -321,10 +326,19 @@ function classifyCliError(error) {
   // Kota (gunluk/aylik hak bitti) ile hiz siniri (kisa sureli) AYRI teshislerdir: ilki
   // beklemekle gecmez, ikincisi gecer. Kullanicinin sordugu "limitim mi bitti" ayrimi budur.
   if (/RESOURCE_EXHAUSTED|quota exceeded|exceeded your current quota|daily limit|günlük limit|gunluk limit|out of credits|insufficient (credit|balance|quota)|billing/i.test(raw)) {
-    return of("QUOTA_EXCEEDED", "Sağlayıcı kotanız doldu (günlük/aylık hak veya bakiye bitti).", "Kota yenilenene kadar bu agent kullanılamaz; başka bir agent seçin, faturalandırmayı yükseltin veya API anahtarını kotası olan bir hesapla değiştirin.");
+    return of("QUOTA_EXCEEDED", "Sağlayıcı kotanız doldu (günlük/aylık hak veya bakiye bitti).", "Kota yenilenene kadar bu agent kullanılamaz; başka bir agent seçin, faturalandırmayı yükselttin veya API anahtarını kotası olan bir hesapla değiştirin.");
+  }
+  // Codex token kullanım limiti: kullanıcının OpenAI planı dolmuş
+  if (/usage limit|token.*limit|rate limit exceeded|you have exceeded/i.test(raw)) {
+    return of("QUOTA_EXCEEDED", "Codex/OpenAI kullanım limitiniz doldu.", "OpenAI hesabınızda kredi bitti veya lüpheli kullanım limiti aşıldı. OpenCode veya Claude CLI kullanın.");
   }
   if (/rate.?limit|too many requests|\b429\b/i.test(raw)) {
     return of("RATE_LIMIT", "İstek hızı sınırına takıldı (kota bitmedi, çok sık istek gönderildi).", "Kısa bir süre bekleyip tekrar deneyin; operatör bu turda alternatif bir agent kullanabilir.");
+  }
+  // OpenCode UnknownError / Unexpected server error: geçici provider/model yük hatası.
+  // MODEL_OVERLOADED olarak işaretle — karantinaya alınmamalı, yeniden denenebilir.
+  if (/UnknownError|Unexpected server error|err_[a-z0-9]{8}/i.test(raw)) {
+    return of("MODEL_OVERLOADED", "OpenCode sağlayıcısı geçici hata döndürdü (sunucu yük sorunu).", "Otomatik yeniden deneme yapılacak; sorun sürerse Ayarlar'dan farklı bir OpenCode modeli seçin.");
   }
   if (/overloaded|\bUNAVAILABLE\b|\b(503|500)\b|internal error|try again later/i.test(raw)) {
     return of("MODEL_OVERLOADED", "Model sağlayıcısı geçici olarak aşırı yüklü ya da hata döndürdü.", "Sağlayıcı kaynaklı geçici bir sorun; birkaç dakika sonra tekrar deneyin.");
@@ -565,7 +579,13 @@ function supportsKind(agent, kind) {
 }
 
 function agentUsable(agent) {
-  return agent?.health?.status ? agent.health.status === "ready" : true;
+  return cliRegistry.healthAllowsRun(agent?.health);
+}
+
+function hasConfiguredImplementAgent(cfg, operatorName, unavailableNames = new Set()) {
+  return Object.entries(cfg?.agents || {}).some(([name, agent]) =>
+    name !== operatorName && agent?.enabled !== false && agentUsable(agent)
+    && !unavailableNames.has(name) && supportsKind(agent, "implement"));
 }
 
 function normalizeAssignments(value, cfg, operatorName, usedIds, taskText = "") {
@@ -1104,9 +1124,7 @@ class Engine extends EventEmitter {
   // bu oturumda karantinaya alinan agentler haric. Tek executor (or. opencode) sessizlik nedeniyle
   // dustugunde takim fiilen dosya uretemez hale gelir; bu kontrol o durumu erken yakalar.
   hasUsableImplementAgent(cfg, operatorName) {
-    return Object.entries(cfg.agents || {}).some(([name, agent]) =>
-      name !== operatorName && agent.enabled !== false && agentUsable(agent)
-      && !this.unhealthyAgents.has(name) && supportsKind(agent, "implement"));
+    return hasConfiguredImplementAgent(cfg, operatorName, this.unhealthyAgents);
   }
 
   agentCatalog(cfg, operatorName) {
@@ -1333,7 +1351,20 @@ class Engine extends EventEmitter {
     if (task.kind === "operator-chat") return this.runChatTask(task, baseCfg);
     task.executionMode = resolveExecutionMode(task);
     const cfg = applyExecutionPolicy(baseCfg, task.executionMode);
-    const operatorCli = task.operatorCli || cfg.operator?.cli;
+    let operatorCli = task.operatorCli || cfg.operator?.cli;
+    const operatorHealth = cfg.cliHealthCache?.results?.[operatorCli];
+    if (!cliRegistry.healthAllowsRun(operatorHealth)) {
+      const failedStatus = operatorHealth?.label || operatorHealth?.status || "hazir degil";
+      const fallback = Object.keys(cliRegistry.DEFINITIONS).find((id) =>
+        id !== operatorCli && cliRegistry.operatorSpec(id, cfg) && cliRegistry.healthAllowsRun(cfg.cliHealthCache?.results?.[id])
+      );
+      if (fallback) {
+        this.publish("log", { level: "warn", msg: `Operator ${operatorCli} bu oturumda kullanilamiyor (${failedStatus}); gorev ${fallback} ile devam ettiriliyor.` }, task.id);
+        operatorCli = fallback;
+      } else {
+        throw new Error(`Secilen operator CLI kullanilamiyor (${failedStatus}). Ayarlar > Operator'den hazir bir CLI secin veya oturum/model sorununu duzeltin.`);
+      }
+    }
     if (!operatorCli || !cliRegistry.operatorSpec(operatorCli, cfg)) throw new Error("Gecerli bir operator CLI secilmedi (claude/codex/gemini/opencode).");
     task.operatorCli = operatorCli;
     this.busy = true;
@@ -1731,5 +1762,6 @@ module.exports._internals = {
   normalizeAssignments, ensureBalancedRoleChain, extractVerdict, clipMiddle, snapshotDir, diffSnapshots,
   captureTextSnapshot, buildLineDiff, describeFileDiff, isSensitiveDiffPath, taskRequiresDelegation,
   parseJson, conversationalAnswer, classifyCliError, RECOVERABLE_CLI_ERRORS, QUARANTINE_CLI_ERRORS,
+  supportsKind, agentUsable, hasConfiguredImplementAgent,
   normalizeCliOutput, addUsage, usageTotal, claudeSandboxSettings,
 };

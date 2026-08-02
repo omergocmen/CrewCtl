@@ -47,5 +47,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "shadcn": "^4.14.0"
   }
 }

@@ -1,64 +1,154 @@
-// doctor.js — ortam teşhisi: Node sürümü, kurulu CLI'lar ve yapılandırma özeti.
-// Kullanım:  npm run doctor
+// doctor.js — ortam teşhisi: Node sürümü, kurulu CLI'lar, gerçek sağlık durumu ve
+// yapılandırma özeti. Varsayılan davranış salt okunurdur; --fix açıkça istenirse
+// otomatik keşif sonuçlarını config'e uygular.
 const store = require("./store");
 const cliRegistry = require("./cli-registry");
 
 const G = "\x1b[32m", R = "\x1b[31m", Y = "\x1b[33m", DIM = "\x1b[90m", B = "\x1b[1m", X = "\x1b[0m";
 const ok = (s) => `${G}✓${X} ${s}`;
 const no = (s) => `${R}✗${X} ${s}`;
+const warn = (s) => `${Y}⚠${X} ${s}`;
 
 function nodeOk() {
   const major = Number(process.versions.node.split(".")[0]);
   return { major, ok: major >= 18 };
 }
 
-function main(options = {}) {
-  store.ensureDirs();
-  const n = nodeOk();
-  console.log(`\n${B}CrewCtl — Ortam Teşhisi${X}\n`);
-  console.log(n.ok ? ok(`Node.js ${process.versions.node} (>=18 gerekli)`) : no(`Node.js ${process.versions.node} — 18+ gerekli!`));
+function recommendedAction(cli, platform) {
+  if (!cli.installed) return cli.install && (cli.install[platform] || cli.install.linux) || "Kurulum komutu bulunamadi.";
+  if (cli.id === "opencode" && cli.ready === false) return cli.readinessError || "Ayarlar'dan erisilebilir bir OpenCode modeli secin.";
+  const status = String(cli.health?.status || "").toLowerCase();
+  if (status === "auth-required") return cli.health?.detail || "CLI ile oturum acin veya gerekli API anahtarini tanimlayin.";
+  if (status === "quota") return cli.health?.detail || "Kota/bakiye durumunu kontrol edin veya farkli bir CLI secin.";
+  if (status === "version-incompatible") return cli.health?.detail || "CLI surumunu guncelleyin veya desteklenen bir model secin.";
+  if (status === "timeout") return cli.health?.detail || "CLI yavas yanit verdi; ag/model durumunu kontrol edip tekrar deneyin.";
+  if (status === "failed") return cli.health?.detail || "CLI cikti/hata metnini kontrol edin.";
+  return "";
+}
 
-  const clis = cliRegistry.discoverInstalled();
-  const installed = clis.filter((c) => c.installed);
+function buildDoctorReport({ node, cfg, discovered, platform }) {
+  const operator = cfg.operator?.cli || null;
+  const cliReports = discovered.map((cli) => {
+    const runnable = cliRegistry.cliCanRun(cli, cfg);
+    const health = cli.health || { status: cli.installed ? "unknown" : "not-installed", label: cli.installed ? "Bilinmiyor" : "Kurulu degil", detail: cli.error || "" };
+    return {
+      id: cli.id,
+      installed: Boolean(cli.installed),
+      version: cli.version || "",
+      runnable,
+      ready: cli.id === "opencode" ? cli.ready !== false || Boolean(cfg.cliSettings?.opencode?.model) : true,
+      health,
+      recommendedAction: recommendedAction({ ...cli, health }, platform),
+      operatorSelected: operator === cli.id,
+      models: Array.isArray(cli.models) ? cli.models.slice() : [],
+      recommendedModel: cli.recommendedModel || "",
+    };
+  });
+  const runnable = cliReports.filter((cli) => cli.runnable);
+  const enabledAgents = Object.entries(cfg.agents || {}).filter(([, agent]) => agent.enabled !== false);
+  return {
+    checkedAt: new Date().toISOString(),
+    node,
+    summary: {
+      runnableCliCount: runnable.length,
+      installedCliCount: cliReports.filter((cli) => cli.installed).length,
+      enabledAgentCount: enabledAgents.length,
+      operator,
+      operatorRunnable: Boolean(cliReports.find((cli) => cli.id === operator)?.runnable),
+    },
+    clis: cliReports,
+    config: {
+      operator,
+      enabledAgents: enabledAgents.map(([name, agent]) => ({
+        name,
+        adapter: agent.adapter || cliRegistry.adapterId(agent.cmd),
+        roleFile: agent.roleFile || "",
+      })),
+    },
+  };
+}
+
+function doctorExitCode(report) {
+  if (!report.node.ok) return 1;
+  if (!report.summary.runnableCliCount) return 1;
+  if (report.summary.operator && !report.summary.operatorRunnable) return 1;
+  return 0;
+}
+
+function printDoctorReport(report) {
+  console.log(`\n${B}CrewCtl — Ortam Teşhisi${X}\n`);
+  console.log(report.node.ok
+    ? ok(`Node.js ${process.versions.node} (>=18 gerekli)`)
+    : no(`Node.js ${process.versions.node} — 18+ gerekli!`));
+
   console.log(`\n${B}CLI araçları${X}`);
-  const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
-  for (const c of clis) {
-    if (c.installed) console.log("  " + ok(`${c.id}${DIM} — ${c.version}${X}`));
-    else {
-      const hint = c.install && (c.install[platform] || c.install.linux);
-      console.log("  " + no(`${c.id}${DIM} — kurulu değil${X}`) + (hint ? `\n      ${DIM}kurulum: ${hint}${X}` : ""));
+  for (const cli of report.clis) {
+    const line = cli.installed
+      ? `${cli.id}${DIM} — ${cli.version || "surum bilinmiyor"}${X}`
+      : `${cli.id}${DIM} — kurulu değil${X}`;
+    if (!cli.installed) {
+      console.log("  " + no(line));
+      if (cli.recommendedAction) console.log(`      ${DIM}${cli.recommendedAction}${X}`);
+      continue;
+    }
+    if (cli.runnable) {
+      const label = cli.health?.label && !["Hazır", "Bilinmiyor", "Test ediliyor"].includes(cli.health.label)
+        ? ` · ${cli.health.label}` : "";
+      console.log("  " + ok(`${line}${label}`));
+    } else {
+      console.log("  " + warn(`${line} · ${cli.health?.label || "hazir degil"}`));
+      if (cli.recommendedAction) console.log(`      ${DIM}${cli.recommendedAction}${X}`);
+    }
+    if (cli.id === "opencode" && cli.recommendedModel) {
+      console.log(`      ${DIM}onerilen model: ${cli.recommendedModel}${X}`);
     }
   }
 
-  const cfg = store.loadConfig();
-  // Varsayilan teshis salt okunurdur. Farkli bir PATH ile calisan doctor komutu
-  // kullanicinin mevcut agent'larini sessizce devre disi birakmamalidir.
-  let changed = false;
-  if (options.fix) {
-    changed = Boolean(cliRegistry.addMissingAgents(cfg, clis) | cliRegistry.ensureValidOperator(cfg, clis));
-    if (changed) store.saveConfig(cfg);
-  }
-  const agents = Object.entries(cfg.agents).filter(([, a]) => a.enabled !== false);
   console.log(`\n${B}Yapılandırma${X}`);
-  console.log(`  Operatör CLI: ${cfg.operator?.cli || "(yok)"}`);
-  console.log(`  Uzman ajan sayısı: ${agents.length}`);
-  for (const [name, a] of agents) console.log(`    ${DIM}• ${name} (${a.adapter || a.cmd}) — ${(a.roleFile || "").split("/").pop()}${X}`);
+  console.log(`  Operatör CLI: ${report.config.operator || "(yok)"}`);
+  console.log(`  Uzman ajan sayısı: ${report.summary.enabledAgentCount}`);
+  for (const agent of report.config.enabledAgents) {
+    console.log(`    ${DIM}• ${agent.name} (${agent.adapter || "custom"}) — ${String(agent.roleFile || "").split("/").pop()}${X}`);
+  }
 
   console.log("");
-  if (!n.ok) { console.log(no("Node sürümünü 18+ yapın.")); process.exitCode = 1; }
-  else if (!installed.length) {
-    console.log(`${Y}⚠ Hiçbir CLI kurulu değil.${X} En az birini kurun (yukarıdaki komutlar), sonra tekrar deneyin.`);
-    process.exitCode = 1;
-  } else if (!cfg.operator?.cli) {
-    console.log(`${Y}⚠ Operatör CLI seçilemedi.${X}`);
-    process.exitCode = 1;
-  } else {
-    console.log(ok(`Hazır. ${B}npm start${X} ile paneli açın.`));
-  }
-  if (options.fix) console.log(changed ? ok("Yapilandirma guncellendi.") : `${DIM}Yapilandirma degisikligi gerekmedi.${X}`);
+  if (!report.node.ok) console.log(no("Node sürümünü 18+ yapın."));
+  else if (!report.summary.runnableCliCount) console.log(no("Görev çalıştırabilecek hazır bir CLI yok. Yukarıdaki önerilen aksiyonları uygulayın."));
+  else if (report.config.operator && !report.summary.operatorRunnable) console.log(warn("Seçili operatör hazır değil. Hazır bir CLI seçin veya `crewctl doctor --fix` çalıştırın."));
+  else console.log(ok("Hazır. npm start ile paneli açın."));
   console.log("");
 }
 
-if (require.main === module) main({ fix: process.argv.includes("--fix") });
+async function main(options = {}) {
+  store.ensureDirs();
+  const node = nodeOk();
+  const cfg = store.loadConfig();
+  const platform = process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux";
+  let discovered = cliRegistry.discoverInstalled();
+  if (!options.quick) discovered = await cliRegistry.healthCheckAll(discovered, { timeoutMs: 45000, cfg });
 
-module.exports = { main, nodeOk };
+  let changed = false;
+  if (options.fix) {
+    changed = Boolean(cliRegistry.addMissingAgents(cfg, discovered) | cliRegistry.ensureValidOperator(cfg, discovered));
+    if (changed) store.saveConfig(cfg);
+  }
+
+  const report = buildDoctorReport({ node, cfg, discovered, platform });
+  if (options.asJson) console.log(JSON.stringify({ ...report, fixed: changed }, null, 2));
+  else {
+    printDoctorReport(report);
+    if (options.fix) console.log(changed ? ok("Yapilandirma guncellendi.") : `${DIM}Yapilandirma degisikligi gerekmedi.${X}`);
+  }
+  process.exitCode = doctorExitCode(report);
+  return report;
+}
+
+if (require.main === module) {
+  main({
+    fix: process.argv.includes("--fix"),
+    asJson: process.argv.includes("--json"),
+    quick: process.argv.includes("--quick"),
+  }).catch((error) => { console.error(`Hata: ${error.message}`); process.exitCode = 1; });
+}
+
+module.exports = { main, nodeOk, buildDoctorReport, doctorExitCode, recommendedAction };

@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const store = require("../src/store");
 const cliRegistry = require("../src/cli-registry");
+const doctor = require("../src/doctor");
 
 const cli = path.join(store.ROOT, "src", "cli.js");
 const run = (...args) => execFileSync(process.execPath, [cli, ...args], { cwd: store.ROOT, encoding: "utf8" });
@@ -188,6 +189,54 @@ function main() {
   assert.ok(!manualOpenCode.agents["opencode-auto"].model, "global model otomatik agent profiline kopyalanmamali");
   assert.equal(cliRegistry.ensureValidOperator(manualOpenCode, readinessDiscovery), true, "eksik sabit operator rolu tamamlanmali");
   assert.equal(manualOpenCode.operator.cli, "opencode");
+  assert.equal(cliRegistry.healthAllowsRun({ status: "ready" }), true);
+  assert.equal(cliRegistry.healthAllowsRun({ status: "testing" }), true, "testing gecici durum oldugu icin gorevi engellememeli");
+  assert.equal(cliRegistry.healthAllowsRun({ status: "unknown" }), true, "unknown gecici durum oldugu icin gorevi engellememeli");
+  assert.equal(cliRegistry.healthAllowsRun({ status: "auth-required" }), false);
+  assert.equal(cliRegistry.healthAllowsRun({ status: "quota" }), false);
+  assert.equal(cliRegistry.cliCanRun({ id: "codex", installed: true, health: { status: "unknown" } }, {}), true);
+  assert.equal(cliRegistry.cliCanRun({ id: "codex", installed: true, health: { status: "failed" } }, {}), false);
+  assert.equal(cliRegistry.cliCanRun({ id: "opencode", installed: true, ready: false, health: { status: "ready" } }, {}), false, "hazir olmayan OpenCode model secilmeden goreve alinmamali");
+  assert.equal(cliRegistry.cliCanRun({ id: "opencode", installed: true, ready: false, health: { status: "ready" } }, { cliSettings: { opencode: { model: "opencode-go/manual" } } }), true);
+  const unhealthyOperator = {
+    operator: { cli: "gemini" },
+    cliSettings: { opencode: { model: "" } },
+  };
+  const unhealthyDiscovery = [
+    { id: "gemini", installed: true, health: { status: "auth-required" }, command: "gemini", defaultArgs: [], capabilities: [], roleFile: "roles/executor.md" },
+    { id: "codex", installed: true, health: { status: "ready" }, command: "codex", defaultArgs: [], capabilities: [], roleFile: "roles/executor.md" },
+  ];
+  assert.equal(cliRegistry.ensureValidOperator(unhealthyOperator, unhealthyDiscovery), true, "hazir olmayan operator yerine saglikli CLI secilmeli");
+  assert.equal(unhealthyOperator.operator.cli, "codex");
+  const preflightCfg = {
+    agents: {
+      planner: { roleFile: "roles/planner.md", enabled: true, health: { status: "ready" } },
+      worker: { roleFile: "roles/executor.md", enabled: true, health: { status: "ready" } },
+      blocked: { roleFile: "roles/executor.md", enabled: true, health: { status: "auth-required" } },
+    },
+  };
+  assert.equal(require("../src/engine")._internals.hasConfiguredImplementAgent(preflightCfg, "codex"), true);
+  assert.equal(require("../src/engine")._internals.hasConfiguredImplementAgent({ agents: { blocked: preflightCfg.agents.blocked } }, "codex"), false);
+  const report = doctor.buildDoctorReport({
+    node: { ok: true, major: 22 },
+    cfg: {
+      operator: { cli: "gemini" },
+      cliSettings: { opencode: { model: "" } },
+      agents: { worker: { adapter: "codex", roleFile: "roles/executor.md", enabled: true } },
+    },
+    platform: "windows",
+    discovered: [
+      { id: "gemini", installed: true, version: "1.0.0", health: { status: "auth-required", label: "Giriş gerekli", detail: "login" } },
+      { id: "codex", installed: true, version: "2.0.0", health: { status: "ready", label: "Hazır", detail: "" } },
+      { id: "opencode", installed: true, version: "3.0.0", health: { status: "ready", label: "Hazır", detail: "" }, ready: false, recommendedModel: "", models: [] },
+    ],
+  });
+  assert.equal(report.summary.runnableCliCount, 1);
+  assert.equal(report.summary.operatorRunnable, false);
+  assert.equal(doctor.doctorExitCode(report), 1, "hazir olmayan operator exit code'u etkilemeli");
+  assert.match(report.clis.find((cli) => cli.id === "gemini").recommendedAction, /login/i);
+  assert.equal(report.clis.find((cli) => cli.id === "codex").runnable, true);
+  assert.equal(report.clis.find((cli) => cli.id === "opencode").runnable, false, "modelsiz OpenCode doctor tarafinda da hazir sayilmamali");
 
   store.ensureDirs();
   const help = run("help");

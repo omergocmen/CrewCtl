@@ -430,6 +430,50 @@ function addDailyUsage(usage) {
   return current;
 }
 
+// Görev arama/filtreleme — prompt, operator, agent, mode, tarih aralığı
+function searchTasks(filters = {}) {
+  const results = { pending: [], done: [], failed: [] };
+  const { query, status, operator, mode, dateFrom, dateTo } = filters;
+  
+  const statuses = status === 'all' ? ['pending', 'done', 'failed'] : 
+                   status ? [status] : ['pending', 'done', 'failed'];
+  
+  for (const st of statuses) {
+    const tasks = st === 'pending' ? listTasks(st) : listRecentTasks(st, 100);
+    
+    for (const task of tasks) {
+      let match = true;
+      
+      // Text search in prompt
+      if (query && query.trim()) {
+        const q = query.toLowerCase();
+        const prompt = (task.prompt || '').toLowerCase();
+        if (!prompt.includes(q)) match = false;
+      }
+      
+      // Filter by operator
+      if (match && operator && task.operatorCli !== operator) match = false;
+      
+      // Filter by mode
+      if (match && mode && task.executionMode !== mode) match = false;
+      
+      // Filter by date range
+      if (match && dateFrom) {
+        const taskDate = new Date(task.createdAt || task.startedAt || 0);
+        if (taskDate < new Date(dateFrom)) match = false;
+      }
+      if (match && dateTo) {
+        const taskDate = new Date(task.createdAt || task.startedAt || 0);
+        if (taskDate > new Date(dateTo)) match = false;
+      }
+      
+      if (match) results[st].push(task);
+    }
+  }
+  
+  return results;
+}
+
 module.exports = {
   ROOT,
   ASSETS,
@@ -444,6 +488,7 @@ module.exports = {
   deleteRole,
   listTasks,
   listRecentTasks,
+  searchTasks,
   nextPending,
   addTask,
   addChatTask,

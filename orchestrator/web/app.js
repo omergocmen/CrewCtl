@@ -6,9 +6,7 @@
   // Yumusak cikis: once fade-out, sonra git. Reduced-motion'da aninda gider.
   function navTo(url) {
     if (!url) return;
-    if (reduce) { location.href = url; return; }
-    try { document.body.classList.add("app-leaving"); } catch {}
-    setTimeout(() => { location.href = url; }, 185);
+    location.href = url;
   }
   window.navTo = navTo;
 

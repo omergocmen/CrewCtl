@@ -73,10 +73,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 
 /* ---- Sayfa gecisi: opacity-only fade (translateY tum sayfayi katmanladigi icin agir
    sayfalarda —or. flow.html WebGL— jank yaratir; sadece opacity ucuz ve puruzsuz). ---- */
-@keyframes appPageIn { from { opacity: 0; } to { opacity: 1; } }
-body { animation: appPageIn .26s ease both; }
-/* navTo() cikis animasyonu (app.js ekler). */
-body.app-leaving { opacity: 0; transition: opacity .17s ease; animation: none; }
+@keyframes appPageIn { from { opacity: 0.85; } to { opacity: 1; } }
+body { animation: appPageIn .1s ease-out both; }
 
 /* ---- Kart/etkilesim mikro-cilasi (sakin; transform animasyonu YOK — jank azalt) ---- */
 .card, .task, .diff-file, .tile, .chip { transition: border-color .18s ease, box-shadow .2s ease; }
@@ -114,3 +112,27 @@ button > svg, .btn svg { stroke-linecap: round; stroke-linejoin: round; }
 .app-dialog.danger .app-btn-confirm{background:var(--err);border-color:var(--err);color:#fff}
 .app-btn-confirm:hover{filter:brightness(1.07);border-color:var(--acc)}
 .app-dialog.danger .app-btn-confirm:hover{border-color:var(--err)}
+
+/* ---- Mobil & Responsive Katmanı ---- */
+@media (max-width: 992px) {
+  main {
+    grid-template-columns: 1fr !important;
+    padding: 12px !important;
+    gap: 16px !important;
+  }
+  .wrap {
+    grid-template-columns: 1fr !important;
+    padding: 10px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .card, .panel, .sched-strip, .tcard {
+    padding: 14px !important;
+    border-radius: 14px !important;
+  }
+  .tiles {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+

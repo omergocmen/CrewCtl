@@ -154,7 +154,7 @@ function newScheduleId() {
 // calisma aninda config operatorune duser (gorev olusturmayla ayni davranis).
 function scheduleOperatorValid(name) {
   if (!name) return true;
-  return Boolean(cliRegistry.DEFINITIONS[name]) && cliStatus.some((c) => c.id === name && c.installed);
+  return Boolean(cliRegistry.DEFINITIONS[name]) && cliStatus.some((c) => c.id === name && cliRegistry.cliCanRun(c, store.loadConfig()));
 }
 
 function applyHealthToConfig(results) {
@@ -426,31 +426,28 @@ const server = http.createServer(async (req, res) => {
         // Operatör, uzman agent'lardan bağımsız bir CLI'dır (claude/codex/gemini/opencode);
         // operator.md rolüyle ekibi yönetir. Belirtilmemiş/geçersizse kurulu bir CLI'ye geçilir.
         const cliEntry = (name) => cliStatus.find((c) => c.id === name);
-        const installedCli = (name) => name && cliRegistry.DEFINITIONS[name] && cliStatus.some((c) => c.id === name && c.installed
-          && (name !== "opencode" || c.ready !== false || Boolean(cfg.cliSettings?.opencode?.model)));
+        const installedCli = (name) => {
+          const entry = name && cliEntry(name);
+          return Boolean(entry && cliRegistry.DEFINITIONS[name] && cliRegistry.cliCanRun(entry, cfg));
+        };
         // "testing" ve "unknown" BILGI YOKLUGUDUR, ariza kaniti degildir. Eskiden yalnizca
         // "ready" kabul ediliyordu; bu yuzden acilistaki saglik testi suresince (olculen: 13.3 sn)
         // HER gorev 409 ile reddediliyor ve kullaniciya "CLI kullanilabilir degil" deniyordu.
         // Bu kume kasitli olarak eski davranisin UST KUMESIDIR: bugun kabul edilen hicbir
         // gorev reddedilemez, yalnizca iki gecici durum artik engellemiyor. Gercekten arizali
         // CLI'lar (auth-required/quota/failed/timeout/version-incompatible) aynen engellenir.
-        const TRANSIENT_HEALTH = new Set(["testing", "unknown"]);
-        const usableCli = (name) => {
-          if (!installedCli(name)) return false;
-          const status = cliEntry(name)?.health?.status;
-          return !status || status === "ready" || TRANSIENT_HEALTH.has(status);
-        };
         let selectedCli = operatorCli || cfg.operator?.cli;
         if (!installedCli(selectedCli)) {
           if (cliRegistry.ensureValidOperator(cfg, cliStatus)) store.saveConfig(cfg);
           selectedCli = cfg.operator?.cli;
         }
         if (!installedCli(selectedCli)) {
-          return send(res, 400, { error: "Kullanılabilir operatör CLI yok. Ayarlar → Operatör bölümünden kurulu bir CLI seçin (Claude/Codex/Gemini/OpenCode) ve gerekiyorsa Yeniden Tara'ya basın." });
+          const detail = cliEntry(operatorCli || cfg.operator?.cli)?.health?.label || "kurulu veya hazir degil";
+          return send(res, 400, { error: `Kullanılabilir operatör CLI yok (${detail}). Ayarlar → Operatör bölümünden hazır bir CLI seçin ve gerekiyorsa CLI girişini/modelini düzeltip Yeniden Tara'ya basın.` });
         }
-        if (!usableCli(selectedCli)) {
-          const health = cliEntry(selectedCli)?.health;
-          return send(res, 409, { error: `${cliRegistry.DEFINITIONS[selectedCli].description} şu anda kullanılabilir değil: ${health?.label || "sağlık testi bekleniyor"}. ${health?.detail || "Önce model sağlık testini tamamlayın."}` });
+        if (engine._internals.taskRequiresDelegation(prompt)
+          && !engine._internals.hasConfiguredImplementAgent(cfg, selectedCli)) {
+          return send(res, 400, { error: "Bu gorev dosya olusturma veya degistirme gerektiriyor, ancak hazir bir implementation agent'i yok. Ayarlar → Agent'lar bolumunden Codex/Claude/Gemini/OpenCode tabanli en az bir uygulama agent'ini etkinlestirin veya CLI girisini/modelini duzeltin." });
         }
         const mode = ["auto", "fast", "balanced", "deep"].includes(executionMode) ? executionMode : "auto";
         const t = store.addTask(prompt.trim(), targetDir, selectedCli, mode);
@@ -604,7 +601,8 @@ const server = http.createServer(async (req, res) => {
         }
         if (body.executionMode && ["auto", "fast", "balanced", "deep"].includes(body.executionMode)) t.executionMode = body.executionMode;
         if (body.operatorCli) {
-          if (!cliRegistry.DEFINITIONS[body.operatorCli] || !cliStatus.some((c) => c.id === body.operatorCli && c.installed)) return send(res, 400, { error: "gecersiz veya kurulu olmayan operator CLI" });
+          const entry = cliStatus.find((c) => c.id === body.operatorCli);
+          if (!cliRegistry.DEFINITIONS[body.operatorCli] || !cliRegistry.cliCanRun(entry, cfg)) return send(res, 400, { error: "gecersiz, hazir olmayan veya kurulu olmayan operator CLI" });
           t.operatorCli = body.operatorCli;
         }
         if (typeof body.targetDir === "string") {
@@ -616,6 +614,18 @@ const server = http.createServer(async (req, res) => {
         store.saveTask("pending", t);
         broadcast("queue", snapshot());
         return send(res, 200, t);
+      }
+      if (pathname === "/api/tasks/search" && req.method === "GET") {
+        const query = url.parse(req.url, true).query || {};
+        const results = store.searchTasks({
+          query: query.q || "",
+          status: query.status || "all",
+          operator: query.operator || "",
+          mode: query.mode || "",
+          dateFrom: query.dateFrom || "",
+          dateTo: query.dateTo || "",
+        });
+        return send(res, 200, results);
       }
       if ((m = pathname.match(/^\/api\/tasks\/([^/]+)$/)) && req.method === "GET") {
         const found = store.findTask(m[1]);
@@ -726,7 +736,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 function openBrowser(target) {
-  if (process.env.OPEN === "0" || process.env.NO_OPEN) return;
+  if (process.env.OPEN === "0" || process.env.NO_OPEN || process.env.CI) return;
+  // TTY olmayan ortamlarda (test, pipe, CI) dış tarayıcı açmak hem gürültü üretir hem de
+  // otomasyon akışına gereksiz belirsizlik katar; yalnızca etkileşimli oturumlarda aç.
+  if (process.stdout && process.stdout.isTTY === false) return;
   const { spawn } = require("child_process");
   const cmd = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", target] : [target];

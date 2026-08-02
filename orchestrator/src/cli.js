@@ -16,7 +16,7 @@ Hizli baslangic:
 
 Kullanim:
   crewctl [start]                       Web panelini baslat (komutsuz = start)
-  crewctl doctor [--fix]                Ortami kontrol et (varsayilan salt okunur)
+  crewctl doctor [--fix] [--json] [--quick]  Ortami kontrol et
   crewctl run [--once] [--approval mod] Kuyrugu panelsiz calistir
   crewctl status [--json]               Kuyruk ve butce ozetini goster
   crewctl task <hedef> [secenekler]      Kuyruga gorev ekle
@@ -77,6 +77,11 @@ function addTask(args) {
   if (!prompt) throw new Error("Gorev metni gerekli.");
   const cfg = store.loadConfig();
   const selectedOperator = operator || cfg.operator?.cli;
+  const engine = require("./engine");
+  if (engine._internals.taskRequiresDelegation(prompt)
+    && !engine._internals.hasConfiguredImplementAgent(cfg, selectedOperator)) {
+    throw new Error("Bu gorev dosya olusturma veya degistirme gerektiriyor, ancak hazir bir implementation agent'i yok. Ayarlar'dan en az bir uygulama agent'i etkinlestirin veya ilgili CLI girisini/modelini duzeltin.");
+  }
   const resolvedDir = targetDir ? path.resolve(targetDir) : undefined;
   const task = store.addTask(prompt, resolvedDir, selectedOperator, mode);
   if (fresh) { task.freshContext = true; store.saveTask("pending", task); }
@@ -124,7 +129,7 @@ async function main(argv = process.argv.slice(2)) {
   if (["help", "--help", "-h"].includes(command)) return help();
   if (["--version", "-v", "version"].includes(command)) return console.log(VERSION);
   if (command === "start") return require("./server");
-  if (command === "doctor") return require("./doctor").main({ fix: args.includes("--fix") });
+  if (command === "doctor") return require("./doctor").main({ fix: args.includes("--fix"), asJson: args.includes("--json"), quick: args.includes("--quick") });
   if (command === "run") return run(args);
   if (command === "status") return status(args.includes("--json"));
   if (command === "task") return addTask(args);

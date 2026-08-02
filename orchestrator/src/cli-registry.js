@@ -100,12 +100,27 @@ function abortActiveProbes() {
   return count;
 }
 
+// OpenCode native free modelleri (opencode/* ile başlayanlar) openrouter üzerinden
+// gidenden daha doğrudan bağlanır ve genellikle daha kararlıdır. Önce bunları dene.
+// openrouter/openrouter/free ikincil fallback olarak kalır.
 function selectOpenCodeModel(models) {
   const list = Array.isArray(models) ? models.map(String).filter(Boolean) : [];
   const priorities = [
-    (x) => x === "opencode/big-pickle",
+    // OpenCode kendi native free modelleri — en stabil seçenek
+    (x) => x === "opencode/mimo-v2.5-free",
+    (x) => x === "opencode/ling-3.0-flash-free",
+    (x) => x === "opencode/laguna-s-2.1-free",
+    (x) => x === "opencode/north-mini-code-free",
+    (x) => x === "opencode/nemotron-3-ultra-free",
+    // Diğer opencode/* free modeller
     (x) => /^opencode\/.+free$/i.test(x),
+    // opencode/* non-free (big-pickle vb.)
+    (x) => x === "opencode/big-pickle",
     (x) => x.startsWith("opencode/"),
+    // OpenRouter üzeri fallback
+    (x) => x === "openrouter/openrouter/free",
+    (x) => x === "openrouter/openai/gpt-4o-mini",
+    (x) => /^openrouter\/.+free$/i.test(x),
     (x) => x.startsWith("opencode-go/"),
     (x) => x.startsWith("minimax-coding-plan/"),
     (x) => !x.startsWith("ollama/"),
@@ -351,6 +366,7 @@ function probe(id, definition) {
 // "Yeniden Tara" (/api/cli/discover) daima force ile cagirir ve onbellegi tumden atlar.
 const DISCOVERY_CACHE_VERSION = 1;
 const ALWAYS_PROBE = new Set(["opencode"]);
+const BLOCKING_HEALTH_STATUSES = new Set(["auth-required", "quota", "failed", "timeout", "version-incompatible", "not-installed"]);
 
 // probeCommand, CLI'yi PATH uzerinden buldugunda resolvedCommand'i CIPLAK AD olarak dondurur
 // ("codex"), mutlak yol olarak degil. Duz fs.existsSync bu durumda daima false verir ve
@@ -418,6 +434,19 @@ function discoveryCacheFrom(discovered) {
     }
   }
   return { version: DISCOVERY_CACHE_VERSION, checkedAt: new Date().toISOString(), results };
+}
+
+// "testing" ve "unknown" ariza kaniti degildir; acilis probe'u yarida kesilmis veya henuz
+// tamamlanmamis olabilir. Gorevi yalnizca KESIN arizali saglik durumlari engellemeli.
+function healthAllowsRun(health) {
+  const status = String(health?.status || "").trim().toLowerCase();
+  return !status || !BLOCKING_HEALTH_STATUSES.has(status);
+}
+
+function cliCanRun(entry, cfg) {
+  if (!entry?.installed) return false;
+  if (entry.id === "opencode" && entry.ready === false && !cfg?.cliSettings?.opencode?.model) return false;
+  return healthAllowsRun(entry.health);
 }
 
 // Tek kaynak: hem gercek gorev calistirici (engine.runCli) hem saglik testi ve model
@@ -496,9 +525,15 @@ function agentEnvironment(agent) {
 function classifyHealthFailure(text) {
   const raw = String(text || "");
   if (/requires a newer version|upgrade to the latest|version.*unsupported|unsupported.*version|model metadata.*not found|unsupported.*model/i.test(raw)) return { status: "version-incompatible", label: "Sürüm uyumsuz", detail: raw };
-  if (/api key|unauthorized|unauthenticated|authentication|login required|not logged in|sign in|giriÅŸ gerekli/i.test(raw)) return { status: "auth-required", label: "Giriş gerekli", detail: raw };
+  // Gemini IneligibleTierError: Google bireysel kullanıcılara artık Gemini CLI erişimi sağlamıyor.
+  // Bu kalıcı bir politika kısıtlamasıdır, auth sorunu değil — kullanıcıya açıkça belirtilmeli.
+  if (/IneligibleTierError|no longer supported for gemini code assist|individual users.*not supported|not eligible/i.test(raw)) return { status: "auth-required", label: "Gemini bireysel kullanıcılara kapalı", detail: "Google, Gemini CLI'yi bireysel kullanıcılara kısıtladı. Claude CLI veya OpenCode kullanın." };
+  // OpenCode UnknownError / Unexpected server error: geçici provider/model sunucu yük hatası.
+  // Karantinaya alınmamalı; yeniden deneme veya model değişikliğiyle geçer.
+  if (/UnknownError|Unexpected server error|err_[a-z0-9]{8}/i.test(raw)) return { status: "server-error", label: "Geçici sunucu hatası", detail: "OpenCode sağlayıcısı geçici hata döndürdü. Farklı bir free model deneyin veya bekleyip tekrar test edin." };
+  if (/api key|unauthorized|unauthenticated|authentication|login required|not logged in|sign in|giriş gerekli/i.test(raw)) return { status: "auth-required", label: "Giriş gerekli", detail: raw };
   if (/rate.?limit|quota|too many requests|billing|credit/i.test(raw)) return { status: "quota", label: "Kota veya ödeme gerekli", detail: raw };
-  if (/timeout|timed out|zaman aÅŸÄ±m/i.test(raw)) return { status: "timeout", label: "Yanıt zaman aşımına uğradı", detail: raw };
+  if (/timeout|timed out|zaman aşım/i.test(raw)) return { status: "timeout", label: "Yanıt zaman aşımına uğradı", detail: raw };
   return { status: "failed", label: "Test başarısız", detail: raw };
 }
 
@@ -507,7 +542,18 @@ function testInstalledCli(id, options = {}) {
   if (!definition) return Promise.resolve({ id, installed: false, health: { status: "unknown", label: "Bilinmiyor", detail: "Tanımsız CLI" } });
   const found = probe(id, definition);
   if (!found.installed) return Promise.resolve({ id, installed: false, version: found.version, error: found.error, health: { status: "not-installed", label: "Kurulu değil", detail: found.error || "CLI bulunamadı" } });
-  const agent = effectiveAgent({ adapter: id, cmd: definition.command, args: definition.defaultArgs.slice() }, options.cfg);
+  // OpenCode sağlık testi için model ZORUNLU. OPEN_CODE_MODELS henüz doldurulmamışsa
+  // config'den veya bilinen kararlı native free modelden fallback yap; aksi takdirde
+  // model parametresiz `opencode run` → UnknownError döngüsü başlar.
+  let agentBase = { adapter: id, cmd: definition.command, args: definition.defaultArgs.slice() };
+  if (id === "opencode") {
+    const cfgModel = options.cfg?.cliSettings?.opencode?.model;
+    const detectedModel = selectOpenCodeModel(OPEN_CODE_MODELS);
+    // Kesin fallback: OpenCode'un en kararlı native free modeli
+    const fallbackModel = cfgModel || detectedModel || "opencode/mimo-v2.5-free";
+    agentBase = { ...agentBase, model: fallbackModel };
+  }
+  const agent = effectiveAgent(agentBase, options.cfg);
   const prompt = healthPrompt(id);
   const prepared = preparePromptArgs(agent.args, prompt);
   const command = buildCommand(agent.cmd, prepared.args);
@@ -630,7 +676,7 @@ function addMissingAgents(cfg, discovered) {
   const ignored = new Set(Array.isArray(cfg.discoveryIgnoredAdapters) ? cfg.discoveryIgnoredAdapters.map(String) : []);
   let changed = normalizeAgentAdapters(cfg);
   for (const cli of discovered) {
-    const usable = cli.installed && (cli.id !== "opencode" || cli.ready !== false || Boolean(cfg.cliSettings?.opencode?.model));
+    const usable = cliCanRun(cli, cfg);
     const matchingEntries = Object.entries(cfg.agents).filter(([, agent]) => (agent.adapter || adapterId(agent.cmd)) === cli.id);
     const existingEntry = matchingEntries.find(([, agent]) => !agent.autoDiscovered) || matchingEntries[0];
     const existing = existingEntry?.[1];
@@ -726,7 +772,7 @@ function ensureValidOperator(cfg, discovered) {
   }
   if ("agent" in cfg.operator) { delete cfg.operator.agent; changed = true; }
   const installed = Array.isArray(discovered) ? discovered
-    .filter((x) => x.installed && (x.id !== "opencode" || x.ready !== false || Boolean(cfg.cliSettings?.opencode?.model)))
+    .filter((x) => cliCanRun(x, cfg))
     .map((x) => x.id) : null;
   const known = !!DEFINITIONS[cfg.operator.cli];
   const availableOnHost = !installed || installed.length === 0 || installed.includes(cfg.operator.cli);
@@ -737,4 +783,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthAllowsRun, cliCanRun, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

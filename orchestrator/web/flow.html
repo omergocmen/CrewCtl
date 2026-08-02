@@ -11,20 +11,23 @@
 <link rel="manifest" href="/site.webmanifest">
 <style>
 *{box-sizing:border-box}
-:root{--bg:#090c12;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;--acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;--purple:#a98bff;
---headerbg:#0a0f1acc;--term:#05080f;--nodebg:#0b1220;--shadow:0 14px 40px #0008;
+:root{--bg:#0a0e14;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;--acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;--purple:#a98bff;
+--headerbg:#0d1117;--term:#05080f;--nodebg:#0b1220;--shadow:0 8px 24px rgba(0,0,0,0.4);
 --core:radial-gradient(circle at 50% 34%,#2a2060,#141031);--coretx:#efeaff;
---appbg:radial-gradient(1200px 620px at 50% -14%,#5e8bff16,transparent),radial-gradient(1000px 520px at 90% -6%,#a98bff16,transparent),radial-gradient(900px 500px at 5% 10%,#2fd08a0e,transparent),var(--bg)}
-[data-theme=light]{--bg:#edf1f8;--panel:#ffffff;--panel2:#f3f6fc;--line:#dce4ef;--tx:#131a27;--dim:#5a6779;--acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;--purple:#7350f0;
---headerbg:#ffffffe6;--term:#0d1420;--nodebg:#f7f9fd;--shadow:0 14px 36px #7a90b820;
+--appbg:var(--bg)}
+[data-theme=light]{--bg:#f5f7fa;--panel:#ffffff;--panel2:#f8f9fb;--line:#e1e5eb;--tx:#1a202c;--dim:#64748b;--acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;--purple:#7350f0;
+--headerbg:#ffffff;--term:#0d1420;--nodebg:#f8f9fb;--shadow:0 2px 8px rgba(0,0,0,0.08);
 --core:radial-gradient(circle at 50% 34%,#f1ecff,#e2dbff);--coretx:#3a2b73;
---appbg:radial-gradient(1200px 620px at 50% -14%,#3a63f012,transparent),radial-gradient(1000px 520px at 90% -6%,#7350f00e,transparent),var(--bg)}
+--appbg:var(--bg)}
 body{margin:0;background:var(--appbg);background-attachment:fixed;color:var(--tx);font:14px/1.5 Inter,Segoe UI,system-ui,sans-serif;transition:background .3s,color .3s}
-button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 11px;font:inherit;transition:border-color .18s,transform .1s,box-shadow .18s}
-button:hover{border-color:var(--acc);box-shadow:0 4px 14px color-mix(in srgb,var(--acc) 16%,transparent)}button:active{transform:translateY(1px)}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-weight:500;transition:all .2s}
+button:hover{border-color:var(--acc);background:var(--panel)}
+button:active{transform:translateY(1px)}
+button:disabled{opacity:.45;cursor:default}
 a.btn{text-decoration:none;display:inline-block}
 /* Header */
-header{height:58px;display:flex;align-items:center;gap:12px;padding:0 16px;background:var(--headerbg);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
+header{min-height:58px;display:flex;align-items:center;gap:9px;padding:8px 18px;background:var(--headerbg);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20}
 h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weight:800}.sep{color:var(--dim)}.grow{flex:1}
 .pill{border:1px solid var(--line);background:var(--panel2);border-radius:999px;padding:5px 11px;color:var(--dim);font-size:12px;display:inline-flex;align-items:center;gap:6px}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);box-shadow:0 0 0 0 transparent}
@@ -160,18 +163,116 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
 @media(max-width:1180px){.wrap{grid-template-columns:1fr}.tiles{grid-template-columns:repeat(3,1fr)}.roster,.timeline{max-height:none}.stage{height:70vh}}
 </style>
 <link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="pill-nav.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="app.js" defer></script>
+<script src="command-palette.js" defer></script>
+<script src="pill-nav.js" defer></script>
 </head>
 <body>
-<header>
-  <h1><span class="brand">CrewCtl</span> <span class="sep">·</span> Orkestrasyon Merkezi</h1>
-  <span class="pill"><span id="dot" class="dot"></span><span id="engineState">durdu</span></span>
-  <span id="modePill" class="pill">boşta</span>
-  <div class="grow"></div>
-  <button id="helpBtn" title="Bu sistem nedir?"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9.2"/><path d="M12 11v5M12 7.6h.01"/></svg></button>
-  <button id="themeBtn" onclick="toggleTheme()" title="Açık / koyu tema"><svg class="i i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg><svg class="i i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
-  <a class="btn" href="index.html"><button>← Komuta Merkezi</button></a>
-</header>
+<div class="pill-nav-container">
+  <nav class="pill-nav" aria-label="Primary">
+    <a class="pill-logo" href="index.html" aria-label="CrewCtl Home">
+      <span class="pill-logo-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 2 7 12 12 22 7 12 2"/>
+          <polyline points="2 17 12 22 22 17"/>
+          <polyline points="2 12 12 17 22 12"/>
+        </svg>
+      </span>
+    </a>
+
+    <div class="pill-nav-items desktop-only">
+      <ul class="pill-list" role="menubar">
+        <li role="none">
+          <a role="menuitem" href="index.html" class="pill">
+            <span class="hover-circle" aria-hidden="true"></span>
+            <span class="label-stack">
+              <span class="pill-label">Komuta Merkezi</span>
+              <span class="pill-label-hover" aria-hidden="true">Komuta Merkezi</span>
+            </span>
+          </a>
+        </li>
+        <li role="none">
+          <a role="menuitem" href="board.html" class="pill">
+            <span class="hover-circle" aria-hidden="true"></span>
+            <span class="label-stack">
+              <span class="pill-label">Görev Panosu</span>
+              <span class="pill-label-hover" aria-hidden="true">Görev Panosu</span>
+            </span>
+          </a>
+        </li>
+        <li role="none">
+          <a role="menuitem" href="code.html" class="pill">
+            <span class="hover-circle" aria-hidden="true"></span>
+            <span class="label-stack">
+              <span class="pill-label">Canlı Kod</span>
+              <span class="pill-label-hover" aria-hidden="true">Canlı Kod</span>
+            </span>
+          </a>
+        </li>
+        <li role="none">
+          <a role="menuitem" href="flow.html" class="pill is-active">
+            <span class="hover-circle" aria-hidden="true"></span>
+            <span class="label-stack">
+              <span class="pill-label">Ekip Akışı</span>
+              <span class="pill-label-hover" aria-hidden="true">Ekip Akışı</span>
+            </span>
+          </a>
+        </li>
+        <li role="none">
+          <a role="menuitem" href="analytics.html" class="pill">
+            <span class="hover-circle" aria-hidden="true"></span>
+            <span class="label-stack">
+              <span class="pill-label">Analytics</span>
+              <span class="pill-label-hover" aria-hidden="true">Analytics</span>
+            </span>
+          </a>
+        </li>
+      </ul>
+    </div>
+
+    <div class="pill-nav-actions">
+      <div class="pill-status">
+        <span id="dot" class="dot"></span>
+        <span id="engineState">durdu</span>
+      </div>
+      <button id="startBtn" class="pill-action-btn btn-start" onclick="engine('start')" title="Motoru Başlat">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <span class="desktop-only">Başlat</span>
+      </button>
+      <button id="stopBtn" class="pill-action-btn btn-stop" onclick="engine('stop')" style="display:none" title="Motoru Durdur">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+        <span class="desktop-only">Durdur</span>
+      </button>
+      <button id="helpBtn" class="pill-action-btn icon-only" title="Bu sistem nedir?">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="width:16px;height:16px"><circle cx="12" cy="12" r="9.2"/><path d="M12 11v5M12 7.6h.01"/></svg>
+      </button>
+      <button class="pill-action-btn" onclick="window.CommandPalette?.open()" title="Komut Paleti (Ctrl+K)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <span class="desktop-only pill-kbd">Ctrl+K</span>
+      </button>
+      <button id="themeBtn" class="pill-action-btn icon-only" onclick="toggleTheme()" title="Açık / koyu tema">
+        <svg class="i i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="i i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <button class="mobile-menu-button mobile-only" aria-label="Toggle menu">
+        <span class="hamburger-line"></span>
+        <span class="hamburger-line"></span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="mobile-menu-popover mobile-only">
+    <ul class="mobile-menu-list">
+      <li><a href="index.html" class="mobile-menu-link">Komuta Merkezi</a></li>
+      <li><a href="board.html" class="mobile-menu-link">Görev Panosu</a></li>
+      <li><a href="code.html" class="mobile-menu-link">Canlı Kod</a></li>
+      <li><a href="flow.html" class="mobile-menu-link is-active">Ekip Akışı</a></li>
+      <li><a href="analytics.html" class="mobile-menu-link">Analytics</a></li>
+    </ul>
+  </div>
+</div>
 
 <div class="topbar">
   <div class="banner">
@@ -195,7 +296,7 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
   <aside class="card">
     <div class="card-h"><h2>Ajan Filosu</h2><span class="count" id="rosterCount">0 ajan</span></div>
     <div class="card-b"><div class="roster" id="roster"><div class="tl-empty">Ajanlar yükleniyor…</div></div>
-      <a class="btn" href="index.html" style="display:block;margin-top:10px"><button style="width:100%">⚙ Ajanları yönet</button></a>
+      <a class="btn" href="index.html" style="display:block;margin-top:10px"><button style="width:100%"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;display:inline-block"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg> Ajanları yönet</button></a>
     </div>
   </aside>
 
@@ -231,7 +332,7 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
 
 <div class="help-overlay" id="helpModal" hidden>
   <div class="help-card">
-    <div class="hc-head"><span class="ic">🛰️</span><h2><span class="brand">CrewCtl</span> Ekip Akışı nedir?</h2><button class="hc-close" id="helpClose" title="Kapat">✕</button></div>
+    <div class="hc-head"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;display:block"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span><h2><span class="brand">CrewCtl</span> Ekip Akışı nedir?</h2><button class="hc-close" id="helpClose" title="Kapat">✕</button></div>
     <div class="hc-body">
       <p>CrewCtl, kurulu CLI kodlama ajanlarınızı (Codex, Claude, Gemini, OpenCode) <b>tek bir operatör‑liderliğindeki takım</b> gibi çalıştırır. Bu sayfa o takımın canlı çalışmasını 3B bir sahnede gösterir.</p>
       <div class="hc-row"><div><div class="hc-t">Operatör</div><div class="hc-d">Merkezdeki çekirdek. Hedefi analiz eder, işi alt görevlere böler, doğru uzmana delege eder ve sonuçları değerlendirir.</div></div></div>
@@ -560,10 +661,13 @@ let selectedAgent=null;
 (function(){let t='dark';try{t=localStorage.getItem('cliTheme')||'dark'}catch{}applyTheme(t)})();
 
 /* ---- Üst durum / KPI ---- */
-function setEngine(s){$('#dot').className='dot'+(s.running?' on':'');$('#engineState').textContent=s.running?'çalışıyor':'durdu';
-  $('#modePill').textContent=s.current?`${s.current.stage} · ${cliLabel(adapterOf(s.current.agent))}`:(s.busy?'meşgul':'boşta');
-  if(typeof s.callsToday==='number')$('#kCalls').textContent=s.callsToday;
-  if(s.defaultOperator)setOperator(s.defaultOperator)}
+function renderEngineButtons(running){const start=$('#startBtn'),stop=$('#stopBtn');if(!start||!stop)return;if(running){start.style.display='none';stop.style.display='inline-flex';stop.className='pill-action-btn btn-stop';stop.disabled=false;stop.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span class="desktop-only">Durdur</span>'}else{start.style.display='inline-flex';start.className='pill-action-btn btn-start';start.disabled=false;start.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="desktop-only">Başlat</span>';stop.style.display='none'}}
+async function engine(action){try{const r=await fetch('/api/engine',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})}).then(r=>r.json());if(r.error)throw new Error(r.error);setEngine(r)}catch(e){alert(e.message)}}
+function setEngine(s){const dot=$('#dot');if(dot)dot.className='dot'+(s.running?' on':'');const st=$('#engineState');if(st)st.textContent=s.running?'çalışıyor':'durdu';
+  const mp=$('#modePill');if(mp)mp.textContent=s.current?`${s.current.stage} · ${cliLabel(adapterOf(s.current.agent))}`:(s.busy?'meşgul':'boşta');
+  if(typeof s.callsToday==='number'){const kc=$('#kCalls');if(kc)kc.textContent=s.callsToday;}
+  if(s.defaultOperator)setOperator(s.defaultOperator);
+  renderEngineButtons(s.running)}
 function setOperator(name){if(!name)return;operatorName=name;const lbl=cliLabel(adapterOf(name));$('#opName').textContent=lbl;$('#kOp').textContent=lbl;Scene.setOperator(lbl)}
 function opState(html,active){$('#opState').innerHTML=html;Scene.setOperatorPhase(active)}
 function bumpStep(){stepNo++;return stepNo}
@@ -705,7 +809,7 @@ Scene.syncAutoBtn();
 function showSceneFallback(){const st=$('#stage'),c=$('#scene'),tr=document.querySelector('.hud-tr');
   if(c)c.style.display='none';if(tr)tr.style.display='none';
   const d=document.createElement('div');d.className='scene-fallback';
-  d.innerHTML='<div class="sf-ic">🛰️</div><h3>3B görünüm başlatılamadı</h3><p>Tarayıcınız WebGL desteklemiyor olabilir. Ekip verileri soldaki filo ve sağdaki zaman çizelgesinde canlı çalışmaya devam ediyor; bir ajanı seçmek için filodan tıklayın.</p>';
+  d.innerHTML='<div class="sf-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></div><h3>3B görünüm başlatılamadı</h3><p>Tarayıcınız WebGL desteklemiyor olabilir. Ekip verileri soldaki filo ve sağdaki zaman çizelgesinde canlı çalışmaya devam ediyor; bir ajanı seçmek için filodan tıklayın.</p>';
   st.appendChild(d);}
 /* ---- Yardım (?) modalı ---- */
 (function(){const m=$('#helpModal');const open=()=>{m.hidden=false};const close=()=>{m.hidden=true};
