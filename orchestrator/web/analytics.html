@@ -3,30 +3,55 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Analytics · CrewCtl</title>
+<title>Analytics & Performans · CrewCtl</title>
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
 <style>
 *{box-sizing:border-box}
-:root{--bg:#0a0e14;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;--acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;
---headerbg:#0d1117;--shadow:0 8px 24px rgba(0,0,0,0.4);--appbg:var(--bg)}
-[data-theme=light]{--bg:#f5f7fa;--panel:#ffffff;--panel2:#f8f9fb;--line:#e1e5eb;--tx:#1a202c;--dim:#64748b;--acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;
---headerbg:#ffffff;--shadow:0 2px 8px rgba(0,0,0,0.08);--appbg:var(--bg)}
+:root{
+  --bg:#0a0e14;--panel:#111826;--panel2:#182234;--line:#243149;--tx:#e9eef7;--dim:#8494ab;
+  --acc:#5e8bff;--ok:#2fd08a;--warn:#eab24d;--err:#f2565f;--headerbg:#0d1117;
+  --shadow:0 8px 24px rgba(0,0,0,0.4);--appbg:var(--bg)
+}
+[data-theme=light]{
+  --bg:#f5f7fa;--panel:#ffffff;--panel2:#f8f9fb;--line:#e1e5eb;--tx:#1a202c;--dim:#64748b;
+  --acc:#3a63f0;--ok:#0ca678;--warn:#a76a10;--err:#dc434e;--headerbg:#ffffff;
+  --shadow:0 2px 8px rgba(0,0,0,0.08);--appbg:var(--bg)
+}
 body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 Inter,system-ui,sans-serif}
 button{cursor:pointer;color:var(--tx);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font:inherit}
-main{padding:16px;max-width:1400px;margin:0 auto}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px}
+main{padding:24px;max-width:1400px;margin:0 auto}
+.grid-kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:20px}
+.grid-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px;margin-bottom:20px}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
-.card h2{font-size:13px;color:var(--dim);margin:0 0 12px;font-weight:600}
-.stat{display:flex;gap:8px;margin:12px 0}
-.stat .value{font-size:36px;font-weight:800;color:var(--acc);font-variant-numeric:tabular-nums}
-table{width:100%;border-collapse:collapse}
-th{text-align:left;padding:10px 12px;color:var(--dim);font-size:12px;border-bottom:1px solid var(--line)}
-td{padding:12px;border-bottom:1px solid var(--line);font-size:13px}
+.card h2{font-size:13px;color:var(--dim);margin:0 0 12px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:flex;align-items:center;justify-content:space-between}
+.stat-val{font-size:32px;font-weight:800;color:var(--tx);font-variant-numeric:tabular-nums;margin-bottom:4px}
+.stat-sub{font-size:12px;color:var(--dim)}
+.stat-accent{color:var(--acc)}
+.stat-ok{color:var(--ok)}
+.stat-err{color:var(--err)}
+.progress-bar-bg{width:100%;height:8px;background:var(--panel2);border-radius:4px;overflow:hidden;margin-top:8px}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--acc),var(--ok));border-radius:4px;transition:width 0.4s ease}
+
+/* Custom CSS Charts */
+.chart-bar-container{display:flex;flex-direction:column;gap:12px;margin-top:8px}
+.chart-bar-item{display:flex;flex-direction:column;gap:4px}
+.chart-bar-label{display:flex;justify-content:space-between;font-size:12px;color:var(--tx);font-weight:500}
+.chart-bar-track{width:100%;height:10px;background:var(--panel2);border-radius:6px;overflow:hidden;display:flex}
+.chart-bar-done{height:100%;background:var(--ok);transition:width 0.4s ease}
+.chart-bar-failed{height:100%;background:var(--err);transition:width 0.4s ease}
+
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th{text-align:left;padding:12px 14px;color:var(--dim);font-size:12px;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:14px;border-bottom:1px solid var(--line);font-size:13px}
+tr:last-child td{border-bottom:none}
+.badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;line-height:1}
+.badge-ok{background:rgba(47,208,138,0.15);color:var(--ok)}
+.badge-err{background:rgba(242,86,95,0.15);color:var(--err)}
+.badge-pending{background:rgba(234,178,77,0.15);color:var(--warn)}
 </style>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="pill-nav.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="app.js" defer></script>
 <script src="command-palette.js" defer></script>
 <script src="pill-nav.js" defer></script>
@@ -134,34 +159,229 @@ td{padding:12px;border-bottom:1px solid var(--line);font-size:13px}
 </div>
 
 <main>
-  <div class="grid">
-    <div class="card"><h2>Toplam Görev</h2><div class="stat"><span class="value" id="total">0</span></div></div>
-    <div class="card"><h2>Başarı Oranı</h2><div class="stat"><span class="value" id="rate">0%</span></div></div>
+  <!-- KPI Kartları -->
+  <div class="grid-kpi">
+    <div class="card">
+      <h2>Toplam Görev</h2>
+      <div class="stat-val stat-accent" id="totalTasks">0</div>
+      <div class="stat-sub" id="pendingSub">0 bekleyen / kuyrukta</div>
+    </div>
+    <div class="card">
+      <h2>Başarı Oranı</h2>
+      <div class="stat-val stat-ok" id="successRate">0%</div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="successRateBar" style="width:0%"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Tamamlanan Görevler</h2>
+      <div class="stat-val stat-ok" id="totalDone">0</div>
+      <div class="stat-sub">Başarıyla teslim edildi</div>
+    </div>
+    <div class="card">
+      <h2>Başarısız Görevler</h2>
+      <div class="stat-val stat-err" id="totalFailed">0</div>
+      <div class="stat-sub">Hata veya iptal ile bitti</div>
+    </div>
+    <div class="card">
+      <h2>Ortalama Süre</h2>
+      <div class="stat-val" id="avgDuration">0.0 sn</div>
+      <div class="stat-sub">Görev başı ortalama işlem hızı</div>
+    </div>
   </div>
+
+  <!-- Grafik & Dağılımlar -->
+  <div class="grid-charts">
+    <div class="card">
+      <h2>CLI Operatör İş Yükü & Performans</h2>
+      <div id="chartAgents" class="chart-bar-container">
+        <div style="color:var(--dim);font-size:13px;">Yükleniyor...</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Ajan Performans Özeti</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>CLI Operatör</th>
+            <th>Görev</th>
+            <th>Tamamlanan / Hata</th>
+            <th>Başarı Oranı</th>
+            <th>Ort. Süre</th>
+          </tr>
+        </thead>
+        <tbody id="agentTable">
+          <tr><td colspan="5" style="color:var(--dim);">Yükleniyor...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Son Görevler Telemetrisi -->
   <div class="card">
-    <h2>Ajan Performansı</h2>
-    <table id="agentTable"><thead><tr><th>Ajan</th><th>Görev</th><th>Oran</th></tr></thead><tbody><tr><td colspan="3">Yükleniyor...</td></tr></tbody></table>
+    <h2>Son Görevler Telemetrisi</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Görev ID</th>
+          <th>Hedef Prompt</th>
+          <th>Operatör CLI</th>
+          <th>İşlem Süresi</th>
+          <th>Zaman</th>
+          <th>Durum</th>
+        </tr>
+      </thead>
+      <tbody id="recentTable">
+        <tr><td colspan="6" style="color:var(--dim);">Yükleniyor...</td></tr>
+      </tbody>
+    </table>
   </div>
 </main>
+
 <script>
-function renderEngineButtons(running){const start=$('#startBtn'),stop=$('#stopBtn');if(!start||!stop)return;if(running){start.style.display='none';stop.style.display='inline-flex';stop.className='pill-action-btn btn-stop';stop.disabled=false;stop.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span class="desktop-only">Durdur</span>'}else{start.style.display='inline-flex';start.className='pill-action-btn btn-start';start.disabled=false;start.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="desktop-only">Başlat</span>';stop.style.display='none'}}
-async function engine(action){try{const r=await fetch('/api/engine',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})}).then(r=>r.json());if(r.error)throw new Error(r.error);applyStatus(r)}catch(e){alert(e.message)}}
-function applyStatus(s){const dot=$('#dot');if(dot)dot.className='dot'+(s&&s.running?' on':'');const st=$('#engineState');if(st)st.textContent=s&&s.running?'çalışıyor':'durdu';renderEngineButtons(s&&s.running)}
+const $ = (sel) => document.querySelector(sel);
 
-async function load(){
-  try{
-    const r=await fetch('/api/state').then(x=>x.json());
-    if(r.status)applyStatus(r.status);
-    const tasks=[...(r.queue?.done||[]),...(r.queue?.failed||[])];
-    const tot=$('#total');if(tot)tot.textContent=tasks.length;
-    const rate=tasks.length ? ((r.queue?.done?.length||0)/tasks.length*100).toFixed(1) : '0.0';
-    const rt=$('#rate');if(rt)rt.textContent=rate+'%';
-  }catch(e){console.error(e)}
+function renderEngineButtons(running) {
+  const start = $('#startBtn'), stop = $('#stopBtn');
+  if (!start || !stop) return;
+  if (running) {
+    start.style.display = 'none';
+    stop.style.display = 'inline-flex';
+    stop.className = 'pill-action-btn btn-stop';
+    stop.disabled = false;
+    stop.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span class="desktop-only">Durdur</span>';
+  } else {
+    start.style.display = 'inline-flex';
+    start.className = 'pill-action-btn btn-start';
+    start.disabled = false;
+    start.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M8 5v14l11-7z"/></svg><span class="desktop-only">Başlat</span>';
+    stop.style.display = 'none';
+  }
 }
-load();
-const es=new EventSource('/api/events');
-es.addEventListener('status',e=>{try{applyStatus(JSON.parse(e.data))}catch{}});
 
+async function engine(action) {
+  try {
+    const r = await fetch('/api/engine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action })
+    }).then(res => res.json());
+    if (r.error) throw new Error(r.error);
+    applyStatus(r);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function applyStatus(s) {
+  const dot = $('#dot');
+  if (dot) dot.className = 'dot' + (s && s.running ? ' on' : '');
+  const st = $('#engineState');
+  if (st) st.textContent = s && s.running ? 'çalışıyor' : 'durdu';
+  renderEngineButtons(s && s.running);
+}
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function loadAnalytics() {
+  try {
+    const stateRes = await fetch('/api/state').then(res => res.json()).catch(() => ({}));
+    if (stateRes.status) applyStatus(stateRes.status);
+
+    const data = await fetch('/api/analytics').then(res => res.json());
+    
+    // KPI
+    $('#totalTasks').textContent = data.totalTasks || 0;
+    $('#pendingSub').textContent = `${data.totalPending || 0} bekleyen / kuyrukta`;
+    $('#successRate').textContent = `${data.successRate || 0}%`;
+    $('#successRateBar').style.width = `${Math.min(100, Math.max(0, data.successRate || 0))}%`;
+    $('#totalDone').textContent = data.totalDone || 0;
+    $('#totalFailed').textContent = data.totalFailed || 0;
+    $('#avgDuration').textContent = `${data.avgDurationSec || 0.0} sn`;
+
+    // Visual Bar Chart per Agent
+    const chartContainer = $('#chartAgents');
+    if (data.agentStats && data.agentStats.length > 0) {
+      const maxAgentTotal = Math.max(...data.agentStats.map(a => a.total)) || 1;
+      chartContainer.innerHTML = data.agentStats.map(a => {
+        const donePct = (a.done / maxAgentTotal) * 100;
+        const failPct = (a.failed / maxAgentTotal) * 100;
+        return `
+          <div class="chart-bar-item">
+            <div class="chart-bar-label">
+              <span><strong>${esc(a.id)}</strong> (${a.total} görev)</span>
+              <span>%${a.successRate} başarı</span>
+            </div>
+            <div class="chart-bar-track">
+              <div class="chart-bar-done" style="width: ${donePct}%" title="${a.done} başarılı"></div>
+              <div class="chart-bar-failed" style="width: ${failPct}%" title="${a.failed} başarısız"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      chartContainer.innerHTML = '<div style="color:var(--dim);font-size:13px;">Henüz kaydedilmiş agent görevi yok.</div>';
+    }
+
+    // Agent Table
+    const agentTable = $('#agentTable');
+    if (data.agentStats && data.agentStats.length > 0) {
+      agentTable.innerHTML = data.agentStats.map(a => `
+        <tr>
+          <td><strong>${esc(a.id)}</strong></td>
+          <td>${a.total}</td>
+          <td><span class="stat-ok">${a.done}</span> / <span class="stat-err">${a.failed}</span></td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span>${a.successRate}%</span>
+              <div class="progress-bar-bg" style="width:60px;margin:0;">
+                <div class="progress-bar-fill" style="width:${a.successRate}%"></div>
+              </div>
+            </div>
+          </td>
+          <td>${a.avgDurationSec} sn</td>
+        </tr>
+      `).join('');
+    } else {
+      agentTable.innerHTML = '<tr><td colspan="5" style="color:var(--dim);">Veri yok.</td></tr>';
+    }
+
+    // Recent Activity Table
+    const recentTable = $('#recentTable');
+    if (data.recentActivity && data.recentActivity.length > 0) {
+      recentTable.innerHTML = data.recentActivity.map(t => {
+        const isOk = t.status === 'done';
+        const badgeClass = isOk ? 'badge-ok' : 'badge-err';
+        const badgeLabel = isOk ? 'BAŞARILI' : 'BAŞARISIZ';
+        const dateStr = t.finishedAt ? new Date(t.finishedAt).toLocaleTimeString() : '-';
+        return `
+          <tr>
+            <td><code>${esc(t.id)}</code></td>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(t.prompt)}</td>
+            <td><strong>${esc(t.operatorCli || '-')}</strong></td>
+            <td>${t.durationSec} sn</td>
+            <td>${dateStr}</td>
+            <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+          </tr>
+        `;
+      }).join('');
+    } else {
+      recentTable.innerHTML = '<tr><td colspan="6" style="color:var(--dim);">Henüz tamamlanmış görev yok.</td></tr>';
+    }
+
+  } catch (e) {
+    console.error('Analytics yuklenirken hata:', e);
+  }
+}
+
+loadAnalytics();
+
+// SSE Live Updates
+const es = new EventSource('/api/events');
+es.addEventListener('status', e => { try { applyStatus(JSON.parse(e.data)); } catch {} });
+es.addEventListener('queue', () => { loadAnalytics(); });
 </script>
 </body>
 </html>

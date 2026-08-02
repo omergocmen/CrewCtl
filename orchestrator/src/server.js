@@ -409,6 +409,83 @@ const server = http.createServer(async (req, res) => {
           workingDirAbs: path.resolve(store.WORK_BASE, cfg.workingDir || "."),
         });
       }
+      if (pathname === "/api/analytics" && req.method === "GET") {
+        const doneTasks = store.listTasks("done").filter((t) => t.kind !== "operator-chat");
+        const failedTasks = store.listTasks("failed").filter((t) => t.kind !== "operator-chat");
+        const pendingTasks = store.listTasks("pending");
+        const approvalTasks = store.listTasks("approval");
+
+        const totalDone = doneTasks.length;
+        const totalFailed = failedTasks.length;
+        const totalPending = pendingTasks.length + approvalTasks.length;
+        const totalFinished = totalDone + totalFailed;
+        const totalTasks = totalFinished + totalPending;
+
+        const successRate = totalFinished > 0 ? Number(((totalDone / totalFinished) * 100).toFixed(1)) : 0;
+
+        let totalDurationMs = 0;
+        let validDurationCount = 0;
+
+        const agentMap = {};
+
+        const processTask = (t, status) => {
+          const cli = t.operatorCli || "unknown";
+          if (!agentMap[cli]) {
+            agentMap[cli] = { id: cli, total: 0, done: 0, failed: 0, totalDurationMs: 0, durationCount: 0 };
+          }
+          agentMap[cli].total++;
+          if (status === "done") agentMap[cli].done++;
+          if (status === "failed") agentMap[cli].failed++;
+
+          if (t.createdAt && t.finishedAt) {
+            const duration = new Date(t.finishedAt) - new Date(t.createdAt);
+            if (duration > 0 && duration < 86400000) {
+              totalDurationMs += duration;
+              validDurationCount++;
+              agentMap[cli].totalDurationMs += duration;
+              agentMap[cli].durationCount++;
+            }
+          }
+        };
+
+        doneTasks.forEach((t) => processTask(t, "done"));
+        failedTasks.forEach((t) => processTask(t, "failed"));
+
+        const avgDurationMs = validDurationCount > 0 ? Math.round(totalDurationMs / validDurationCount) : 0;
+
+        const agentStats = Object.values(agentMap).map((a) => ({
+          id: a.id,
+          total: a.total,
+          done: a.done,
+          failed: a.failed,
+          successRate: a.total > 0 ? Number(((a.done / a.total) * 100).toFixed(1)) : 0,
+          avgDurationSec: a.durationCount > 0 ? Number((a.totalDurationMs / a.durationCount / 1000).toFixed(1)) : 0,
+        }));
+
+        const recentActivity = [...doneTasks, ...failedTasks]
+          .sort((a, b) => new Date(b.finishedAt || b.createdAt || 0) - new Date(a.finishedAt || a.createdAt || 0))
+          .slice(0, 15)
+          .map((t) => ({
+            id: t.id,
+            prompt: t.prompt,
+            operatorCli: t.operatorCli,
+            status: t.status || (doneTasks.includes(t) ? "done" : "failed"),
+            createdAt: t.createdAt,
+            finishedAt: t.finishedAt,
+            durationSec: t.createdAt && t.finishedAt ? Number(((new Date(t.finishedAt) - new Date(t.createdAt)) / 1000).toFixed(1)) : 0,
+          }));
+
+        return send(res, 200, {
+          totalTasks,
+          totalDone,
+          totalFailed,
+          totalPending,
+          successRate,
+          avgDurationSec: Number((avgDurationMs / 1000).toFixed(1)),
+          agentStats,
+          recentActivity,
+        });
+      }
       if (pathname === "/api/security/autonomous-consent" && req.method === "POST") {
         const { accepted } = await readBody(req);
         if (accepted !== true) return send(res, 400, { error: "Acik kabul gerekli." });
