@@ -134,14 +134,20 @@ function selectOpenCodeModel(models) {
 
 function getFallbackModels(id, currentModel) {
   if (id === "opencode") {
-    const all = OPEN_CODE_MODELS.length ? OPEN_CODE_MODELS : [
+    const candidates = OPEN_CODE_MODELS.length ? OPEN_CODE_MODELS.slice() : [
       "opencode/mimo-v2.5-free",
       "opencode/ling-3.0-flash-free",
       "opencode/laguna-s-2.1-free",
       "opencode/north-mini-code-free",
       "openrouter/openrouter/free",
     ];
-    return all.filter((m) => m !== currentModel);
+    return candidates
+      .filter((m) => m !== currentModel)
+      .sort((a, b) => {
+        const aFree = /free/i.test(a) ? 0 : 1;
+        const bFree = /free/i.test(b) ? 0 : 1;
+        return aFree - bFree;
+      });
   }
   return [];
 }
@@ -785,13 +791,20 @@ function ensureValidOperator(cfg, discovered) {
     changed = true;
   }
   if ("agent" in cfg.operator) { delete cfg.operator.agent; changed = true; }
-  const installed = Array.isArray(discovered) ? discovered
+  const runnableClis = Array.isArray(discovered) ? discovered
     .filter((x) => cliCanRun(x, cfg))
+    .sort((a, b) => {
+      const aReady = a.health?.status === "ready" ? 0 : 1;
+      const bReady = b.health?.status === "ready" ? 0 : 1;
+      return aReady - bReady;
+    })
     .map((x) => x.id) : null;
   const known = !!DEFINITIONS[cfg.operator.cli];
-  const availableOnHost = !installed || installed.length === 0 || installed.includes(cfg.operator.cli);
-  if (!known || !availableOnHost) {
-    const fallback = (installed && installed[0]) || Object.keys(DEFINITIONS)[0];
+  const currentEntry = Array.isArray(discovered) && discovered.find((x) => x.id === cfg.operator.cli);
+  const currentIsHealthy = currentEntry && currentEntry.health?.status === "ready";
+  const availableOnHost = !runnableClis || runnableClis.length === 0 || runnableClis.includes(cfg.operator.cli);
+  if (!known || !availableOnHost || (!currentIsHealthy && runnableClis && runnableClis[0] && runnableClis[0] !== cfg.operator.cli)) {
+    const fallback = (runnableClis && runnableClis[0]) || Object.keys(DEFINITIONS)[0];
     if (fallback && fallback !== cfg.operator.cli) { cfg.operator.cli = fallback; changed = true; }
   }
   return changed;
