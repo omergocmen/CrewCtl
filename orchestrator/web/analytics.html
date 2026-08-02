@@ -57,7 +57,17 @@ code.task-id{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-siz
 .badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;line-height:1}
 .badge-ok{background:rgba(47,208,138,0.15);color:var(--ok)}
 .badge-err{background:rgba(242,86,95,0.15);color:var(--err)}
+
+[data-theme=light] .badge-ok{background:rgba(5,150,105,0.12);color:var(--ok)}
+[data-theme=light] .badge-err{background:rgba(220,38,38,0.12);color:var(--err)}
+[data-theme=light] table th{color:var(--dim);border-bottom-color:var(--line)}
+[data-theme=light] table td{border-bottom-color:var(--line)}
 </style>
+<script>
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t);try{localStorage.setItem('cliTheme',t)}catch{}}
+function toggleTheme(){applyTheme(document.documentElement.getAttribute('data-theme')==='light'?'dark':'light')}
+(function(){let t='dark';try{t=localStorage.getItem('cliTheme')||'dark'}catch{}applyTheme(t)})();
+</script>
 <link rel="stylesheet" href="app.css">
 <link rel="stylesheet" href="pill-nav.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
