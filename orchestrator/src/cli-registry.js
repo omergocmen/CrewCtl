@@ -132,6 +132,20 @@ function selectOpenCodeModel(models) {
   return "";
 }
 
+function getFallbackModels(id, currentModel) {
+  if (id === "opencode") {
+    const all = OPEN_CODE_MODELS.length ? OPEN_CODE_MODELS : [
+      "opencode/mimo-v2.5-free",
+      "opencode/ling-3.0-flash-free",
+      "opencode/laguna-s-2.1-free",
+      "opencode/north-mini-code-free",
+      "openrouter/openrouter/free",
+    ];
+    return all.filter((m) => m !== currentModel);
+  }
+  return [];
+}
+
 // `opencode models` ciktisindan saglayici/model satirlarini ayiklar. Baslik, bos satir ve
 // log gurultusunu eler; her "saglayici/model" bicimli satir gecerli sayilir.
 function parseOpenCodeModels(stdout) {
@@ -783,4 +797,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthAllowsRun, cliCanRun, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthAllowsRun, cliCanRun, healthCheckAll, listCodexModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, getFallbackModels, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

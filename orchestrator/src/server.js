@@ -1,7 +1,4 @@
 // server.js — saf Node http sunucusu: REST API + SSE + statik web paneli
-// libuv threadpool'u genislet: bir kac donuk ag/eslesmis surucudeki bloklayan fs.stat
-// cagrisi (Gozat klasor gezgini) varsayilan 4 thread'i tuketip mesru fs islerini ac
-// birakmasin. Ilk async fs kullanimindan ONCE ayarlanmali; bu yuzden en ust satirda.
 process.env.UV_THREADPOOL_SIZE = process.env.UV_THREADPOOL_SIZE || "32";
 const http = require("http");
 const fs = require("fs");
@@ -14,9 +11,8 @@ const cliRegistry = require("./cli-registry");
 const skillRegistry = require("./skill-registry");
 const checkpoints = require("./checkpoints");
 const schedule = require("./schedule");
+const workspaceIsolation = require("./workspace-isolation");
 
-// Guvenlik agi: tek bir stray hata (or. kopuk ag surucusu, bir istek isleyicisindeki
-// beklenmeyen throw) TUM sunucuyu oldurmesin. Logla, ayakta kal.
 process.on("uncaughtException", (e) => console.error("[uncaughtException]", (e && e.stack) || e));
 process.on("unhandledRejection", (e) => console.error("[unhandledRejection]", (e && e.stack) || e));
 
@@ -29,9 +25,6 @@ const CODEX_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 let codexModelRefreshDue = false;
 let codexModelCache = { checkedAt: 0, models: [] };
 
-// OpenCode model listesini config'e yaz: prob taze (cache-disi) liste dondurdugunde saklariz
-// ki bir sonraki acilista `opencode models` gecici olarak yavas/basarisiz olsa bile dropdown
-// bos kalmasin — son bilinen liste fallback olur. codexModelCache ile ayni desen.
 function persistOpenCodeModels(cfg, statuses) {
   const oc = (statuses || []).find((c) => c.id === "opencode");
   const fresh = oc && oc.installed && !oc.modelsFromCache && Array.isArray(oc.models) ? oc.models : [];
@@ -451,100 +444,6 @@ const server = http.createServer(async (req, res) => {
         }
         const mode = ["auto", "fast", "balanced", "deep"].includes(executionMode) ? executionMode : "auto";
         const t = store.addTask(prompt.trim(), targetDir, selectedCli, mode);
-        // --fresh esdegeri: bu gorevde proje profili (.crewctl/CONTEXT.md) yuklenmez.
-        if (freshContext === true) { t.freshContext = true; store.saveTask("pending", t); }
-        engine.wake();
-        broadcast("queue", snapshot());
-        return send(res, 200, t);
-      }
-      let m;
-      if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/chat$/)) && req.method === "POST") {
-        const found = store.findTask(m[1]);
-        if (!found || found.state !== "done" || found.task.kind === "operator-chat") return send(res, 404, { error: "tamamlanmis gorev bulunamadi" });
-        const { question } = await readBody(req);
-        if (!question || !String(question).trim()) return send(res, 400, { error: "soru gerekli" });
-        const chatTask = store.addChatTask(found.task, String(question).trim());
-        if (!engine.status().running) engine.start();
-        else engine.wake();
-        broadcast("queue", snapshot());
-        return send(res, 200, chatTask);
-      }
-      if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/(approve|reject)$/)) && req.method === "POST") {
-        const found = store.findTask(m[1]);
-        if (!found) return send(res, 404, { error: "gorev yok" });
-        if (m[2] === "approve") {
-          try { store.approveTask(m[1]); }
-          catch (error) { return send(res, 409, { error: error.message }); }
-        } else {
-          try { store.rejectTask(m[1]); }
-          catch (error) { return send(res, 409, { error: error.message }); }
-        }
-        broadcast("queue", snapshot());
-        return send(res, 200, { ok: true });
-      }
-      if ((m = pathname.match(/^\/api\/tasks\/([^/]+)\/restore$/)) && req.method === "POST") {
-        const found = store.findTask(m[1]);
-        if (!found) return send(res, 404, { error: "gorev yok" });
-        if (engine.status().current) return send(res, 409, { error: "Motor bir gorev calistirirken surum geri yuklenemez; once durdurun." });
-        if (!found.task.checkpointId) return send(res, 400, { error: "Bu gorev icin kayitli bir surum yok." });
-        const cfg = store.loadConfig();
-        const result = checkpoints.restoreCheckpoint(found.task.checkpointId, { retention: cfg.versioningRetention });
-        if (!result.ok) return send(res, 409, { error: result.error || "Surum geri yuklenemedi." });
-        broadcast("log", { at: new Date().toISOString(), type: "log", taskId: found.task.id, level: "warn", msg: `Surum geri yuklendi (${found.task.id} oncesi): ${result.restored} dosya geri yazildi, ${result.deleted} sonradan olusan dosya silindi. Geri almayi geri almak icin redo surumu: ${result.redoId || "yok"}.` });
-        broadcast("queue", snapshot());
-        return send(res, 200, result);
-      }
-      if (pathname === "/api/checkpoints" && req.method === "GET") {
-        const dir = url.parse(req.url, true).query.dir;
-        return send(res, 200, checkpoints.listCheckpoints(dir ? path.resolve(store.WORK_BASE, dir) : undefined));
-      }
-      if (pathname === "/api/cli/discover" && req.method === "POST") {
-        // "Yeniden Tara" kullanicinin acik talebidir: onbellegi tumden atla, her CLI'yi yokla.
-        // OpenCode modelleri persist edilmedigi icin son bilinen listeyi fallback ver; taze
-        // liste gelirse persistOpenCodeModels ile guncellenir.
-        const prevCfg = store.loadConfig();
-        cliStatus = cliRegistry.discoverInstalled({ force: true, openCodeModels: prevCfg.openCodeModelCache?.models });
-        const cfg = store.loadConfig();
-        cfg.cliDiscoveryCache = cliRegistry.discoveryCacheFrom(cliStatus);
-        const body = await readBody(req);
-        if (Array.isArray(body.ignoredAdapters)) {
-          cfg.discoveryIgnoredAdapters = [...new Set(body.ignoredAdapters.filter((id) => cliRegistry.KNOWN_CLIS.includes(id)))];
-        }
-        let changed = cliRegistry.addMissingAgents(cfg, cliStatus);
-        if (cliRegistry.ensureValidOperator(cfg, cliStatus)) changed = true;
-        if (persistOpenCodeModels(cfg, cliStatus)) changed = true;
-        if (changed || Array.isArray(body.ignoredAdapters)) store.saveConfig(cfg);
-        await refreshCliHealth(true);
-        return send(res, 200, { cliStatus, changed, config: store.loadConfig() });
-      }
-      if (pathname === "/api/cli/health" && req.method === "POST") {
-        await refreshCliHealth(true);
-        return send(res, 200, { cliStatus, config: store.loadConfig() });
-      }
-      if (pathname === "/api/codex/models" && req.method === "GET") {
-        try { return send(res, 200, { models: await getCodexModels(false) }); }
-        catch (error) { return send(res, 502, { error: `Codex modelleri alınamadı: ${error.message}` }); }
-      }
-      if (pathname === "/api/schedules" && req.method === "GET") {
-        return send(res, 200, { schedules: store.loadConfig().schedules || [] });
-      }
-      if (pathname === "/api/schedules" && req.method === "POST") {
-        const body = await readBody(req);
-        let normalized;
-        try { normalized = schedule.normalizeSchedule(body); }
-        catch (error) { return send(res, 400, { error: error.message }); }
-        if (!scheduleOperatorValid(normalized.operatorCli)) return send(res, 400, { error: "gecersiz veya kurulu olmayan operator CLI" });
-        normalized.id = newScheduleId();
-        normalized.createdAt = new Date().toISOString();
-        const next = schedule.computeNextRun(normalized);
-        if (next) normalized.nextRunAt = next.toISOString();
-        const cfg = store.loadConfig();
-        cfg.schedules = [...(cfg.schedules || []), normalized];
-        store.saveConfig(cfg);
-        broadcastSchedules();
-        return send(res, 200, normalized);
-      }
-      if ((m = pathname.match(/^\/api\/schedules\/([^/]+)$/)) && (req.method === "PUT" || req.method === "DELETE")) {
         const cfg = store.loadConfig();
         const list = cfg.schedules || [];
         const index = list.findIndex((s) => s.id === m[1]);
