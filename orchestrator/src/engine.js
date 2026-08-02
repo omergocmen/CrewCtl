@@ -949,12 +949,50 @@ class Engine extends EventEmitter {
     }
   }
 
+  async runCliWithFailover(displayName, agent, prompt, cfg, meta = {}) {
+    let currentAgent = { ...agent, args: Array.isArray(agent.args) ? agent.args.slice() : [] };
+    let currentModel = currentAgent.model || "";
+    const fallbacks = cliRegistry.getFallbackModels(currentAgent.adapter, currentModel);
+    let attempts = 0;
+    const maxAttempts = Math.min(4, fallbacks.length + 1);
+
+    while (attempts < maxAttempts) {
+      try {
+        return await this.runCli(displayName, currentAgent, prompt, cfg, meta);
+      } catch (error) {
+        attempts++;
+        const failure = classifyCliError(error);
+        const isTransientModelError = ["MODEL_OVERLOADED", "RATE_LIMIT", "PROVIDER_UNAVAILABLE", "NETWORK_ERROR"].includes(failure.code);
+        if (isTransientModelError && fallbacks.length > 0 && attempts < maxAttempts) {
+          const nextModel = fallbacks.shift();
+          this.publish("log", {
+            level: "warn",
+            msg: `${displayName} (${currentAgent.adapter}) model geçici hata döndürdü [${failure.code}]; otomatik yedek modele geçiliyor (${currentModel || "varsayılan"} ➔ ${nextModel})...`,
+          }, meta.taskId || this.current?.id);
+          currentAgent.model = nextModel;
+          if (Array.isArray(currentAgent.args)) {
+            const mIdx = currentAgent.args.indexOf("--model");
+            if (mIdx >= 0 && mIdx + 1 < currentAgent.args.length) {
+              currentAgent.args[mIdx + 1] = nextModel;
+            } else {
+              currentAgent.args.push("--model", nextModel);
+            }
+          }
+          currentModel = nextModel;
+          await new Promise((resolve) => setTimeout(resolve, 1500 * attempts));
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
   // Uzman agent'i (operatorun altindaki ekip) cfg.agents'ten cozup calistirir.
   invokeAgent(agentName, prompt, cfg, meta = {}) {
     const configuredAgent = cfg.agents[agentName];
     const agent = configuredAgent && cliRegistry.effectiveAgent(configuredAgent, cfg);
     if (!agent) return Promise.reject(new Error(`Agent tanimsiz: ${agentName}`));
-    return this.runCli(agentName, agent, prompt, cfg, meta);
+    return this.runCliWithFailover(agentName, agent, prompt, cfg, meta);
   }
 
   // Operatoru, uzman agent'lardan BAGIMSIZ olarak dogrudan CLI'dan (claude/codex/gemini/opencode)
@@ -962,7 +1000,7 @@ class Engine extends EventEmitter {
   invokeOperator(cli, prompt, cfg, meta = {}) {
     const agent = cliRegistry.operatorSpec(cli, cfg);
     if (!agent) return Promise.reject(new Error(`Operator CLI tanimsiz veya kurulu degil: ${cli}`));
-    return this.runCli(cli, agent, prompt, cfg, meta);
+    return this.runCliWithFailover(cli, agent, prompt, cfg, meta);
   }
 
   runCli(displayName, agent, prompt, cfg, meta = {}) {
