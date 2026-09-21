@@ -79,6 +79,29 @@ function main() {
   assert.ok(rootsArg && rootsArg.includes("C:/shared"), "extraWritableDirs writable_roots olarak gecmeli");
   assert.ok(!rootsArg.includes('"  "') && !rootsArg.includes('""'), "bos/whitespace yollar elenmeli");
 
+  // Codex ChatGPT oturumu: ortamdaki OPENAI_API_KEY alt surece sizarsa Codex API key moduna
+  // gecip 401 dondurur ve asil durumu (or. kullanim limiti) gizler.
+  const originalApiKey = process.env.OPENAI_API_KEY;
+  const originalAuthMode = process.env.CODEX_AUTH_MODE;
+  try {
+    process.env.OPENAI_API_KEY = "test-invalid-key";
+    delete process.env.CODEX_AUTH_MODE;
+    assert.ok(!Object.prototype.hasOwnProperty.call(cliRegistry.agentEnvironment({ adapter: "codex" }), "OPENAI_API_KEY"), "ChatGPT Codex cagrisina ortam API anahtari sizmamali");
+    assert.equal(cliRegistry.agentEnvironment({ adapter: "opencode" }).OPENAI_API_KEY, "test-invalid-key", "diger CLI ortamlari etkilenmemeli");
+    process.env.CODEX_AUTH_MODE = "api_key";
+    assert.equal(cliRegistry.agentEnvironment({ adapter: "codex" }).OPENAI_API_KEY, "test-invalid-key", "API key modu acikca secilirse anahtar korunmali");
+  } finally {
+    if (originalApiKey == null) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalApiKey;
+    if (originalAuthMode == null) delete process.env.CODEX_AUTH_MODE; else process.env.CODEX_AUTH_MODE = originalAuthMode;
+  }
+
+  // Codex 0.154.0'in plan hakki bitince verdigi gercek cikti (2026-09-21, codex exec --json).
+  const usageLimitOutput = '{"type":"error","message":"You\'ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 22nd, 2026 10:58 AM."}';
+  const usageHealth = cliRegistry.classifyHealthFailure(usageLimitOutput);
+  assert.equal(usageHealth.status, "quota", "kullanim limiti saglik testinde kota olarak gorunmeli");
+  assert.equal(usageHealth.label, "Kullanım limiti doldu");
+  assert.ok(usageHealth.detail.includes("Sep 22nd, 2026 10:58 AM"), "yenilenme zamani detayda gorunmeli");
+
   // buildCommand bare-shell dali: bosluk iceren yol argumanlari (--settings/--file) shell:true
   // altinda ikiye bolunmesin diye tirnaklanmali; sade bayrak/model adlari dokunulmamali.
   if (process.platform === "win32") {

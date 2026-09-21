@@ -657,6 +657,12 @@ function preparePromptArgs(args, prompt) {
 // kaldirmak probe'lari yavaslatir ve abortActiveProbes onlari oldururken yarim proses birakirdi.
 function agentEnvironment(agent, mcpEnvConfig = null) {
   const env = { ...process.env };
+  // ChatGPT oturumu ile API anahtari ayni anda ortama girerse Codex CLI API anahtari yolunu
+  // secer; gecersiz/eskimis anahtar 401 dondurur ve asil durumu (or. kullanim limiti) gizler.
+  // Varsayilan ChatGPT girisidir; API anahtari yalnizca CODEX_AUTH_MODE=api_key ile korunur.
+  if (agent.adapter === "codex" && String(env.CODEX_AUTH_MODE || "chatgpt").toLowerCase() !== "api_key") {
+    delete env.OPENAI_API_KEY;
+  }
   // OpenCode'un otonom izinleri surumden bagimsiz olarak config icerigiyle aktarilir.
   const autonomous = agent.adapter === "opencode"
     ? { var: "OPENCODE_CONFIG_CONTENT", patch: { permission: { "*": "allow" } } }
@@ -682,8 +688,21 @@ function agentEnvironment(agent, mcpEnvConfig = null) {
   return env;
 }
 
+// Codex ChatGPT plan hakki bittiginde: "You've hit your usage limit. ... try again at Sep 22nd,
+// 2026 10:58 AM." Bu bir oturum ya da gecici hiz sorunu DEGILDIR; sifirlanma zamanina kadar surer.
+const CODEX_USAGE_LIMIT = /hit your usage limit|usage_limit_reached/i;
+
+function usageLimitReset(text) {
+  const match = String(text || "").match(/try again at ([^."}\r\n]+)/i);
+  return match ? match[1].trim() : "";
+}
+
 function classifyHealthFailure(text) {
   const raw = String(text || "");
+  if (CODEX_USAGE_LIMIT.test(raw)) {
+    const reset = usageLimitReset(raw);
+    return { status: "quota", label: "Kullanım limiti doldu", detail: `ChatGPT planının Codex kullanım hakkı bitti${reset ? `; yenilenme: ${reset}` : ""}. ${raw}` };
+  }
   if (/requires a newer version|upgrade to the latest|version.*unsupported|unsupported.*version|model metadata.*not found|unsupported.*model/i.test(raw)) return { status: "version-incompatible", label: "Sürüm uyumsuz", detail: raw };
   if (/api key|unauthorized|unauthenticated|authentication|login required|not logged in|sign in|giriÅŸ gerekli/i.test(raw)) return { status: "auth-required", label: "Giriş gerekli", detail: raw };
   if (/rate.?limit|quota|too many requests|billing|credit/i.test(raw)) return { status: "quota", label: "Kota veya ödeme gerekli", detail: raw };
@@ -767,7 +786,7 @@ function listCodexModels(options = {}) {
       if (error) reject(error); else resolve(value);
     };
     const timer = setTimeout(() => finish(new Error(`Codex model listesi ${Math.round(timeoutMs / 1000)} saniyede alınamadı.`)), timeoutMs);
-    try { child = spawn(command.file, command.args, { shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim }); }
+    try { child = spawn(command.file, command.args, { env: agentEnvironment({ adapter: "codex" }), shell: command.shell, windowsHide: true, windowsVerbatimArguments: !!command.verbatim }); }
     catch (error) { finish(error); return; }
     unregister = registerProbe(child);
     child.stdout?.setEncoding("utf8");
@@ -1032,4 +1051,4 @@ function ensureValidOperator(cfg, discovered) {
   return changed;
 }
 
-module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthCheckAll, listCodexModels, listClaudeModels, normalizeClaudeModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };
+module.exports = { DEFINITIONS, KNOWN_CLIS: Object.keys(DEFINITIONS), adapterId, authHint, CODEX_USAGE_LIMIT, usageLimitReset, classifyHealthFailure, normalizeAgentAdapter, normalizeAgentAdapters, effectiveAgent, preparePromptArgs, operatorSpec, buildCommand, agentEnvironment, discoverInstalled, discoveryCacheFrom, applyOpenCodeFallback, healthCheckAll, listCodexModels, listClaudeModels, normalizeClaudeModels, abortActiveProbes, currentProbeGeneration, selectOpenCodeModel, parseOpenCodeModels, addMissingAgents, ensureValidOperator };

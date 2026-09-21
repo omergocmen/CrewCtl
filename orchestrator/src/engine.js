@@ -335,6 +335,13 @@ function classifyCliError(error) {
     return of("PROVIDER_UNAVAILABLE", "Seçili model hiçbir yapılandırılmış sağlayıcıya çözümlenemedi (oturum sorunu değil).",
       "Ayarlar → Agent'lar bölümünde bu agent için açık bir model seçin. Model boşken OpenCode kendi son kullandığı modele düşer; o model erişilemezse görev bu hatayla durur.");
   }
+  // Codex plan hakki bitti: beklemekle kisa surede gecmez, sifirlanma zamani mesajda yazar.
+  // Genel desenlerden ONCE gelmeli; aksi halde CLI_FAILED'a duser ve agent bosuna tekrar denenir.
+  if (cliRegistry.CODEX_USAGE_LIMIT.test(raw)) {
+    const reset = cliRegistry.usageLimitReset(raw);
+    return of("QUOTA_EXCEEDED", `Codex kullanım limiti doldu (ChatGPT plan hakkı bitti)${reset ? `; yenilenme: ${reset}` : ""}.`,
+      "Limit yenilenene kadar Codex kullanılamaz; başka bir agent seçin, https://chatgpt.com/codex/settings/usage adresinden kredi alın veya planı yükseltin.");
+  }
   if (/API key not valid|API_KEY_INVALID|invalid[_ ]api[_ ]key|incorrect api key/i.test(raw)) {
     return of("AUTH_INVALID", "API anahtarı geçersiz veya reddedildi.", `Bu agent'ın API anahtarını yenileyin. ${cliRegistry.authHint(adapter)}`);
   }

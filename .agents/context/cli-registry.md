@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/src/cli-registry.js`
 
-**Last verified:** 2026-07-25
+**Last verified:** 2026-09-21
 
 ## Purpose
 
@@ -31,6 +31,8 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 - CLI çağrıları non-interactive ve otonom olmalı; desteklenmeyen/eski bayraklar temizlenmelidir.
 - Windows Unicode kullanıcı yolları ve `.cmd/.bat` çalıştırma davranışı korunmalıdır.
 - Codex ve Gemini için adapter sessizlik sınırı 180, Claude için stream-json akışıyla 240, OpenCode için 300 saniyedir.
+- Codex alt süreçlerinde varsayılan olarak ChatGPT oturumu kullanılır; `OPENAI_API_KEY` alt sürece aktarılmaz. API key modu yalnızca `CODEX_AUTH_MODE=api_key` ile seçilir.
+- Codex'in "You've hit your usage limit" çıktısı sağlıkta `quota` / "Kullanım limiti doldu", motorda `QUOTA_EXCEEDED` olarak sınıflandırılır; yenilenme zamanı mesajdan çıkarılır. Genel auth/hız/CLI hatası sayılmaz.
 
 ## Interactions
 
@@ -43,6 +45,15 @@ Codex, Claude, Gemini ve OpenCode kurulumlarını keşfeder; agent profillerini 
 - Platforma özgü komut değişikliklerinde Windows ve Unix argüman davranışını ayrı kontrol et.
 
 ## Major Changes
+
+### 2026-09-21 — Codex ChatGPT oturumu ve kullanım limiti teşhisi
+
+- **Change:** Codex sağlık, model listesi ve runtime alt süreçleri varsayılan olarak `OPENAI_API_KEY` olmadan başlatılıyor. "You've hit your usage limit" çıktısı ayrı olarak tanınıyor ve yenilenme zamanıyla raporlanıyor.
+- **Reason:** Ortamdaki geçersiz `OPENAI_API_KEY` Codex'i API key moduna geçirip `401` döndürüyor ve asıl durumu gizliyordu. Plan hakkı bitince gelen mesaj da motorda `CLI_FAILED` sayılıyor, agent karantinaya alınmadan tekrar deneniyordu.
+- **Impact:** Codex, ChatGPT girişini kullanır; hakkı bitmişse sağlıkta "Kullanım limiti doldu", görevde `QUOTA_EXCEEDED` (karantina) görünür. Diğer CLI ortamlarına dokunulmaz.
+- **Compatibility:** API key kullanan kurulumlar `CODEX_AUTH_MODE=api_key` ayarını açıkça eklemelidir.
+- **Verification:** `npm.cmd test`; Codex 0.154.0 ile gerçek `codex exec --json` çıktısı ve `OPENAI_API_KEY` ortamdayken uygulamanın gerçek sağlık testi `quota` / "Kullanım limiti doldu" döndü.
+- **Files:** `orchestrator/src/cli-registry.js`, `orchestrator/src/engine.js`, `orchestrator/test/cli.test.js`, `orchestrator/test/team-flow.test.js`
 
 ### 2026-07-24 — Claude modeli kullanıcı oturumundan dinamik keşfediliyor
 

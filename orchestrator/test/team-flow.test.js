@@ -383,6 +383,11 @@ async function main() {
     assert.equal(code("'gemini' is not recognized as an internal or external command"), "CLI_NOT_FOUND");
     assert.equal(code("User location is not supported for the API use"), "REGION_BLOCKED");
     assert.equal(code("API key not valid. Please pass a valid API key."), "AUTH_INVALID");
+    // Regresyon: Codex plan hakki bitince gelen gercek mesaj CLI_FAILED'a dusuyor, agent
+    // karantinaya alinmadan bosuna tekrar deneniyordu.
+    const codexUsage = classifyCliError(new Error('codex cikis kodu 1.\n{"type":"error","message":"You\'ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Sep 22nd, 2026 10:58 AM."}'));
+    assert.equal(codexUsage.code, "QUOTA_EXCEEDED");
+    assert.ok(codexUsage.summary.includes("Sep 22nd, 2026 10:58 AM"), "yenilenme zamani ozette gorunmeli");
     // Kota/bolge beklemekle gecmez -> karantina; hiz siniri ve gecici yuk gecer -> karantina yok.
     assert.ok(QUARANTINE_CLI_ERRORS.has("QUOTA_EXCEEDED") && QUARANTINE_CLI_ERRORS.has("REGION_BLOCKED"));
     assert.ok(!QUARANTINE_CLI_ERRORS.has("RATE_LIMIT") && !QUARANTINE_CLI_ERRORS.has("MODEL_OVERLOADED"));
