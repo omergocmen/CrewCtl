@@ -67,7 +67,9 @@ async function requestTolerant(method, urlPath, body, attempts = 3) {
 
 async function main() {
   const server = spawn(process.execPath, [path.join(REPO, "src", "server.js")], {
-    env: { ...process.env, CLI_TEAM_ROOT: ROOT, PORT: String(PORT) },
+    // NO_OPEN: test sunucusu kullanicinin tarayicisinda sekme acmamali (gecici veriyle
+    // "saglik testi bekleniyor" gosteren olu sekmeler birakiyordu).
+    env: { ...process.env, CLI_TEAM_ROOT: ROOT, PORT: String(PORT), NO_OPEN: "1" },
     cwd: WORK,
   });
   let serverLog = "";

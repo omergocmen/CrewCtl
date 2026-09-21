@@ -1,7 +1,8 @@
 /* app.css — paylasilan CILA katmani (uc sayfada inline <style>'dan SONRA yuklenir, esit
    ozgullukte kazanir). Yaklasim: "sakin & keskin" (Linear/Vercel tarzi). Sistem fontu,
    net tipografi, tutarli buton/odak sistemi, ince scrollbar, yumusak-hizli sayfa gecisleri.
-   Tamamen kozmetik ve additive; yerlesim/mantik degistirmez, tema token'larini (var(--*)) kullanir. */
+   Kozmetik ve additive; mantik degistirmez, tema token'larini (var(--*)) kullanir. Tek istisna
+   "Duyarli yerlesim" bolumudur: dar pencerede tasmayi onleyen ortak yerlesim kurallari. */
 
 /* ---- Tipografi: cilali sistem font yigini + smoothing ---- */
 html { -webkit-text-size-adjust: 100%; }
@@ -46,6 +47,32 @@ button svg, a.btn svg { vertical-align: -0.18em; }
 button { display: inline-flex; align-items: center; gap: 7px; }
 /* Tek-ikon (kare) butonlar icin dengeli oran. */
 #themeBtn, #helpBtn { justify-content: center; }
+
+/* ---- Duyarli yerlesim: dort sayfada ve tum modallarda AYNI kurallar ----
+   1) Kapsayici sarar, oge bolunmez: rozet/hap/cip tek satir kalir; satirlar ve sekmeler alt satira gecer.
+   2) Izgara/flex cocugu icerigi yuzunden kolonu ekrandan tasirmaz (min-width:0).
+   3) Sabit yukseklik yerine min-height: sarilan header icerigin ustune binmez.
+   4) Uzun kesintisiz metin (yol, gorev kimligi, komut) kutuda satir sonunda kirilir.
+   5) Istatistik kutulari (tiles) sabit sutun yerine sigdigi kadar sutuna dagilir. */
+header { height: auto; min-height: 58px; }
+.badge, .pill, .chip, .mission-status { white-space: nowrap; }
+main > *, .wrap > *, .board > *, .grid2 > *, .grid3 > *, .tiles > *, .row > * { min-width: 0; }
+.tabs, .dialog-head, .dialog-foot { flex-wrap: wrap; }
+/* break-word: kelime yalnizca satira hic sigmiyorsa bolunur ("TAMAMLANDI" gibi etiketler butun kalir). */
+.card, .item, .task, .tcard, .panel, .agent-card, .dialog-body, .mission-card { overflow-wrap: break-word; }
+@media (max-width: 960px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 680px) {
+  header { padding-top: 8px; padding-bottom: 8px; }
+  .header-tools { flex-wrap: wrap; overflow-x: visible; }
+  .row { flex-wrap: wrap; row-gap: 6px; }
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); margin-left: 0; width: 100%; }
+  .tile { min-width: 0; }
+  /* Ekip seridi genis ekranda yatay kayar; dar ekranda dugumler yarim gorunmek yerine alt satira gecer. */
+  .team-map { flex-wrap: wrap; row-gap: 14px; overflow-x: visible; }
+  .dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
+}
 
 /* ---- Erisilebilir, tutarli odak halkasi (yalnizca klavye) ---- */
 :focus-visible {

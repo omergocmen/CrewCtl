@@ -63,6 +63,7 @@ h1{font-size:15px;margin:0;letter-spacing:.2px}.brand{color:var(--acc);font-weig
 .ai .m{display:flex;gap:5px;align-items:center;margin-top:2px;flex-wrap:wrap}
 .chip{font-size:9.5px;border:1px solid var(--line);border-radius:999px;padding:1px 6px;color:var(--dim)}
 .chip.cli{color:#fff;font-weight:700;border:none;text-shadow:0 1px 1px #0006}
+.ai .stt .status-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ai .stt{font-size:10.5px;color:var(--dim);margin-top:3px;display:flex;align-items:center;justify-content:space-between;gap:6px}
 .run-count{font:9.5px ui-monospace,Consolas,monospace;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:1px 6px;white-space:nowrap}
 .agent-card.working .stt{color:var(--ok)}
@@ -577,16 +578,19 @@ function renderRoster(agents){roster.clear();agentMeta={};const box=$('#roster')
   for(const [name,a] of entries){const cli=adapterOf(a);const role=(a.roleFile||'').split('/').pop().replace('.md','')||'uzman';agentMeta[name]={cli,role};
     const el=document.createElement('div');el.className='agent-card';el.id='ros-'+cssId(name);el.style.setProperty('--cli',cliColor(cli));
     el.innerHTML=`<div class="avatar" style="--cli:${cliColor(cli)}"><span class="led"></span></div>
-      <div class="ai"><div class="n">${esc(name)}</div><div class="m"><span class="chip cli" style="background:${cliColor(cli)}">${esc(cliLabel(cli))}</span><span class="chip">${esc(role)}</span>${a.costTier?`<span class="chip">${esc(a.costTier)}</span>`:''}</div><div class="stt"><span class="status-text">hazır · sırada</span><span class="run-count">0 çalışma</span></div></div>`;
+      <div class="ai"><div class="n">${esc(name)}</div><div class="m"><span class="chip cli" style="background:${cliColor(cli)}">${esc(cliLabel(cli))}</span><span class="chip">${esc(role)}</span>${a.costTier?`<span class="chip">${esc(a.costTier)}</span>`:''}</div><div class="stt"><span class="status-text"></span><span class="run-count">0 çalışma</span></div></div>`;
     el.addEventListener('click',()=>Scene.selectByName(name));
-    box.appendChild(el);roster.set(name,{el,stt:el.querySelector('.status-text'),count:el.querySelector('.run-count'),status:'idle'});
+    box.appendChild(el);roster.set(name,{el,stt:el.querySelector('.status-text'),count:el.querySelector('.run-count'),status:'idle',health:a.health||null});setIdleText(roster.get(name));
     sceneList.push({name,cli,role,color:cliColor(cli)});
   }
   Scene.setAgents(sceneList);
 }
+// Bosta duran uzmanin metni sunucunun saglik sonucundan gelir (app.js CrewHealth): hazir degilse
+// "hazir · sirada" demek yaniltir, operator o uzmani kullanmaz (engine.js agentUsable).
+function setIdleText(r){const H=window.CrewHealth,h=r.health;if(!H||!H.known(h)||H.ready(h)){r.stt.textContent='hazır · sırada';r.stt.style.color='';r.stt.title=''}else{r.stt.textContent=H.label(h);r.stt.style.color=H.tone(h);r.stt.title=`${H.label(h)} · operatör bu uzmanı kullanmıyor\n${h.detail||''}`.trim()}}
 function syncRoster(name){const r=roster.get(name);if(!r)return;const jobs=[...nodes.values()].filter(n=>n.agent===name),active=jobs.filter(n=>n.status==='working'||n.status==='queued'),failed=jobs.filter(n=>n.status==='failed'||n.status==='blocked');
   let status='idle',text='hazır · sırada';if(active.length){status='working';text=`çalışıyor · #${active[active.length-1].step}`}else if(jobs.length){status=failed.length&&failed.length===jobs.length?'failed':'done';text=failed.length?`${jobs.length} iş · ${failed.length} sorun`:`${jobs.length} işi tamamladı`}
-  r.el.classList.remove('working','done','failed','used');if(status!=='idle')r.el.classList.add(status,'used');r.stt.textContent=text;r.count.textContent=`${jobs.length} çalışma`;r.status=status;
+  r.el.classList.remove('working','done','failed','used');if(status!=='idle')r.el.classList.add(status,'used');if(status==='idle')setIdleText(r);else{r.stt.textContent=text;r.stt.style.color=''}r.count.textContent=`${jobs.length} çalışma`;r.status=status;
   if(active.length)activeSet.add(name);else activeSet.delete(name);refreshActive();
   Scene.updateAgent(name,status);Scene.setBeam(name,!!active.length);
   if(selectedAgent===name)renderPanel(name);
@@ -647,7 +651,7 @@ function addTimeline(kind,route,txt,num,at,agent){const tl=$('#timeline');if(tl.
 
 /* ---- Görev yaşam döngüsü ---- */
 function startMission(title,at){missionActive=true;delegCount=0;roundNo=0;stepNo=0;activeSet.clear();refreshActive();nodes.clear();Scene.reset();$('#timeline').innerHTML='';
-  for(const [name,r] of roster){r.el.classList.remove('working','done','failed','used');r.stt.textContent='hazır · sırada';r.count.textContent='0 çalışma';r.status='idle';Scene.updateAgent(name,'idle')}
+  for(const [name,r] of roster){r.el.classList.remove('working','done','failed','used');setIdleText(r);r.count.textContent='0 çalışma';r.status='idle';Scene.updateAgent(name,'idle')}
   if(selectedAgent)renderPanel(selectedAgent);
   $('#mKick').textContent='● Görev yürütülüyor';$('#mTitle').textContent=title||'Yeni takım görevi';$('#mSub').textContent='Operatör hedefi analiz ediyor ve uygun uzmanları seçiyor.';
   $('#kRound').textContent='0';$('#kDeleg').textContent='0';$('#kFiles').textContent='0';
@@ -719,6 +723,8 @@ es.addEventListener('activity',e=>onActivity(JSON.parse(e.data)));
 es.addEventListener('message',e=>onMessage(JSON.parse(e.data)));
 es.addEventListener('log',e=>onLog(JSON.parse(e.data)));
 es.addEventListener('result',e=>onResult(JSON.parse(e.data)));
+// Saglik testi yeniden kosunca bosta duran uzmanlarin durumu sayfa yenilenmeden guncellenir.
+es.addEventListener('cli-health',e=>{const list=JSON.parse(e.data);for(const [name,r] of roster){const s=list.find(x=>x.id===agentMeta[name]?.cli);if(s&&s.health){r.health=s.health;if(r.status==='idle')setIdleText(r)}}});
 // Sayfadan ayrılırken (Komuta Merkezi'ne dönüş / bfcache) açık SSE bağlantısını kapat ki
 // donmuş bağlantılar birikip diğer sayfadaki fetch'leri kilitlemesin; geri dönüşte tazele.
 window.addEventListener('pagehide',()=>{try{es.close()}catch{}});

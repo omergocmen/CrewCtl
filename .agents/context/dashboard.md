@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/web/index.html`
 
-**Last verified:** 2026-07-18
+**Last verified:** 2026-09-21
 
 ## Purpose
 
@@ -15,7 +15,7 @@ Motor durumunu, yeni görev oluşturmayı, kuyrukları, aktif ekip haritasını,
 - İlk otonom engine başlatmada kalıcı consent modalı gösterilir.
 - Görev alanı ve kuyruk sol sütunda; misyon, ekip haritası, feed ve teknik terminaller sağ sütundadır.
 - Dashboard açılışta aktif görevin olay geçmişini otomatik replay eder; aktif görev yoksa en son tamamlanan veya başarısız görev geri yüklenir. Bootstrap sırasında gelen SSE olayları replay bitene kadar tamponlanır ve yinelenmeden uygulanır.
-- `/api/events` SSE olayları dashboard içinde `status`, `queue`, `activity`, `message`, `log`, `result` ve `schedules` handler'larına dağıtılır.
+- `/api/events` SSE olayları dashboard içinde `status`, `queue`, `activity`, `message`, `log`, `result`, `schedules` ve `cli-health` handler'larına dağıtılır.
 - CLI prosesleri için başlama, ilerleme, stdout/stderr, timeout, sessizlik timeout ve bitiş durumları görselleştirilir.
 - Canlı kodlama görünümü ayrı `code.html` sayfasındadır; dashboard header'ından açılır.
 - Tema tercihi `localStorage` içinde saklanır.
@@ -31,6 +31,8 @@ Motor durumunu, yeni görev oluşturmayı, kuyrukları, aktif ekip haritasını,
   `CLI_META` ile birebir). Feed mesajları gönderenin, terminal kartları ve ekip haritası düğümleri
   ilgili agent'ın CLI rengini alır (`--agent-accent` / `--nacc` inline). Çalışıyor/hata durumları
   renk değil ayrı ipuçlarıyla (nabız, ilerleme çubuğu, kırmızı halka, `failure`/`blocked` kırmızı) belirtilir.
+- Duyarlı yerleşim dört sayfa için ortaktır ve `app.css` "Duyarlı yerleşim" bölümündedir. Kurallar: kapsayıcı sarar, rozet/hap/çip bölünmez; ızgara çocukları `min-width:0`; header sabit değil `min-height`; uzun metin `overflow-wrap: break-word` (anywhere değil); `tiles` `auto-fit`. Sayfaya özel sabit genişlik/yükseklik eklenirken bu kurallar bozulmamalıdır.
+- CLI sağlık yorumu tek yerdedir: `app.js` `window.CrewHealth` (renk tonu, etiket, yenilenme zamanı, hazır mı). Kaynak sunucunun `cliStatus[].health` sonucudur; agent için yoksa `agent.health` kullanılır. Sağlık gösteren her yer bunu çağırır, kendi yorumunu yazmaz.
 
 ## Interactions
 
@@ -42,6 +44,15 @@ Görevler için `tasks.md`, ayarlar için `settings.md`, klasör seçici için `
 - Görsel veya etkileşimli değişiklikte yerel sunucuda dashboard'u ve responsive davranışı canlı kontrol et.
 
 ## Major Changes
+
+### 2026-09-21 — Ortak duyarlı yerleşim ve tek sağlık kaynağı
+
+- **Change:** `app.css`'e dört sayfa ve tüm modallar için ortak "Duyarlı yerleşim" bölümü eklendi. `app.js`'e paylaşılan `CrewHealth` yardımcısı eklendi. Ana ekran, ayarlar, CLI kartları, operatör seçimleri ve Ekip Akışı aynı sağlık yorumunu kullanıyor. `server-flow` testi `NO_OPEN` ile çalışıyor.
+- **Reason:** 390 px'te ana içerik ekrandan ~97 px taşıyordu. Board/code/flow header'ı sabit 58 px olduğu için sarılan butonlar içeriğin üstüne biniyordu. Ayarlar sekmeleri 330 px taşıyordu, Canlı Kod istatistik kutuları ekrana sığmıyordu. Ayrıca aynı sağlık bilgisi bazı yerlerde hiç kullanılmıyor, bazı yerlerde yanlış gösteriliyordu (Ekip Akışı'nda girişsiz Gemini "hazır · sırada"). Test sunucusu her çalışmada kullanıcının tarayıcısında ölü bir sekme açıyordu.
+- **Impact:** 1440/1024/768/390 px'te 17 ekran durumu (4 sayfa, 6 ayar sekmesi, 7 modal) taşmasız. Hazır olmayan CLI her yerde aynı etiket ve renkle görünüyor.
+- **Compatibility:** Geniş ekran görünümü değişmedi. Mantık ve config şeması aynı. `app.js` defer yüklendiği için sayfalar `CrewHealth`'i çağrı anında ve korumalı kullanır.
+- **Verification:** `npm.cmd test`. Headless Chrome ile her ekranı dört genişlikte açıp taşmaları ölçen tarama: ilk çalıştırmada birden çok gerçek sorun, düzeltmeden sonra 68/68 temiz; ekran görüntüleri gözle de kontrol edildi.
+- **Files:** `orchestrator/web/app.css`, `orchestrator/web/app.js`, `orchestrator/web/index.html`, `orchestrator/web/flow.html`, `orchestrator/test/ui-smoke.test.js`, `orchestrator/test/server-flow.test.js`
 
 ### 2026-07-18 — CLI marka renk standardı ve terminal taşma düzeltmesi
 
