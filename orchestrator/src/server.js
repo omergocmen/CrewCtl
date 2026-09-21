@@ -783,6 +783,22 @@ const server = http.createServer(async (req, res) => {
         if (cfg.maxConcurrentTasks !== undefined && (!Number.isInteger(cfg.maxConcurrentTasks) || cfg.maxConcurrentTasks < 1 || cfg.maxConcurrentTasks > 8)) {
           return send(res, 400, { error: "maxConcurrentTasks 1-8 arasi tam sayi olmali" });
         }
+        // Sayisal ayarlar: eksi/asiri deger motoru sessizce bozar (or. dailyCallBudget<0 her cagriyi
+        // engeller). 0'in anlami olan alanlarda (butce=sinirsiz, agent timeout=genel ayar) 0 serbesttir.
+        // Ayni sinirlar arayuzdeki sayi kutularinda da (min/max) uygulanir.
+        const numericLimits = [
+          ["operator.maxRounds", cfg.operator.maxRounds, 1, 50],
+          ["operator.maxDelegationsPerRound", cfg.operator.maxDelegationsPerRound, 1, 32],
+          ["operator.protocolRetries", cfg.operator.protocolRetries, 0, 5],
+          ["dailyCallBudget", cfg.dailyCallBudget, 0, 100000],
+          ["agentTimeoutSeconds", cfg.agentTimeoutSeconds, 10, 86400],
+          ["memoryCharBudget", cfg.memoryCharBudget, 0, 1000000],
+          ["teamContextCharBudget", cfg.teamContextCharBudget, 0, 1000000],
+          ...Object.entries(cfg.agents).map(([name, agent]) => [`agents.${name}.timeoutSeconds`, agent?.timeoutSeconds, 0, 86400]),
+        ];
+        for (const [key, value, min, max] of numericLimits) {
+          if (value !== undefined && (!Number.isInteger(value) || value < min || value > max)) return send(res, 400, { error: `${key} ${min}-${max} arasi tam sayi olmali` });
+        }
         // Es zamanli gorev, izolasyon olmadan tehlikelidir: iki gorev ayni klasorde birbirinin
         // dosyalarini ezer. Sessizce kabul etmek yerine kullaniciya sebebi soyle.
         if (Number(cfg.maxConcurrentTasks) > 1 && cfg.worktree?.mode !== "task") {

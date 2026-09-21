@@ -261,7 +261,7 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
   assert.match(html, /<span id="cliScanBadges" style="display:flex;flex-wrap:wrap;gap:6px">/, "CLI taramasi rozetleri canli yenilenebilmeli ve sarmali");
   assert.match(html, /class="badge" style="color:\$\{color\};white-space:nowrap"/, "CLI rozeti ortadan bolunmemeli");
   const pick = (name) => html.match(new RegExp(`^(?:const ${name}=.*|function ${name}\\(.*)$`, "m"))[0];
-  const source = ["cliHealth", "agentHealthOf", "agentHealthHtml", "cliScanBadge", "cliHealthBadge", "operatorOptionLabel", "adapterOf"].map(pick).join("\n");
+  const source = ["cliHealth", "agentHealthOf", "agentHealthHtml", "cliScanBadge", "cliHealthBadge", "operatorOptionLabel", "operatorBlocked", "operatorHealthLine", "clampNum", "adapterOf"].map(pick).join("\n");
   // Saglik yorumu tek yerde (app.js CrewHealth); sayfalar onu cagirir. Test de ayni kodu yukler.
   const appJs = fs.readFileSync(path.join(__dirname, "..", "web", "app.js"), "utf8");
   const win = { addEventListener() {} };
@@ -273,7 +273,7 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
     { id: "claude", installed: true, version: "2.1.278", health: { status: "ready", label: "Hazır", detail: "Gerçek sağlık testi başarılı." } },
     { id: "gemini", installed: true, version: "0.18.4", health: { status: "auth-required", label: "Giriş gerekli", detail: "auth" } },
   ] };
-  const ui = new Function("STATE", "esc", "window", `${source}\nreturn { agentHealthHtml, cliScanBadge, cliHealthBadge, operatorOptionLabel };`)(STATE, esc, win);
+  const ui = new Function("STATE", "esc", "window", `${source}\nreturn { agentHealthHtml, cliScanBadge, cliHealthBadge, operatorOptionLabel, operatorHealthLine, clampNum };`)(STATE, esc, win);
   const codexLine = ui.agentHealthHtml({ adapter: "codex", cmd: "codex" }, 0);
   assert.match(codexLine, /var\(--warn\)/, "kullanim limiti uyari renginde gorunmeli");
   assert.match(codexLine, /Kullanım limiti doldu · yenilenme: Sep 22nd, 2026 10:58 AM · operatör bu uzmanı kullanmıyor/);
@@ -289,7 +289,27 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
   assert.match(ui.agentHealthHtml({ adapter: "custom", cmd: "wrapper", health: { status: "ready", label: "Hazır" } }, 3), /Hazır/, "cliStatus'ta olmayan agent kendi kaydindaki sonucu kullanmali");
   assert.match(ui.cliHealthBadge(STATE.cliStatus[0]), /data-cli-health="codex".*● Kullanım limiti doldu · yenilenme: Sep 22nd, 2026 10:58 AM/, "CLI kartinda saglik rozeti olmali");
   assert.equal(ui.operatorOptionLabel({ cli: "codex", label: "Codex" }), "Codex — Kullanım limiti doldu · yenilenme: Sep 22nd, 2026 10:58 AM", "hazir olmayan operator secenegi durumunu gostermeli");
-  assert.equal(ui.operatorOptionLabel({ cli: "claude", label: "Claude Code" }), "Claude Code", "hazir operator secenegi sade kalmali");
+  assert.equal(ui.operatorOptionLabel({ cli: "claude", label: "Claude Code" }), "Claude Code — Hazır", "hazir operator de acikca etiketlenmeli; yazi yoklugu tahmin ettirir");
+  // Secim kutusu kapaliyken de secili operatorun durumu altinda gorunmeli; metin sunucunun 409 kuraliyla ayni.
+  assert.match(ui.operatorHealthLine("claude"), /var\(--ok\).*Hazır · görevler bu CLI ile yürütülür/);
+  assert.match(ui.operatorHealthLine("codex"), /var\(--warn\).*Kullanım limiti doldu · yenilenme: Sep 22nd, 2026 10:58 AM · bu seçimle görev başlatılamaz/);
+  assert.match(ui.operatorHealthLine("gemini"), /var\(--err\).*Giriş gerekli · bu seçimle görev başlatılamaz/);
+  STATE.cliStatus.push({ id: "opencode", installed: true, health: { status: "timeout", label: "Yanıt zaman aşımına uğradı" } });
+  assert.match(ui.operatorHealthLine("opencode"), /görev yine de başlatılabilir/, "sunucu timeout'u gecici sayar; arayuz 'baslatilamaz' dememeli");
+  STATE.cliStatus.pop();
+  assert.match(html, /refreshOperatorHealth\(\$\('#defaultOperator'\)\)/, "Operator sekmesi durum satirini gostermeli");
+  assert.match(html, /\.join\(''\);refreshOperatorHealth\(el\)\}/, "gorev secenekleri/duzenleme operator kutulari durum satirini gostermeli");
+  // Sayi kutulari: eksi/asiri deger sinira cekilir, bos girdi varsayilana doner.
+  assert.equal(ui.clampNum("-12", 1, 32, 8), 1);
+  assert.equal(ui.clampNum("99", 1, 32, 8), 32);
+  assert.equal(ui.clampNum("", 1, 32, 8), 8);
+  assert.equal(ui.clampNum("abc", 0, 5, 1), 1);
+  assert.equal(ui.clampNum("0", 0, 100000, 150), 0, "0 butce sinirsiz anlaminda korunmali");
+  for (const id of ["maxRounds", "maxDelegations", "protocolRetries", "dailyBudget", "agentTimeout", "memoryBudget", "contextBudget"]) {
+    assert.match(html, new RegExp(`<input id="${id}" type="number" min="\\d+" max="\\d+"`), `${id} sayi kutusu min/max tasimali`);
+  }
+  assert.match(html, /maxDelegationsPerRound:clampNum\(\$\('#maxDelegations'\)\.value,1,32,8\)/, "kaydetme degeri sinira cekmeli");
+  assert.match(appJs, /document\.addEventListener\("wheel"/, "fare tekerlegi odakli sayi kutusunu degistirmemeli");
   assert.match(html, /\$\{esc\(operatorOptionLabel\(x\)\)\}/, "Operator sekmesi ayni etiket fonksiyonunu kullanmali");
   // Ekip Akisi bosta duran uzmani saglik sonucuna gore yazar; sabit "hazir · sirada" yaniltir.
   assert.match(flowHtml, /function setIdleText\(r\)/, "flow.html saglik tabanli bosta metni icermeli");

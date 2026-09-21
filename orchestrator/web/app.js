@@ -30,6 +30,13 @@
     if (event.persisted) document.body.classList.remove("app-leaving");
   });
 
+  // Odakli sayi kutusunun ustunde fare tekerlegi degeri degistirmesin; sayfa kaysin. (Ayarlar
+  // penceresi kaydirilirken tekerlek kutunun ustunden gecip degerleri eksiye indiriyordu.)
+  document.addEventListener("wheel", (event) => {
+    const el = document.activeElement;
+    if (el && el.tagName === "INPUT" && el.type === "number" && event.target === el) el.blur();
+  }, { passive: true });
+
   // Paylasilan CLI saglik yorumu. Sunucu saglik testini bir kez yapar ve sonucu cliStatus[].health
   // ile agent.health alanlarina yazar; tum sayfalar ayni sonucu bu tek yerden okur. Operator bir
   // uzmani yalnizca saglik "ready" ise kullanir (engine.js agentUsable); metinler bununla uyumludur.

@@ -165,6 +165,17 @@ async function main() {
     assert.equal((await putConc(0)).status, 400, "maxConcurrentTasks alt siniri zorunlu");
     assert.equal((await putConc(9)).status, 400, "maxConcurrentTasks ust siniri zorunlu");
     assert.equal((await putConc(1.5)).status, 400, "maxConcurrentTasks tam sayi olmali");
+    // Regresyon: fare tekerlegi operator sayilarini -12/-17'ye indirip kaydettirmisti; motor bunu
+    // sessizce "tek delegasyon, sifir tekrar"a ceviriyordu. dailyCallBudget<0 ise her cagriyi engeller.
+    const putNum = (patch) => requestTolerant("PUT", "/api/config", { ...liveCfg, ...patch });
+    const badOperator = await putNum({ operator: { ...liveCfg.operator, maxDelegationsPerRound: -12 } });
+    assert.equal(badOperator.status, 400, "eksi delegasyon siniri reddedilmeli");
+    assert.match(badOperator.body.error, /operator\.maxDelegationsPerRound 1-32/);
+    assert.equal((await putNum({ operator: { ...liveCfg.operator, protocolRetries: -17 } })).status, 400, "eksi protokol tekrari reddedilmeli");
+    assert.equal((await putNum({ dailyCallBudget: -1 })).status, 400, "eksi gunluk butce reddedilmeli");
+    assert.equal((await putNum({ dailyCallBudget: 0 })).status, 200, "0 gunluk butce sinirsiz anlamina gelir ve kabul edilmeli");
+    assert.equal((await putNum({ operator: { ...liveCfg.operator, protocolRetries: 0 } })).status, 200, "0 protokol tekrari gecerli");
+    assert.equal((await putNum({})).status, 200, "gecerli config yeniden kaydedilebilmeli");
     // Izolasyon olmadan es zamanlilik veri kaybina yol acar; API bunu SESSIZCE kabul etmemeli.
     const unsafe = await putConc(2, { mode: "off" });
     assert.equal(unsafe.status, 400, "izolasyon kapaliyken es zamanlilik reddedilmeli");
