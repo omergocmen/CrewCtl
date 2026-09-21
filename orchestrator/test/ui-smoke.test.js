@@ -257,7 +257,9 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
 {
   assert.match(html, /'schedules','cli-health'\]\)es\.addEventListener/, "dashboard cli-health olayini dinlemeli");
   assert.match(html, /type==='cli-health'\)\{STATE\.cliStatus=data;refreshHealthViews\(\)\}/, "cli-health olayi saglik gorunumlerini yenilemeli");
-  assert.match(html, /<span id="cliScanBadges">/, "CLI taramasi rozetleri canli yenilenebilmeli");
+  // Rozetler dar pencerede satir satir dizilmeli; tek rozetin yazisi ikiye bolunmemeli.
+  assert.match(html, /<span id="cliScanBadges" style="display:flex;flex-wrap:wrap;gap:6px">/, "CLI taramasi rozetleri canli yenilenebilmeli ve sarmali");
+  assert.match(html, /class="badge" style="color:\$\{color\};white-space:nowrap"/, "CLI rozeti ortadan bolunmemeli");
   const pick = (name) => html.match(new RegExp(`^(?:const ${name}=.*|function ${name}\\(.*)$`, "m"))[0];
   const source = ["HEALTH_TONE", "cliHealth", "healthTone", "healthReset", "agentHealthHtml", "cliScanBadge", "adapterOf"].map(pick).join("\n");
   const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
