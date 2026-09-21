@@ -168,6 +168,9 @@ async function main() {
     // Regresyon: fare tekerlegi operator sayilarini -12/-17'ye indirip kaydettirmisti; motor bunu
     // sessizce "tek delegasyon, sifir tekrar"a ceviriyordu. dailyCallBudget<0 ise her cagriyi engeller.
     const putNum = (patch) => requestTolerant("PUT", "/api/config", { ...liveCfg, ...patch });
+    // Arayuz sinirlari sunucudaki ayni tablodan okur; /api/state bu tabloyu yayinlamali.
+    const stateLimits = (await requestTolerant("GET", "/api/state")).body.numericLimits;
+    assert.deepEqual(stateLimits["operator.maxDelegationsPerRound"], { min: 1, max: 32, default: 8 }, "/api/state numericLimits yayinlamali");
     const badOperator = await putNum({ operator: { ...liveCfg.operator, maxDelegationsPerRound: -12 } });
     assert.equal(badOperator.status, 400, "eksi delegasyon siniri reddedilmeli");
     assert.match(badOperator.body.error, /operator\.maxDelegationsPerRound 1-32/);

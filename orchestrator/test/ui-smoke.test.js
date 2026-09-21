@@ -261,7 +261,7 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
   assert.match(html, /<span id="cliScanBadges" style="display:flex;flex-wrap:wrap;gap:6px">/, "CLI taramasi rozetleri canli yenilenebilmeli ve sarmali");
   assert.match(html, /class="badge" style="color:\$\{color\};white-space:nowrap"/, "CLI rozeti ortadan bolunmemeli");
   const pick = (name) => html.match(new RegExp(`^(?:const ${name}=.*|function ${name}\\(.*)$`, "m"))[0];
-  const source = ["cliHealth", "agentHealthOf", "agentHealthHtml", "cliScanBadge", "cliHealthBadge", "operatorOptionLabel", "operatorBlocked", "operatorHealthLine", "clampNum", "adapterOf"].map(pick).join("\n");
+  const source = ["cliHealth", "agentHealthOf", "agentHealthHtml", "cliScanBadge", "cliHealthBadge", "operatorOptionLabel", "operatorBlocked", "operatorHealthLine", "clampNum", "numLimit", "numAttrs", "numValue", "adapterOf"].map(pick).join("\n");
   // Saglik yorumu tek yerde (app.js CrewHealth); sayfalar onu cagirir. Test de ayni kodu yukler.
   const appJs = fs.readFileSync(path.join(__dirname, "..", "web", "app.js"), "utf8");
   const win = { addEventListener() {} };
@@ -272,8 +272,8 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
     { id: "codex", installed: true, version: "codex-cli 0.154.0", health: { status: "quota", label: "Kullanım limiti doldu", detail: "ChatGPT planının Codex kullanım hakkı bitti; yenilenme: Sep 22nd, 2026 10:58 AM. ham" } },
     { id: "claude", installed: true, version: "2.1.278", health: { status: "ready", label: "Hazır", detail: "Gerçek sağlık testi başarılı." } },
     { id: "gemini", installed: true, version: "0.18.4", health: { status: "auth-required", label: "Giriş gerekli", detail: "auth" } },
-  ] };
-  const ui = new Function("STATE", "esc", "window", `${source}\nreturn { agentHealthHtml, cliScanBadge, cliHealthBadge, operatorOptionLabel, operatorHealthLine, clampNum };`)(STATE, esc, win);
+  ], numericLimits: require("../src/store").NUMERIC_LIMITS };
+  const ui = new Function("STATE", "esc", "window", `${source}\nreturn { agentHealthHtml, cliScanBadge, cliHealthBadge, operatorOptionLabel, operatorHealthLine, clampNum, numAttrs, numValue };`)(STATE, esc, win);
   const codexLine = ui.agentHealthHtml({ adapter: "codex", cmd: "codex" }, 0);
   assert.match(codexLine, /var\(--warn\)/, "kullanim limiti uyari renginde gorunmeli");
   assert.match(codexLine, /Kullanım limiti doldu · yenilenme: Sep 22nd, 2026 10:58 AM · operatör bu uzmanı kullanmıyor/);
@@ -299,16 +299,22 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
   STATE.cliStatus.pop();
   assert.match(html, /refreshOperatorHealth\(\$\('#defaultOperator'\)\)/, "Operator sekmesi durum satirini gostermeli");
   assert.match(html, /\.join\(''\);refreshOperatorHealth\(el\)\}/, "gorev secenekleri/duzenleme operator kutulari durum satirini gostermeli");
-  // Sayi kutulari: eksi/asiri deger sinira cekilir, bos girdi varsayilana doner.
-  assert.equal(ui.clampNum("-12", 1, 32, 8), 1);
-  assert.equal(ui.clampNum("99", 1, 32, 8), 32);
-  assert.equal(ui.clampNum("", 1, 32, 8), 8);
-  assert.equal(ui.clampNum("abc", 0, 5, 1), 1);
-  assert.equal(ui.clampNum("0", 0, 100000, 150), 0, "0 butce sinirsiz anlaminda korunmali");
-  for (const id of ["maxRounds", "maxDelegations", "protocolRetries", "dailyBudget", "agentTimeout", "memoryBudget", "contextBudget"]) {
-    assert.match(html, new RegExp(`<input id="${id}" type="number" min="\\d+" max="\\d+"`), `${id} sayi kutusu min/max tasimali`);
-  }
-  assert.match(html, /maxDelegationsPerRound:clampNum\(\$\('#maxDelegations'\)\.value,1,32,8\)/, "kaydetme degeri sinira cekmeli");
+  // Sayi kutulari: sinirlar ve varsayilanlar sunucudaki tek kaynaktan (store.NUMERIC_LIMITS) gelir.
+  const limits = STATE.numericLimits;
+  assert.equal(ui.numValue("operator.maxDelegationsPerRound", "-12"), limits["operator.maxDelegationsPerRound"].min, "eksi deger alt sinira cekilmeli");
+  assert.equal(ui.numValue("operator.maxDelegationsPerRound", "99"), limits["operator.maxDelegationsPerRound"].max, "asiri deger ust sinira cekilmeli");
+  assert.equal(ui.numValue("operator.protocolRetries", ""), limits["operator.protocolRetries"].default, "bos girdi sablon varsayilanina donmeli");
+  assert.equal(ui.numValue("operator.protocolRetries", undefined), limits["operator.protocolRetries"].default, "kayitta olmayan alan sablon varsayilanini gostermeli");
+  // Regresyon: "||150" kisayolu 0'i (sinirsiz) 150 gosteriyor, Kaydet sessizce 150 yaziyordu.
+  assert.equal(ui.numValue("dailyCallBudget", 0), 0, "0 butce (sinirsiz) korunmali");
+  assert.equal(ui.numAttrs("dailyCallBudget"), `min="${limits.dailyCallBudget.min}" max="${limits.dailyCallBudget.max}" step="1"`);
+  // Arayuzde kullanilan her anahtar sunucu tablosunda olmali; kopya sinir/varsayilan kalmamali.
+  const usedKeys = [...html.matchAll(/num(?:Attrs|Value)\('([^']+)'/g)].map((m) => m[1]);
+  assert.ok(usedKeys.length >= 16, "sayi kutulari ve kaydetme ortak sinir fonksiyonlarini kullanmali");
+  for (const key of new Set(usedKeys)) assert.ok(limits[key], `${key} store.NUMERIC_LIMITS'te tanimli olmali`);
+  for (const [key, l] of Object.entries(limits)) assert.ok(Number.isInteger(l.min) && Number.isInteger(l.max) && Number.isInteger(l.default) && l.min <= l.default && l.default <= l.max, `${key} varsayilani sinirlar icinde olmali`);
+  assert.doesNotMatch(html, /\|\|(6|8|150|900|8000|30000)\}/, "sayi kutularinda sabit varsayilan kopyasi kalmamali");
+  assert.doesNotMatch(html, /clampNum\([^)]*,\s*\d+,\s*\d+,\s*\d+\)/, "sabit sinirli clampNum cagrisi kalmamali");
   assert.match(appJs, /document\.addEventListener\("wheel"/, "fare tekerlegi odakli sayi kutusunu degistirmemeli");
   assert.match(html, /\$\{esc\(operatorOptionLabel\(x\)\)\}/, "Operator sekmesi ayni etiket fonksiyonunu kullanmali");
   // Ekip Akisi bosta duran uzmani saglik sonucuna gore yazar; sabit "hazir · sirada" yaniltir.
