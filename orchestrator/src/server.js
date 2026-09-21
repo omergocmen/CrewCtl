@@ -461,6 +461,7 @@ const server = http.createServer(async (req, res) => {
           roles: store.listRoles(),
           skills: skillRegistry.allSkills().map((s) => ({ name: s.name, file: s.file, description: s.description, category: s.category, appliesTo: s.appliesTo, match: s.match })),
           cliStatus,
+          numericLimits: store.NUMERIC_LIMITS,
           schedules: cfg.schedules || [],
           projects: cfg.projects || [],
           platform: process.platform,
@@ -782,6 +783,17 @@ const server = http.createServer(async (req, res) => {
         }
         if (cfg.maxConcurrentTasks !== undefined && (!Number.isInteger(cfg.maxConcurrentTasks) || cfg.maxConcurrentTasks < 1 || cfg.maxConcurrentTasks > 8)) {
           return send(res, 400, { error: "maxConcurrentTasks 1-8 arasi tam sayi olmali" });
+        }
+        // Sayisal ayarlar: eksi/asiri deger motoru sessizce bozar (or. dailyCallBudget<0 her cagriyi
+        // engeller). Sinirlar store.NUMERIC_LIMITS'te tek kaynakta; arayuz ayni tabloyu /api/state'ten okur.
+        for (const [key, { min, max }] of Object.entries(store.NUMERIC_LIMITS)) {
+          const field = key.startsWith("agents.*.") ? key.slice("agents.*.".length) : null;
+          const values = field
+            ? Object.entries(cfg.agents).map(([name, agent]) => [`agents.${name}.${field}`, agent?.[field]])
+            : [[key, key.split(".").reduce((obj, part) => (obj == null ? undefined : obj[part]), cfg)]];
+          for (const [label, value] of values) {
+            if (value !== undefined && (!Number.isInteger(value) || value < min || value > max)) return send(res, 400, { error: `${label} ${min}-${max} arasi tam sayi olmali` });
+          }
         }
         // Es zamanli gorev, izolasyon olmadan tehlikelidir: iki gorev ayni klasorde birbirinin
         // dosyalarini ezer. Sessizce kabul etmek yerine kullaniciya sebebi soyle.

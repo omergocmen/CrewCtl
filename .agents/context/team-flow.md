@@ -2,7 +2,7 @@
 
 **Source:** `orchestrator/web/flow.html`
 
-**Last verified:** 2026-07-17
+**Last verified:** 2026-09-21
 
 ## Purpose
 
@@ -17,6 +17,7 @@ Operatörün ekip kurma ve delegasyon akışını, agent filosunu, aktif/geçmi�
 - `message` olayları delegation/result/failure/blocked durumlarını üretir; delegasyon pulse'ı hedef agent renginde agente, sonuç/failure pulse'ı operatör renginde merkeze hareket eder.
 - `activity` olayları proses durumu ve kısa canlı çıktıyı; `log` görev başlangıcı/hatasını; `result` final KPI'larını günceller.
 - İlk yüklemede aktif veya en son done/failed task'in kayıtlı olayları yeniden oynatılır, ardından SSE canlı akışı devam eder.
+- Boştaki agent'ın durum metni sağlık sonucundan gelir (`setIdleText`, `app.js` `CrewHealth`). Hazırsa "hazır · sırada", değilse renkli etiket gösterilir ("Giriş gerekli" gibi); üzerine gelince "operatör bu uzmanı kullanmıyor" ve hata ayrıntısı çıkar. `cli-health` SSE olayı sayfayı yenilemeden günceller.
 
 ## Contracts and invariants
 
@@ -35,6 +36,15 @@ Operatörün ekip kurma ve delegasyon akışını, agent filosunu, aktif/geçmi�
 - Yerel sunucuda aktif görev, yeniden oynatma, delegation/result/failure ve resize davranışlarını kontrol et.
 
 ## Major Changes
+
+### 2026-09-21 — Ajan filosu gerçek sağlık durumunu gösteriyor
+
+- **Change:** Boştaki agent için sabit "hazır · sırada" metni, config'deki sağlık sonucuna dayanan `setIdleText` ile değiştirildi. `cli-health` olayı dinleniyor ve dar kartta metin "…" ile kısalıyor.
+- **Reason:** Girişsiz Gemini ve limiti dolu Codex "hazır · sırada" görünüyordu; operatör bu agent'ları kullanmaz (`engine.js` `agentUsable`).
+- **Impact:** Filo listesi motorun gerçek seçimleriyle uyumlu.
+- **Compatibility:** Çalışan/tamamlanan/başarısız metinleri değişmedi.
+- **Verification:** `node orchestrator/test/ui-smoke.test.js` ve headless Chrome görüntüsü (1440 px).
+- **Files:** `orchestrator/web/flow.html`, `orchestrator/web/app.js`
 
 ### 2026-07-17 — Agent renkli yönlü veri akışı
 

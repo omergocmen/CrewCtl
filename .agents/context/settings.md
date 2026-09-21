@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/web/index.html`, `orchestrator/src/server.js`, `orchestrator/src/cli-registry.js`, `orchestrator/config.default.json`
 
-**Last verified:** 2026-07-25
+**Last verified:** 2026-09-21
 
 ## Purpose
 
@@ -22,6 +22,9 @@ Agent profillerini, rol dosyalarını, CLI-geneli model politikalarını, operat
 - Otomatik keşfedilen agent silinirse adapter gizleme listesine eklenir ve sonraki taramada geri oluşturulmaz.
 - Bilinen bir CLI komutu düzenlendiğinde agent adapter'ı, varsayılan argümanları ve model sahipliği UI taslağında birlikte eşitlenir.
 - Operatör uzman agent değildir; ayrı CLI seçimidir ve rolü `roles/operator.md` olarak sabittir.
+- "Aktif" kutusu yalnızca izindir. Operatör bir uzmanı ancak sağlık testi `ready` ise görür (`engine.js` `agentUsable`). Bu yüzden her uzman kartında "Aktif" altında sağlık satırı, "Kurulu CLI taraması" rozetlerinde de sağlık etiketi ve rengi gösterilir (`ok`/`warn`/`err`/`dim`). Kod bu iki görünümü `cli-health` SSE olayıyla canlı yeniler ve kaydedilmemiş taslaklara dokunmaz. Rozet kapsayıcısı `flex-wrap` ile dar pencerede satır satır dizilir; tek rozetin yazısı `nowrap` ile bölünmez. Aynı sağlık sonucu "CLI'lar ve Modeller" kartlarında rozet olarak ve iki operatör listesinde (Operatör sekmesi, görev seçenekleri) `operatorOptionLabel` ile gösterilir; hazır olmayan CLI seçilebilir kalır ama adının yanında durumu yazar. Hazır olan da "— Hazır" diye açıkça etiketlenir. Operatör kutularının altında (Operatör sekmesi, görev seçenekleri, görev düzenleme) seçili CLI'ın durum satırı durur. Metin, sunucunun görev eklerken uyguladığı kuralla aynıdır (`server.js` `TRANSIENT_HEALTH`): testing/unknown/timeout "görev yine de başlatılabilir", gerçek arızalar "bu seçimle görev başlatılamaz". Yorum `app.js` `CrewHealth`'tedir.
+- Sayısal ayarların sınırları ve varsayılanları **tek kaynaktadır**: `store.js` `NUMERIC_LIMITS`. Varsayılanlar `config.default.json` şablonundan okunur (`readSeedConfig`). Sunucu `/api/config` doğrulaması bu tabloyu kullanır ve aşımda 400 döner. Arayüz aynı tabloyu `/api/state` → `numericLimits` üzerinden okur; kutular `numAttrs`/`numValue` ile min/max, sınıra çekme ve boş-girdi varsayılanı alır. Arayüzde sabit sınır veya varsayılan kopyası tutulmaz. Aralıklar: operatör turu 1–50, delegasyon 1–32, protokol tekrarı 0–5, günlük bütçe 0–100000 (0 = sınırsız), agent timeout 10–86400, bellek/bağlam bütçesi 0–1000000, agent başına timeout 0–86400 (0 = genel ayar). 0 geçerli bir değerdir; `||varsayılan` kısayolu kullanılmaz. Odaklı sayı kutusunun üstünde fare tekerleği değeri değiştirmez (`app.js`).
+- Motorun kendi çalışma zamanı yedekleri (ör. `protocolRetries ?? 1`, `maxRounds || 6`) alan hiç yoksa devreye girer ve şablon varsayılanından farklı olabilir (şablonda `protocolRetries` 2). Bu ayrı bir iştir; henüz tek kaynağa bağlanmadı.
 - Uzman rolü yalnızca prompt metni değil, izin verilen görev türüdür: executor uygulama, reviewer inceleme, planner planlama yapar.
 - Config kaydı server tarafı doğrulamasından geçer; en az bir uzman gerekir.
 - MCP sekmesi `draftMcp` taslağı üzerinde çalışır (`draftAgents` ile aynı desen); Kaydet basılana kadar config'e dokunmaz. Kaydetmede adsız sunucular atılır, adlar/açıklamalar trim'lenir, boş argüman satırları düşer, `ANAHTAR=değer` satırları ortam değişkenine çevrilir (değer içindeki `=` korunur) ve URL verildiyse `command`/`args` gönderilmez.
@@ -42,6 +45,33 @@ Config şeması için `configuration.md`, CLI keşfi için `cli-registry.md`, ro
 - Ayar değişikliklerinde `/api/config` validasyonunu ve yeniden açıldığında değerlerin korunmasını kontrol et.
 
 ## Major Changes
+
+### 2026-09-21 — Sayısal ayar sınırları tek kaynağa indirildi
+
+- **Change:** Sınır ve varsayılan tablosu `server.js` işleyicisinden `store.js` `NUMERIC_LIMITS`'e taşındı ve `/api/state` ile yayınlanıyor. Arayüzdeki 8 min/max kopyası ile 8 sabit varsayılan kopyası silindi; kutular tabloyu `numAttrs`/`numValue` ile okuyor. Şablon okuma `readSeedConfig`'e toplandı.
+- **Reason:** Aynı sınırlar sunucu ve arayüzde ayrı yazılıydı (teknik borç). Değişiklik öncesi 5 senaryolu ölçümde bir hata da bulundu: günlük bütçe 0 ("sınırsız") iken arayüz `||150` yüzünden 150 gösteriyor, Kaydet sessizce 150 yazıyordu. Ayrıca arayüzdeki boş-girdi varsayılanı (protokol tekrarı 1) şablondakiyle (2) uyuşmuyordu.
+- **Impact:** Sınır tek yerde değişir, sunucu ve arayüz birlikte değişir. Bütçe 0 korunuyor.
+- **Compatibility:** Hata mesajları ve aralıklar aynı. Ölçülen 15 davranışın 12'si birebir aynı; değişen 3'ü hedeflenenler (tablonun yayınlanması, bütçe 0'ın gösterilmesi ve korunması).
+- **Verification:** Yalıtılmış sunucuyla (gerçek config ve CLI'lara dokunmadan) önce/sonra ölçümü; `npm.cmd test`; ui-smoke arayüzdeki her sınır anahtarının tabloda olduğunu ve sabit kopya kalmadığını denetliyor.
+- **Files:** `orchestrator/src/store.js`, `orchestrator/src/server.js`, `orchestrator/web/index.html`, `orchestrator/test/ui-smoke.test.js`, `orchestrator/test/server-flow.test.js`
+
+### 2026-09-21 — Operatör seçimi durumu gösteriyor; sayısal ayarlar sınırlı
+
+- **Change:** Operatör kutularına durum satırı eklendi ve hazır CLI de "— Hazır" diye etiketleniyor. Sayı kutularına min/max ve kaydetmede sınıra çekme eklendi. Sunucu sayısal ayarları doğruluyor. Odaklı sayı kutusunda fare tekerleği artık değeri değiştirmiyor.
+- **Reason:** Operatör listesi kapalıyken seçili CLI'ın kullanılabilir olup olmadığı görünmüyordu. Ayarlar kaydırılırken fare tekerleği delegasyon ve protokol tekrarını -12 ve -17'ye indirmiş, bu değerler kaydedilmişti. Motor bunları sessizce "turda tek delegasyon, sıfır tekrar"a çeviriyordu; günlük bütçe eksi olsaydı her çağrı engellenirdi.
+- **Impact:** Kullanıcı operatörü seçerken sonucunu görür. Geçersiz sayı kaydedilemez. Kullanıcının config'indeki -12/-17 değerleri 8/1 varsayılanlarına geri alındı.
+- **Compatibility:** Geçerli mevcut config'ler etkilenmez. Sınır dışı değer gönderen API/ham JSON kaydı artık 400 alır.
+- **Verification:** `npm.cmd test` (ui-smoke: etiket/satır/clamp; server-flow: eksi değerde 400, 0 bütçede 200). Headless Chrome'da korumasız kutuda 5 tekerlek hareketi 8→3, korumalıda 8→8. Operatör satırı Claude/Codex için ve görev seçeneklerinde doğrulandı. Duyarlı tarama 68/68 temiz.
+- **Files:** `orchestrator/web/index.html`, `orchestrator/web/app.js`, `orchestrator/src/server.js`, `orchestrator/test/ui-smoke.test.js`, `orchestrator/test/server-flow.test.js`
+
+### 2026-09-21 — Uzman ve CLI sağlık durumu ayarlarda görünür
+
+- **Change:** Her uzman kartında "Aktif" kutusunun altına sağlık satırı eklendi: Hazır, Kullanım limiti doldu (yenilenme zamanıyla), Giriş gerekli, Test ediliyor veya Kapalı. "Kurulu CLI taraması" rozetleri yalnızca kurulu olmaya göre değil, sağlık testine göre renkleniyor ve etiket gösteriyor. Dashboard artık `cli-health` SSE olayını dinliyor.
+- **Reason:** Sunucu sağlık sonucunu üretip yayınlıyordu ama arayüz bunu hiç göstermiyordu. Limiti dolu Codex, "Aktif ✔" ve yeşil nokta ile hazır gibi görünüyor, kullanıcı operatörün onu deneyip zaman kaybedeceğini sanıyordu.
+- **Impact:** Kullanıcı hangi uzmanın operatör tarafından gerçekten kullanılabildiğini ayarlar ekranında görür. Aktif ama hazır olmayan uzmanlarda "operatör bu uzmanı kullanmıyor" yazar.
+- **Compatibility:** Yalnızca görünüm değişti; config şeması, kaydetme gövdesi ve motor davranışı aynı.
+- **Verification:** `npm.cmd test`; `ui-smoke` yardımcı fonksiyonları gerçek HTML'den çıkarıp koşturuyor. Canlı panelde headless Chrome ile rozetler ve dört uzman satırı doğrulandı.
+- **Files:** `orchestrator/web/index.html`, `orchestrator/test/ui-smoke.test.js`
 
 ### 2026-07-25 — MCP Araçları sekmesi (form tabanlı)
 

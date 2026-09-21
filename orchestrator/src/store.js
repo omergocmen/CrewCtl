@@ -246,13 +246,39 @@ function shippedSkillSlugs() {
       .map((f) => f.replace(/\.md$/i, ""));
   } catch { return []; }
 }
+// Yeni kurulumun baslangic config'i: config.default.json sablonu, yoksa FALLBACK_CONFIG.
+// Varsayilan degerlerin TEK kaynagi budur (ilk config uretimi ve NUMERIC_LIMITS varsayilanlari).
+function readSeedConfig() {
+  const template = path.join(ASSETS, "config.default.json");
+  try { return JSON.parse(fs.existsSync(template) ? fs.readFileSync(template, "utf8") : JSON.stringify(FALLBACK_CONFIG)); }
+  catch { return JSON.parse(JSON.stringify(FALLBACK_CONFIG)); }
+}
+
+// Sayisal ayarlarin gecerli araliklari ve varsayilanlari: TEK KAYNAK. Sunucu /api/config
+// dogrulamasi ve arayuz sayi kutulari (min/max, sinira cekme, bos girdi varsayilani) bunu okur
+// (/api/state -> numericLimits). 0'in anlami olan alanlarda (butce=sinirsiz, agent
+// timeout=genel ayar) min 0'dir. "agents.*." her uzmanin kendi alanidir.
+function buildNumericLimits() {
+  const seed = readSeedConfig();
+  const pick = (dotted) => dotted.split(".").reduce((obj, key) => (obj == null ? undefined : obj[key]), seed);
+  const limit = (min, max, dflt) => ({ min, max, default: dflt });
+  return {
+    "operator.maxRounds": limit(1, 50, pick("operator.maxRounds")),
+    "operator.maxDelegationsPerRound": limit(1, 32, pick("operator.maxDelegationsPerRound")),
+    "operator.protocolRetries": limit(0, 5, pick("operator.protocolRetries")),
+    dailyCallBudget: limit(0, 100000, pick("dailyCallBudget")),
+    agentTimeoutSeconds: limit(10, 86400, pick("agentTimeoutSeconds")),
+    memoryCharBudget: limit(0, 1000000, pick("memoryCharBudget")),
+    teamContextCharBudget: limit(0, 1000000, pick("teamContextCharBudget")),
+    "agents.*.timeoutSeconds": limit(0, 86400, pick("agentTimeoutSeconds")),
+  };
+}
+const NUMERIC_LIMITS = buildNumericLimits();
+
 function loadConfig() {
   const file = path.join(ROOT, "config.json");
   if (!fs.existsSync(file)) {
-    const template = path.join(ASSETS, "config.default.json");
-    const seed = fs.existsSync(template) ? fs.readFileSync(template, "utf8") : JSON.stringify(FALLBACK_CONFIG, null, 2);
-    let seedObj;
-    try { seedObj = JSON.parse(seed); } catch { seedObj = { ...FALLBACK_CONFIG }; }
+    const seedObj = readSeedConfig();
     // Ilk kurulumda tum paket becerilerini etkinlestir (kullanici Ayarlar'dan kapatabilir).
     // Sonraki yuklemelerde dosya var oldugundan bu blok CALISMAZ; kullanicinin secimi korunur.
     seedObj.skills = seedObj.skills || {};
@@ -591,6 +617,7 @@ module.exports = {
   ASSETS,
   WORK_BASE,
   ensureDirs,
+  NUMERIC_LIMITS,
   loadConfig,
   normalizeConfig,
   saveConfig,

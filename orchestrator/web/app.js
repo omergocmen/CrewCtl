@@ -30,6 +30,31 @@
     if (event.persisted) document.body.classList.remove("app-leaving");
   });
 
+  // Odakli sayi kutusunun ustunde fare tekerlegi degeri degistirmesin; sayfa kaysin. (Ayarlar
+  // penceresi kaydirilirken tekerlek kutunun ustunden gecip degerleri eksiye indiriyordu.)
+  document.addEventListener("wheel", (event) => {
+    const el = document.activeElement;
+    if (el && el.tagName === "INPUT" && el.type === "number" && event.target === el) el.blur();
+  }, { passive: true });
+
+  // Paylasilan CLI saglik yorumu. Sunucu saglik testini bir kez yapar ve sonucu cliStatus[].health
+  // ile agent.health alanlarina yazar; tum sayfalar ayni sonucu bu tek yerden okur. Operator bir
+  // uzmani yalnizca saglik "ready" ise kullanir (engine.js agentUsable); metinler bununla uyumludur.
+  const HEALTH_TONE = { ready: "ok", testing: "dim", unknown: "dim", quota: "warn", timeout: "warn", "version-incompatible": "warn", "auth-required": "err", "not-installed": "err", failed: "err" };
+  window.CrewHealth = {
+    tone: (h) => `var(--${h && h.status ? HEALTH_TONE[h.status] || "err" : "dim"})`,
+    ready: (h) => !!h && h.status === "ready",
+    known: (h) => !!h && !!h.status && h.status !== "testing" && h.status !== "unknown",
+    reset: (h) => { const m = String((h && h.detail) || "").match(/yenilenme: ([^.]+)/); return m ? m[1].trim() : ""; },
+    label(h) {
+      if (!h || !h.status || h.status === "unknown") return "Sağlık testi bekleniyor";
+      if (h.status === "testing") return "Test ediliyor…";
+      if (h.status === "ready") return "Hazır";
+      const reset = this.reset(h);
+      return (h.label || "Kullanılamıyor") + (reset ? ` · yenilenme: ${reset}` : "");
+    },
+  };
+
   // Paylasilan sik onay modali — native confirm() yerine Promise<boolean> doner.
   // opts: { title, body, confirmLabel, cancelLabel, danger(=true) }
   const ICON_WARN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>';
