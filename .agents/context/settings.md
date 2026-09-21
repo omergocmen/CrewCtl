@@ -2,7 +2,7 @@
 
 **Sources:** `orchestrator/web/index.html`, `orchestrator/src/server.js`, `orchestrator/src/cli-registry.js`, `orchestrator/config.default.json`
 
-**Last verified:** 2026-07-25
+**Last verified:** 2026-09-21
 
 ## Purpose
 
@@ -22,6 +22,7 @@ Agent profillerini, rol dosyalarını, CLI-geneli model politikalarını, operat
 - Otomatik keşfedilen agent silinirse adapter gizleme listesine eklenir ve sonraki taramada geri oluşturulmaz.
 - Bilinen bir CLI komutu düzenlendiğinde agent adapter'ı, varsayılan argümanları ve model sahipliği UI taslağında birlikte eşitlenir.
 - Operatör uzman agent değildir; ayrı CLI seçimidir ve rolü `roles/operator.md` olarak sabittir.
+- "Aktif" kutusu yalnızca izindir. Operatör bir uzmanı ancak sağlık testi `ready` ise görür (`engine.js` `agentUsable`). Bu yüzden her uzman kartında "Aktif" altında sağlık satırı, "Kurulu CLI taraması" rozetlerinde de sağlık etiketi ve rengi gösterilir (`ok`/`warn`/`err`/`dim`). Kod bu iki görünümü `cli-health` SSE olayıyla canlı yeniler ve kaydedilmemiş taslaklara dokunmaz.
 - Uzman rolü yalnızca prompt metni değil, izin verilen görev türüdür: executor uygulama, reviewer inceleme, planner planlama yapar.
 - Config kaydı server tarafı doğrulamasından geçer; en az bir uzman gerekir.
 - MCP sekmesi `draftMcp` taslağı üzerinde çalışır (`draftAgents` ile aynı desen); Kaydet basılana kadar config'e dokunmaz. Kaydetmede adsız sunucular atılır, adlar/açıklamalar trim'lenir, boş argüman satırları düşer, `ANAHTAR=değer` satırları ortam değişkenine çevrilir (değer içindeki `=` korunur) ve URL verildiyse `command`/`args` gönderilmez.
@@ -42,6 +43,15 @@ Config şeması için `configuration.md`, CLI keşfi için `cli-registry.md`, ro
 - Ayar değişikliklerinde `/api/config` validasyonunu ve yeniden açıldığında değerlerin korunmasını kontrol et.
 
 ## Major Changes
+
+### 2026-09-21 — Uzman ve CLI sağlık durumu ayarlarda görünür
+
+- **Change:** Her uzman kartında "Aktif" kutusunun altına sağlık satırı eklendi: Hazır, Kullanım limiti doldu (yenilenme zamanıyla), Giriş gerekli, Test ediliyor veya Kapalı. "Kurulu CLI taraması" rozetleri yalnızca kurulu olmaya göre değil, sağlık testine göre renkleniyor ve etiket gösteriyor. Dashboard artık `cli-health` SSE olayını dinliyor.
+- **Reason:** Sunucu sağlık sonucunu üretip yayınlıyordu ama arayüz bunu hiç göstermiyordu. Limiti dolu Codex, "Aktif ✔" ve yeşil nokta ile hazır gibi görünüyor, kullanıcı operatörün onu deneyip zaman kaybedeceğini sanıyordu.
+- **Impact:** Kullanıcı hangi uzmanın operatör tarafından gerçekten kullanılabildiğini ayarlar ekranında görür. Aktif ama hazır olmayan uzmanlarda "operatör bu uzmanı kullanmıyor" yazar.
+- **Compatibility:** Yalnızca görünüm değişti; config şeması, kaydetme gövdesi ve motor davranışı aynı.
+- **Verification:** `npm.cmd test`; `ui-smoke` yardımcı fonksiyonları gerçek HTML'den çıkarıp koşturuyor. Canlı panelde headless Chrome ile rozetler ve dört uzman satırı doğrulandı.
+- **Files:** `orchestrator/web/index.html`, `orchestrator/test/ui-smoke.test.js`
 
 ### 2026-07-25 — MCP Araçları sekmesi (form tabanlı)
 

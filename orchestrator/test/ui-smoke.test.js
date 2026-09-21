@@ -252,4 +252,29 @@ assert.match(html, /JSON'dan içe aktar/, "ice aktarma butonu olmali");
   // Rol kapisi form ciktisi uzerinde de gecerli: docs plan/review'e gider, uzak (write) gitmez.
   assert.deepEqual(mcpModule.resolveForAssignment({ mcp: normalized }, { kind: "plan", agentName: "w1" }).map((s) => s.name), ["docs"], "form ciktisinda rol kapisi calismali");
 }
+// Agent ayarlari saglik durumunu gostermeli: "Aktif" yalnizca izindir; saglik testi hazir
+// degilse operator uzmani kullanmaz ve bu kullaniciya acikca yazilmalidir.
+{
+  assert.match(html, /'schedules','cli-health'\]\)es\.addEventListener/, "dashboard cli-health olayini dinlemeli");
+  assert.match(html, /type==='cli-health'\)\{STATE\.cliStatus=data;refreshHealthViews\(\)\}/, "cli-health olayi saglik gorunumlerini yenilemeli");
+  assert.match(html, /<span id="cliScanBadges">/, "CLI taramasi rozetleri canli yenilenebilmeli");
+  const pick = (name) => html.match(new RegExp(`^(?:const ${name}=.*|function ${name}\\(.*)$`, "m"))[0];
+  const source = ["HEALTH_TONE", "cliHealth", "healthTone", "healthReset", "agentHealthHtml", "cliScanBadge", "adapterOf"].map(pick).join("\n");
+  const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  const STATE = { cliStatus: [
+    { id: "codex", installed: true, version: "codex-cli 0.154.0", health: { status: "quota", label: "Kullanım limiti doldu", detail: "ChatGPT planının Codex kullanım hakkı bitti; yenilenme: Sep 22nd, 2026 10:58 AM. ham" } },
+    { id: "claude", installed: true, version: "2.1.278", health: { status: "ready", label: "Hazır", detail: "Gerçek sağlık testi başarılı." } },
+    { id: "gemini", installed: true, version: "0.18.4", health: { status: "auth-required", label: "Giriş gerekli", detail: "auth" } },
+  ] };
+  const ui = new Function("STATE", "esc", `${source}\nreturn { agentHealthHtml, cliScanBadge };`)(STATE, esc);
+  const codexLine = ui.agentHealthHtml({ adapter: "codex", cmd: "codex" }, 0);
+  assert.match(codexLine, /var\(--warn\)/, "kullanim limiti uyari renginde gorunmeli");
+  assert.match(codexLine, /Kullanım limiti doldu · yenilenme: Sep 22nd, 2026 10:58 AM · operatör bu uzmanı kullanmıyor/);
+  assert.match(ui.agentHealthHtml({ adapter: "claude", cmd: "claude" }, 1), /var\(--ok\).*Hazır · operatör kullanabilir/);
+  assert.match(ui.agentHealthHtml({ adapter: "gemini", cmd: "gemini" }, 2), /var\(--err\).*Giriş gerekli/);
+  assert.match(ui.agentHealthHtml({ adapter: "codex", cmd: "codex", enabled: false }, 0), /Kapalı · operatör bu uzmanı kullanmaz/);
+  assert.match(ui.cliScanBadge(STATE.cliStatus[0]), /color:var\(--warn\).*codex codex-cli 0\.154\.0 · Kullanım limiti doldu/, "kurulu ama limiti dolu CLI yesil gorunmemeli");
+  assert.match(ui.cliScanBadge(STATE.cliStatus[1]), /color:var\(--ok\).*· Hazır/);
+  assert.match(ui.cliScanBadge({ id: "opencode", installed: false }), /color:var\(--dim\).*○ opencode kurulu değil/);
+}
 console.log("ui smoke ok");
